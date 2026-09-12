@@ -13,10 +13,9 @@ import i18n from '@shared/lib/i18n';
 import { logger } from '@shared/lib/logger-instance';
 import { err, ok, type AppErrorCode, type Result } from '@shared/lib/result';
 import { supabase } from '@shared/lib/supabase';
+import { getTerminalId } from '@shared/lib/terminal';
 
 const db = supabase as any;
-
-const TERMINAL_ID = (import.meta.env.VITE_TERMINAL_ID as string | undefined) ?? 'POS-1';
 
 export interface ForcePinChangeInput {
   staffId: string;
@@ -29,7 +28,7 @@ export function useForcePinChange() {
     mutationFn: async ({ staffId }: ForcePinChangeInput): Promise<Result<undefined>> => {
       const { data, error } = await db.rpc('force_pin_change', {
         p_staff_id: staffId,
-        p_terminal_id: TERMINAL_ID,
+        p_terminal_id: getTerminalId(),
       });
 
       if (error) {

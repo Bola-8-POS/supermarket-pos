@@ -14,9 +14,7 @@
  */
 
 import { createLogger } from './logger';
-
-// Get terminal ID from environment or default to POS-1
-const TERMINAL_ID = (import.meta.env.VITE_TERMINAL_ID as string | undefined) || 'POS-1';
+import { getTerminalId } from './terminal';
 
 // Get app version from environment
 const APP_VERSION = (import.meta.env.VITE_APP_VERSION as string | undefined) || '0.0.0';
@@ -30,7 +28,7 @@ const SESSION_ID = crypto.randomUUID();
  * Use this throughout the application for all logging.
  */
 export const logger = createLogger({
-  terminalId: TERMINAL_ID,
+  terminalId: getTerminalId(),
   appVersion: APP_VERSION,
   sessionId: SESSION_ID,
 });

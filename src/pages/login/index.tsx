@@ -7,10 +7,9 @@ import { PINLoginForm } from '@widgets/PINLoginForm/PINLoginForm';
 import { StoreLogoImage, useSettings } from '@entities/settings';
 import { useLoginUiStore } from '@entities/staff/model/loginUiStore';
 import { useStaffStore } from '@entities/staff/model/store';
+import { getTerminalId } from '@shared/lib/terminal';
 import { ErrorBoundary } from '@shared/ui';
 import { LiveTimeDisplay } from '@shared/ui/LiveTimeDisplay';
-
-const TERMINAL_ID = (import.meta.env.VITE_TERMINAL_ID as string | undefined) ?? 'POS-1';
 
 export default function LoginPage() {
   const { t, i18n } = useTranslation('pages');
@@ -60,7 +59,7 @@ export default function LoginPage() {
                 {storeName || t('login.brand')}
               </p>
               <p className="mt-1 text-xs text-ink-foreground/60">
-                {t('login.terminal', { id: TERMINAL_ID })}
+                {t('login.terminal', { id: getTerminalId() })}
               </p>
             </div>
           </div>
@@ -78,7 +77,7 @@ export default function LoginPage() {
                 {t('login.brand')}
               </p>
               <p className="text-xs text-ink-foreground/60">
-                {t('login.terminal', { id: TERMINAL_ID })}
+                {t('login.terminal', { id: getTerminalId() })}
               </p>
             </div>
           </div>

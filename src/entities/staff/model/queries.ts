@@ -16,10 +16,9 @@ import {
 } from '@shared/lib/result';
 import { supabase } from '@shared/lib/supabase';
 import type { Tables } from '@shared/lib/supabase.types';
+import { getTerminalId } from '@shared/lib/terminal';
 import { useStaffStore } from './store';
 import { ShiftSchema, StaffSchema } from './types';
-
-const TERMINAL_ID = (import.meta.env.VITE_TERMINAL_ID as string | undefined) ?? 'POS-1';
 
 /* eslint-disable i18next/no-literal-string -- query-key namespace strings +
    unknownError(...) internal debug codes + multi-line Supabase chain args
@@ -475,7 +474,7 @@ export function useMutationUpdateStaffRole() {
         p_before: null,
         p_after: { role },
         p_source: 'client',
-        p_terminal_id: TERMINAL_ID,
+        p_terminal_id: getTerminalId(),
         p_user_id: null,
       } as never);
       if (auditRes.error) {
@@ -516,7 +515,7 @@ export function useMutationSetOwnLocale() {
       }
 
       const res = await supabaseMutation(() =>
-        supabase.rpc('set_own_locale', { p_locale: parsed.data, p_terminal_id: TERMINAL_ID })
+        supabase.rpc('set_own_locale', { p_locale: parsed.data, p_terminal_id: getTerminalId() })
       );
 
       if (!res.ok) {
@@ -572,7 +571,7 @@ export function useMutationUpdateStaffLocale() {
         p_before: null,
         p_after: { locale },
         p_source: 'client',
-        p_terminal_id: TERMINAL_ID,
+        p_terminal_id: getTerminalId(),
       });
       if (auditRes.error) {
         logger.warn('staff.locale_change.audit_failed', {

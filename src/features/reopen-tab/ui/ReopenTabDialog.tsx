@@ -13,8 +13,8 @@ import { toast } from "sonner";
 
 import { ManagerPinDialog } from "@features/manager-pin-gate";
 import { tabKeys, useTab } from "@entities/tab";
-import { TERMINAL_ID } from "@shared/config/constants";
 import { supabase } from "@shared/lib/supabase";
+import { getTerminalId } from "@shared/lib/terminal";
 import { handleVersionError } from "@shared/lib/version-error";
 import {
   Input,
@@ -69,7 +69,7 @@ export function ReopenTabDialog({ open, tabId, onOpenChange }: ReopenTabDialogPr
           entityId: tab.id,
           expectedVersion: tab.version ?? 0,
           supabase,
-          terminalId: TERMINAL_ID,
+          terminalId: getTerminalId(),
         })
       ) {
         handleOpenChange(false);

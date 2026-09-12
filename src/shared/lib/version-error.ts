@@ -23,15 +23,6 @@ import type { AppError } from './result';
 /** Entity tables guarded by the version contract. */
 type VersionedEntity = 'tabs' | 'pool_sessions' | 'caja_sessions';
 
-/**
- * Shared terminal identity for version-conflict audit payloads. New Group-B
- * call sites should import this instead of adding another private copy —
- * `entities/caja` and `entities/resource` already define equivalent private
- * constants and are left untouched (see 15-07 carry-forward notes).
- */
-export const TERMINAL_ID =
-  (import.meta.env.VITE_TERMINAL_ID as string | undefined) ?? 'POS-1';
-
 export interface VersionErrorContext {
   queryClient: QueryClient;
   queryKey: QueryKey;

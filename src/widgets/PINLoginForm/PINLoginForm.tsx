@@ -7,14 +7,13 @@ import { useMutationClockIn } from '@entities/staff/model/queries';
 import { useStaffStore } from '@entities/staff/model/store';
 import { logger } from '@shared/lib/logger-instance';
 import { supabase } from '@shared/lib/supabase';
+import { getTerminalId } from '@shared/lib/terminal';
 import { ConfirmDialog } from '@shared/ui/ConfirmDialog';
 import { MoneyInput } from '@shared/ui/MoneyInput';
 import { PINKeypad } from '@shared/ui/PINKeypad';
 import { Button } from '@shared/ui/button';
 
 type Phase = 'pin' | 'forced_pin_change' | 'opening_cash';
-
-const TERMINAL_ID = (import.meta.env.VITE_TERMINAL_ID as string | undefined) ?? 'POS-1';
 
 export function PINLoginForm() {
   const { t } = useTranslation('wPanels');
@@ -132,7 +131,7 @@ export function PINLoginForm() {
       const db = supabase as any;
       const { error: clearError } = (await db.rpc('clear_must_change_pin', {
         p_new_pin: newPin,
-        p_terminal_id: TERMINAL_ID,
+        p_terminal_id: getTerminalId(),
       })) as { error: { message: string } | null };
       /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
       if (clearError) {

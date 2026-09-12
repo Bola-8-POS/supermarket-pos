@@ -1,3 +1,5 @@
+import { getTerminalId as getSharedTerminalId } from '../terminal';
+
 const TERMINAL_ID_KEY = 'pos.license.terminal_id';
 
 /** In-memory fallback so a locked-down localStorage still yields a stable ID within the session. */
@@ -26,7 +28,7 @@ export function getTerminalId(): string {
 
 /** Human label shown in the portal — reuses the caja terminal label already in use. */
 export function getTerminalName(): string {
-  return (import.meta.env.VITE_TERMINAL_ID as string | undefined)?.trim() || 'POS-1';
+  return getSharedTerminalId();
 }
 
 export function getPlatformLabel(): string {

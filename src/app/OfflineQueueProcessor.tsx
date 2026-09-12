@@ -7,8 +7,7 @@ import { useOnlineStatus } from '@shared/lib/connectivity';
 import { logger } from '@shared/lib/logger-instance';
 import { formatDiscardedSummary } from '@shared/lib/offline-summary';
 import { supabase } from '@shared/lib/supabase';
-
-const TERMINAL_ID = (import.meta.env.VITE_TERMINAL_ID as string | undefined) ?? 'POS-1';
+import { getTerminalId } from '@shared/lib/terminal';
 
 const ENTITY_BY_ACTION_TYPE: Record<OfflineAction['type'], string> = {
   'open-tab': 'tabs',
@@ -36,7 +35,7 @@ function writeDiscardAuditAsync(action: OfflineAction): void {
         p_entity_id: payloadEntityId(action),
         p_before: { expectedVersion: action.expectedVersion, action_type: action.type },
         p_after: null,
-        p_terminal_id: TERMINAL_ID,
+        p_terminal_id: getTerminalId(),
         p_user_id: null,
       } as never);
       if (res.error) {

@@ -4,14 +4,12 @@
 // Phase 21; supabase.types.ts not yet regenerated (CLAUDE.md workaround).
 import { logger } from '@shared/lib/logger-instance';
 import { supabase } from '@shared/lib/supabase';
+import { getTerminalId } from '@shared/lib/terminal';
 
 // record_audit's `screen.lock`/`screen.unlock` actions are called directly
 // from the client (existing precedent: toggle-permission, force-pin-change,
 // lookup-product-by-barcode) rather than typed through supabase.types.ts.
 const db = supabase as any;
-
-/* eslint-disable-next-line i18next/no-literal-string -- env fallback literal, not UI copy */
-const TERMINAL_ID = (import.meta.env.VITE_TERMINAL_ID as string | undefined) ?? 'POS-1';
 
 interface StaffIdentity {
   id: string;
@@ -20,9 +18,9 @@ interface StaffIdentity {
 
 // Module-level (not defined inside the hook) so `recordLock`/`recordUnlock`
 // are referentially stable across renders -- no closure over component state,
-// only module-level `db`/`TERMINAL_ID` and call-time params, so this is safe
-// and keeps IdleLockProvider's useCallback/useIdleTimer deps from churning
-// the idle-timer's window-listener subscription on every render.
+// only module-level `db` and call-time params/getTerminalId() calls, so this
+// is safe and keeps IdleLockProvider's useCallback/useIdleTimer deps from
+// churning the idle-timer's window-listener subscription on every render.
 async function recordLock(sessionOwner: StaffIdentity | null, shiftId: string | null): Promise<void> {
   const auditRes = await db.rpc('record_audit', {
     p_action: 'screen.lock',
@@ -34,7 +32,7 @@ async function recordLock(sessionOwner: StaffIdentity | null, shiftId: string | 
       sessionOwnerStaffName: sessionOwner?.name ?? null,
     },
     p_source: 'client',
-    p_terminal_id: TERMINAL_ID,
+    p_terminal_id: getTerminalId(),
     p_user_id: null,
   });
   if (auditRes?.error) {
@@ -60,7 +58,7 @@ async function recordUnlock(
       unlockedByStaffName: unlockedBy.name,
     },
     p_source: 'client',
-    p_terminal_id: TERMINAL_ID,
+    p_terminal_id: getTerminalId(),
     p_user_id: null,
   });
   if (auditRes?.error) {

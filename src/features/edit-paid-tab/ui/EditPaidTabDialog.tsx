@@ -13,9 +13,9 @@ import { toast } from 'sonner';
 import { ManagerPinDialog } from '@features/manager-pin-gate';
 import { useProducts } from '@entities/product';
 import { tabKeys, useTab } from '@entities/tab';
-import { TERMINAL_ID } from '@shared/config/constants';
 import { formatMoney } from '@shared/lib/format';
 import { supabase } from '@shared/lib/supabase';
+import { getTerminalId } from '@shared/lib/terminal';
 import { handleVersionError } from '@shared/lib/version-error';
 import {
   Badge,
@@ -205,7 +205,7 @@ export function EditPaidTabDialog({ open, tabId, onOpenChange }: EditPaidTabDial
           entityId: tab.id,
           expectedVersion: tab.version ?? 0,
           supabase,
-          terminalId: TERMINAL_ID,
+          terminalId: getTerminalId(),
         })
       ) {
         onOpenChange(false);

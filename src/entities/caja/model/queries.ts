@@ -25,11 +25,9 @@ import {
   type Result,
 } from '@shared/lib/result';
 import { supabase } from '@shared/lib/supabase';
+import { getTerminalId } from '@shared/lib/terminal';
 import { handleVersionError } from '@shared/lib/version-error';
 import { useCajaStore } from './store';
-
-const TERMINAL_ID =
-  (import.meta.env.VITE_TERMINAL_ID as string | undefined) ?? 'POS-1';
 
 const db = supabase as any;
 
@@ -164,7 +162,7 @@ export function useMutationOpenCaja() {
         db.rpc('caja_open', {
           p_opening_cash: openingCash,
           p_opened_by: openedBy,
-          p_terminal_id: TERMINAL_ID,
+          p_terminal_id: getTerminalId(),
         })
       );
 
@@ -279,7 +277,7 @@ export function useMutationCloseCaja() {
           entityId: variables.cajaId,
           expectedVersion,
           supabase,
-          terminalId: TERMINAL_ID,
+          terminalId: getTerminalId(),
         });
         return;
       }

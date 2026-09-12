@@ -24,9 +24,9 @@ import { RemoveTabItemDialog } from '@features/remove-tab-item/ui/RemoveTabItemD
 import { useProducts } from '@entities/product';
 import { useStaffStore } from '@entities/staff/model/store';
 import { tabKeys, useTab } from '@entities/tab';
-import { TERMINAL_ID } from '@shared/config/constants';
 import type { OrderItem } from '@shared/lib/domain';
 import { supabase } from '@shared/lib/supabase';
+import { getTerminalId } from '@shared/lib/terminal';
 import { handleVersionError } from '@shared/lib/version-error';
 import {
   Input,
@@ -112,7 +112,7 @@ export function EditReopenedItemsPanel({ open, tabId, onOpenChange }: EditReopen
           entityId: tab.id,
           expectedVersion: tab.version ?? 0,
           supabase,
-          terminalId: TERMINAL_ID,
+          terminalId: getTerminalId(),
         })
       ) {
         onOpenChange(false);

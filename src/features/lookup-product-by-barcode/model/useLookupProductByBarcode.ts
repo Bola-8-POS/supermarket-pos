@@ -4,8 +4,7 @@ import { mapProductRow, type ProductRow } from '@entities/product/model/queries'
 import type { Product } from '@shared/lib/domain';
 import { logger } from '@shared/lib/logger-instance';
 import { supabase } from '@shared/lib/supabase';
-
-const TERMINAL_ID = (import.meta.env.VITE_TERMINAL_ID as string | undefined) ?? 'POS-1';
+import { getTerminalId } from '@shared/lib/terminal';
 
 // Ported from the now-removed useScanBarcodeToCart.ts (Phase 18 rewired
 // CheckoutPanel to open the peek window instead of that hook) — a genuinely
@@ -19,7 +18,7 @@ async function auditScanFailed(code: string): Promise<void> {
       p_entity_id: null,
       p_before: { barcode: code },
       p_after: null,
-      p_terminal_id: TERMINAL_ID,
+      p_terminal_id: getTerminalId(),
       p_user_id: null,
     } as never);
     if (error) logger.warn('barcode_scan.audit_failed', { barcode: code, message: error.message });

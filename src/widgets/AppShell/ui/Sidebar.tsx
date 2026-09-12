@@ -20,12 +20,11 @@ import { usePermissions } from '@entities/staff/model/usePermissions';
 import { NAV_GROUPS, NAV_ITEMS, type NavItem } from '@shared/config/navigation';
 import { useOnlineStatus } from '@shared/lib/connectivity';
 import type { StaffAction } from '@shared/lib/rbac';
+import { getTerminalId } from '@shared/lib/terminal';
 import { cn } from '@shared/lib/utils';
 import { LiveTimeDisplay } from '@shared/ui/LiveTimeDisplay';
 import { Button } from '@shared/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@shared/ui/tooltip';
-
-const TERMINAL_ID = (import.meta.env.VITE_TERMINAL_ID as string | undefined) ?? 'POS-1';
 
 type GatedTarget = { action: StaffAction; path: string };
 
@@ -47,7 +46,7 @@ function BrandMark({ compact }: { compact: boolean }) {
         <div className="min-w-0 leading-tight">
           <p className="truncate text-sm font-semibold tracking-tight">{t('appShell.brand')}</p>
           <p className="truncate text-[0.6875rem] font-medium text-sidebar-muted">
-            {t('appShell.terminal', { id: TERMINAL_ID })}
+            {t('appShell.terminal', { id: getTerminalId() })}
           </p>
         </div>
       )}

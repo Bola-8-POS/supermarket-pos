@@ -6,7 +6,8 @@ import { useTabStore } from '@entities/tab/model/store';
 import i18n from '@shared/lib/i18n';
 import { ok, supabaseQuery, versionedMutation, type Result } from '@shared/lib/result';
 import { supabase } from '@shared/lib/supabase';
-import { handleVersionError, TERMINAL_ID } from '@shared/lib/version-error';
+import { getTerminalId } from '@shared/lib/terminal';
+import { handleVersionError } from '@shared/lib/version-error';
 
 export function useCloseTab() {
   const queryClient = useQueryClient();
@@ -56,7 +57,7 @@ export function useCloseTab() {
         entityId: tabId,
         expectedVersion: expectedVersionRef.current,
         supabase,
-        terminalId: TERMINAL_ID,
+        terminalId: getTerminalId(),
       });
       if (!handled) {
         toast.error(result.error.message);

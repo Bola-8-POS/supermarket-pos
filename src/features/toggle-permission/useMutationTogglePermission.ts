@@ -9,10 +9,9 @@ import { logger } from '@shared/lib/logger-instance';
 import type { StaffAction, StaffRole } from '@shared/lib/rbac';
 import { err, ok, type Result } from '@shared/lib/result';
 import { supabase } from '@shared/lib/supabase';
+import { getTerminalId } from '@shared/lib/terminal';
 
 const db = supabase as any;
-
-const TERMINAL_ID = (import.meta.env.VITE_TERMINAL_ID as string | undefined) ?? 'POS-1';
 
 export interface TogglePermissionInput {
   role: StaffRole;
@@ -55,7 +54,7 @@ export function useMutationTogglePermission() {
           p_before: null,
           p_after: { role, action },
           p_source: 'client',
-          p_terminal_id: TERMINAL_ID,
+          p_terminal_id: getTerminalId(),
           p_user_id: null,
         });
         if (auditRes?.error) {
@@ -94,7 +93,7 @@ export function useMutationTogglePermission() {
         p_before: { role, action },
         p_after: null,
         p_source: 'client',
-        p_terminal_id: TERMINAL_ID,
+        p_terminal_id: getTerminalId(),
         p_user_id: null,
       });
       if (auditRes?.error) {

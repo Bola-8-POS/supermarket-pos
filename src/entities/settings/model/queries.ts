@@ -21,6 +21,7 @@ import {
 } from '@shared/lib/result';
 import { supabase } from '@shared/lib/supabase';
 import type { Tables, TablesInsert } from '@shared/lib/supabase.types';
+import { getTerminalId } from '@shared/lib/terminal';
 import {
   BillingSettingsSchema,
   EmailReceiptSettingsSchema,
@@ -45,12 +46,6 @@ import {
 // the receipt_settings hooks below.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment
 const db = supabase as any;
-
-// D-02/RESEARCH.md correction note: the env-var-reading inline TERMINAL_ID
-// pattern (majority precedent, 8 of 11 files) — NOT the hardcoded
-// @shared/config/constants import, which never varies per terminal.
-/* eslint-disable-next-line i18next/no-literal-string -- env fallback literal, not UI copy */
-const TERMINAL_ID = (import.meta.env.VITE_TERMINAL_ID as string | undefined) ?? 'POS-1';
 
 const DEFAULT_GENERAL: GeneralSettings = {
   storeName: '',
@@ -121,11 +116,14 @@ const receiptSettingsKeys = {
 };
 
 // terminal_lock_settings is genuinely per-terminal (D-02) — keyed by
-// TERMINAL_ID, not a store-wide singleton like receipt_settings.
+// getTerminalId(), not a store-wide singleton like receipt_settings. `all` is
+// a function (not a plain array) so the key is recomputed from the current
+// terminal id on every call, instead of baking in whatever id was active at
+// module load.
 const DEFAULT_TERMINAL_LOCK: TerminalLockSettings = { lockTimeoutSeconds: 60 };
 
 const terminalLockSettingsKeys = {
-  all: ['terminal_lock_settings', TERMINAL_ID] as const,
+  all: () => ['terminal_lock_settings', getTerminalId()] as const,
 };
 
 type SettingsRow = Tables<'settings'>;
@@ -418,7 +416,7 @@ export function useMutationUpdateReceiptSettings() {
 export function useTerminalLockSettings() {
   const isAuthenticated = useStaffStore(s => s.isAuthenticated);
   const query = useQuery({
-    queryKey: terminalLockSettingsKeys.all,
+    queryKey: terminalLockSettingsKeys.all(),
     queryFn: async (): Promise<Result<TerminalLockSettings>> => {
       // Read directly (NOT via supabaseQuery()): an empty terminal_lock_settings
       // table (before the first admin save) is a legitimate starting state, not
@@ -429,7 +427,7 @@ export function useTerminalLockSettings() {
       const { data, error } = await db
         .from('terminal_lock_settings')
         .select('lock_timeout_seconds')
-        .eq('terminal_id', TERMINAL_ID)
+        .eq('terminal_id', getTerminalId())
         .maybeSingle();
 
       if (error) {
@@ -483,7 +481,7 @@ export function useMutationUpdateTerminalLockSettings() {
       const { error } = await db
         .from('terminal_lock_settings')
         .upsert(
-          { terminal_id: TERMINAL_ID, lock_timeout_seconds: lockTimeoutSeconds, updated_by: user?.id ?? null },
+          { terminal_id: getTerminalId(), lock_timeout_seconds: lockTimeoutSeconds, updated_by: user?.id ?? null },
           { onConflict: 'terminal_id' }
         )
         .select('terminal_id')
@@ -499,7 +497,7 @@ export function useMutationUpdateTerminalLockSettings() {
     },
     onSuccess: result => {
       if (result.ok) {
-        void queryClient.invalidateQueries({ queryKey: terminalLockSettingsKeys.all });
+        void queryClient.invalidateQueries({ queryKey: terminalLockSettingsKeys.all() });
       }
     },
   });
