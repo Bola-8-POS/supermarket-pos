@@ -309,6 +309,7 @@ export type Database = {
           opened_by: string
           opening_cash: number
           status: string
+          terminal_id: string
           version: number
         }
         Insert: {
@@ -322,6 +323,7 @@ export type Database = {
           opened_by: string
           opening_cash?: number
           status?: string
+          terminal_id?: string
           version?: number
         }
         Update: {
@@ -335,6 +337,7 @@ export type Database = {
           opened_by?: string
           opening_cash?: number
           status?: string
+          terminal_id?: string
           version?: number
         }
         Relationships: [
@@ -1934,6 +1937,7 @@ export type Database = {
           opened_by: string
           opening_cash: number
           status: string
+          terminal_id: string
           version: number
         }
         SetofOptions: {
@@ -2112,6 +2116,7 @@ export type Database = {
           p_shift_id: string
           p_staff_id: string
           p_tendered_amount?: number
+          p_terminal_id?: string
         }
         Returns: Json
       }
