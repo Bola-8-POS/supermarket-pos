@@ -176,7 +176,18 @@
     "closingCashCount": "Closing Cash Count",
     "notesOptional": "Notes (optional)",
     "endOfDayNotesPlaceholder": "End of day notes…",
-    "closing": "Closing…"
+    "closing": "Closing…",
+    "terminalBadge": "Terminal {{id}}",
+    "openForTerminal": "Opening caja for terminal {{id}}",
+    "closeSummary": {
+      "title": "Caja closed — reconciliation",
+      "openingCash": "Opening cash",
+      "cashSales": "Cash sales",
+      "expectedCash": "Expected in drawer",
+      "countedCash": "Counted",
+      "variance": "Variance",
+      "close": "Close"
+    }
   },
   "cajaReportPanel": {
     "product": "Product",
@@ -192,6 +203,7 @@
     "dailyCajaReport": "Daily Caja Report",
     "salesSummaryDescription": "Sales summary for a business day.",
     "selectSession": "Select session",
+    "terminalSuffix": " · {{id}}",
     "openSuffix": "(open)",
     "totalRevenue": "Total Revenue",
     "cashSales": "Cash Sales",

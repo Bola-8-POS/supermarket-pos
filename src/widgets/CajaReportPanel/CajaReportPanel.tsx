@@ -131,6 +131,7 @@ export function CajaReportPanel() {
               <option key={s.id} value={s.id}>
                 {formatDate(s.openedAt)}{' '}
                 {s.status === 'open' ? t('cajaReportPanel.openSuffix') : ''}
+                {t('cajaReportPanel.terminalSuffix', { id: s.terminalId })}
               </option>
             ))}
           </select>

@@ -17,9 +17,10 @@ import { usePermissions } from '@entities/staff';
 import { useStaffStore } from '@entities/staff/model/store';
 import { useOpenTabsPendingTotal } from '@entities/tab';
 
-import { PAYMENT_METHODS, type PaymentMethod } from '@shared/lib/domain';
+import { PAYMENT_METHODS, type CashReconciliation, type PaymentMethod } from '@shared/lib/domain';
 import { formatMoney } from '@shared/lib/format';
 import { printJobErrorCopyKey, printRawText } from '@shared/lib/pos-printer';
+import { getTerminalId } from '@shared/lib/terminal';
 import { LoadingSpinner, MoneyDisplay } from '@shared/ui';
 import { MoneyInput } from '@shared/ui/MoneyInput';
 import { POSButton } from '@shared/ui/POSButton';
@@ -28,6 +29,7 @@ import { Badge } from '@shared/ui/badge';
 import { Button } from '@shared/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@shared/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@shared/ui/tooltip';
+
 
 // wPanels namespace keys for each method's fallback label — mirrors
 // PaymentPane's DEFAULT_PAYMENT_LABEL_KEY (paymentForm.* keys are shared
@@ -137,6 +139,9 @@ export function CajaDashboard() {
   const [closingCash, setClosingCash] = useState(0);
   const [closeNotes, setCloseNotes] = useState('');
 
+  // Post-close reconciliation summary — null hides the summary dialog
+  const [closeSummary, setCloseSummary] = useState<CashReconciliation | null>(null);
+
   const [isPrinting, setIsPrinting] = useState(false);
 
   function handleOpenCaja() {
@@ -173,6 +178,7 @@ export function CajaDashboard() {
             setCloseDialogVisible(false);
             setClosingCash(0);
             setCloseNotes('');
+            setCloseSummary(result.data);
           } else {
             const msg =
               result.error.code === 'OPEN_TABS_EXIST'
@@ -241,6 +247,9 @@ export function CajaDashboard() {
           <span className="text-sm text-muted-foreground">{t('cajaDashboard.statusLabel')}</span>
           <Badge variant={isCajaOpen ? 'default' : 'secondary'}>
             {isCajaOpen ? t('cajaDashboard.open') : t('cajaDashboard.closed')}
+          </Badge>
+          <Badge variant="outline" data-testid="caja-terminal-badge">
+            {t('cajaDashboard.terminalBadge', { id: getTerminalId() })}
           </Badge>
         </div>
 
@@ -455,6 +464,9 @@ export function CajaDashboard() {
           <DialogHeader>
             <DialogTitle>{t('cajaDashboard.openCaja')}</DialogTitle>
           </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {t('cajaDashboard.openForTerminal', { id: getTerminalId() })}
+          </p>
           <div className="space-y-4 py-2">
             <MoneyInput
               label={t('cajaDashboard.openingCash')}
@@ -526,6 +538,85 @@ export function CajaDashboard() {
               onClick={handleCloseCaja}
             >
               {closeCajaMut.isPending ? t('cajaDashboard.closing') : t('cajaDashboard.closeCaja')}
+            </POSButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Post-close reconciliation summary */}
+      <Dialog
+        open={closeSummary !== null}
+        onOpenChange={open => {
+          if (!open) setCloseSummary(null);
+        }}
+      >
+        <DialogContent className="max-w-sm" data-testid="caja-close-summary">
+          <DialogHeader>
+            <DialogTitle>{t('cajaDashboard.closeSummary.title')}</DialogTitle>
+          </DialogHeader>
+          {closeSummary && (
+            <dl className="space-y-2 py-2 text-sm">
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">
+                  {t('cajaDashboard.closeSummary.openingCash')}
+                </dt>
+                <dd className="font-mono">{formatMoney(closeSummary.openingCash)}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">
+                  {t('cajaDashboard.closeSummary.cashSales')}
+                </dt>
+                <dd className="font-mono">{formatMoney(closeSummary.cashSales)}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">
+                  {t('cajaDashboard.closeSummary.expectedCash')}
+                </dt>
+                <dd className="font-mono">{formatMoney(closeSummary.expectedCash)}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">
+                  {t('cajaDashboard.closeSummary.countedCash')}
+                </dt>
+                <dd className="font-mono">
+                  {closeSummary.closingCash != null ? (
+                    formatMoney(closeSummary.closingCash)
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </dd>
+              </div>
+              <div className="flex justify-between border-t border-border pt-2 font-semibold">
+                <dt>{t('cajaDashboard.closeSummary.variance')}</dt>
+                <dd
+                  data-testid="caja-close-variance"
+                  className={
+                    closeSummary.variance == null
+                      ? 'font-mono text-muted-foreground'
+                      : closeSummary.variance < 0
+                        ? 'font-mono text-destructive'
+                        : closeSummary.variance > 0
+                          ? 'font-mono text-success-strong'
+                          : 'font-mono text-muted-foreground'
+                  }
+                >
+                  {closeSummary.variance != null ? (
+                    formatMoney(closeSummary.variance, { showSign: true })
+                  ) : (
+                    <span>—</span>
+                  )}
+                </dd>
+              </div>
+            </dl>
+          )}
+          <DialogFooter>
+            <POSButton
+              type="button"
+              onClick={() => {
+                setCloseSummary(null);
+              }}
+            >
+              {t('cajaDashboard.closeSummary.close')}
             </POSButton>
           </DialogFooter>
         </DialogContent>

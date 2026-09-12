@@ -3,7 +3,7 @@
  * Mocks query hooks via @entities/caja barrel while keeping the real Zustand store.
  */
 
-import { screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { toast } from 'sonner';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -476,5 +476,42 @@ describe('CajaDashboard', () => {
     expect(screen.getByText('Office supplies')).toBeInTheDocument();
     expect(screen.getByText('Cash advance')).toBeInTheDocument();
     expect(screen.getByText('Recent Entries')).toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Caja-per-terminal — terminal badge, post-close reconciliation summary
+  // ---------------------------------------------------------------------------
+
+  it('renders terminal badge POS-1', () => {
+    renderDashboard();
+    expect(screen.getByTestId('caja-terminal-badge')).toHaveTextContent('POS-1');
+  });
+
+  it('shows close summary with variance after closing', () => {
+    const reconciliation = {
+      openingCash: 100,
+      cashSales: 50,
+      expectedCash: 150,
+      closingCash: 140,
+      variance: -10,
+    };
+    mockUseMutationCloseCaja.mockReturnValue({
+      mutate: (
+        _variables: unknown,
+        opts?: { onSuccess?: (result: { ok: true; data: typeof reconciliation }) => void }
+      ) => {
+        opts?.onSuccess?.({ ok: true, data: reconciliation });
+      },
+      isPending: false,
+    });
+
+    renderDashboard();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close Caja' }));
+    const closeDialog = screen.getByRole('dialog');
+    fireEvent.click(within(closeDialog).getByRole('button', { name: 'Close Caja' }));
+
+    const summary = screen.getByTestId('caja-close-summary');
+    expect(within(summary).getByTestId('caja-close-variance')).toHaveTextContent('-$10.00');
   });
 });

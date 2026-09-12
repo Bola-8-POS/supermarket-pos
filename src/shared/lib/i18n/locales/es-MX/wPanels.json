@@ -176,7 +176,18 @@
     "closingCashCount": "Conteo de cierre de caja",
     "notesOptional": "Notas (opcional)",
     "endOfDayNotesPlaceholder": "Notas de fin de día…",
-    "closing": "Cerrando…"
+    "closing": "Cerrando…",
+    "terminalBadge": "Terminal {{id}}",
+    "openForTerminal": "Abriendo caja para la terminal {{id}}",
+    "closeSummary": {
+      "title": "Caja cerrada — arqueo",
+      "openingCash": "Fondo inicial",
+      "cashSales": "Ventas en efectivo",
+      "expectedCash": "Esperado en caja",
+      "countedCash": "Contado",
+      "variance": "Diferencia",
+      "close": "Cerrar"
+    }
   },
   "cajaReportPanel": {
     "product": "Producto",
@@ -192,6 +203,7 @@
     "dailyCajaReport": "Reporte diario de caja",
     "salesSummaryDescription": "Resumen de ventas de un día de operación.",
     "selectSession": "Seleccionar sesión",
+    "terminalSuffix": " · {{id}}",
     "openSuffix": "(abierta)",
     "totalRevenue": "Ingresos totales",
     "cashSales": "Ventas en efectivo",
