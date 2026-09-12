@@ -360,6 +360,7 @@ export type Database = {
       categories: {
         Row: {
           color: string
+          combo_eligible: boolean
           created_at: string
           deleted_at: string | null
           id: string
@@ -371,6 +372,7 @@ export type Database = {
         }
         Insert: {
           color?: string
+          combo_eligible?: boolean
           created_at?: string
           deleted_at?: string | null
           id?: string
@@ -382,6 +384,7 @@ export type Database = {
         }
         Update: {
           color?: string
+          combo_eligible?: boolean
           created_at?: string
           deleted_at?: string | null
           id?: string
@@ -1143,6 +1146,38 @@ export type Database = {
         }
         Relationships: []
       }
+      promotion_combo_slots: {
+        Row: {
+          id: string
+          label: string | null
+          position: number
+          promotion_id: string
+          quantity: number
+        }
+        Insert: {
+          id?: string
+          label?: string | null
+          position: number
+          promotion_id: string
+          quantity: number
+        }
+        Update: {
+          id?: string
+          label?: string | null
+          position?: number
+          promotion_id?: string
+          quantity?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "promotion_combo_slots_promotion_id_fkey"
+            columns: ["promotion_id"]
+            isOneToOne: false
+            referencedRelation: "promotions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       promotion_targets: {
         Row: {
           category_id: string | null
@@ -1150,6 +1185,7 @@ export type Database = {
           id: string
           product_id: string | null
           promotion_id: string
+          slot_id: string | null
         }
         Insert: {
           category_id?: string | null
@@ -1157,6 +1193,7 @@ export type Database = {
           id?: string
           product_id?: string | null
           promotion_id: string
+          slot_id?: string | null
         }
         Update: {
           category_id?: string | null
@@ -1164,6 +1201,7 @@ export type Database = {
           id?: string
           product_id?: string | null
           promotion_id?: string
+          slot_id?: string | null
         }
         Relationships: [
           {
@@ -1187,6 +1225,13 @@ export type Database = {
             referencedRelation: "promotions"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "promotion_targets_slot_id_fkey"
+            columns: ["slot_id"]
+            isOneToOne: false
+            referencedRelation: "promotion_combo_slots"
+            referencedColumns: ["id"]
+          },
         ]
       }
       promotions: {
@@ -1200,6 +1245,7 @@ export type Database = {
           end_time: string | null
           ends_at: string
           id: string
+          kind: string
           name: string
           needs_review: boolean
           start_time: string | null
@@ -1216,6 +1262,7 @@ export type Database = {
           end_time?: string | null
           ends_at: string
           id?: string
+          kind?: string
           name: string
           needs_review?: boolean
           start_time?: string | null
@@ -1232,6 +1279,7 @@ export type Database = {
           end_time?: string | null
           ends_at?: string
           id?: string
+          kind?: string
           name?: string
           needs_review?: boolean
           start_time?: string | null
@@ -2372,4 +2420,3 @@ export const Constants = {
     },
   },
 } as const
-
