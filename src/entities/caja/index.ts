@@ -1,1 +1,1 @@
-export { useCajaStore, useCurrentCaja, useCajaList, useCajaReport, useCajaPaymentSummary, useCajaEntries, useMutationOpenCaja, useMutationCloseCaja, useMutationCreateCajaEntry, useMutationDeleteCajaEntry } from './model';
+export { useCajaStore, useCurrentCaja, useCajaList, useCajaReport, useCajaPaymentSummary, useCajaEntries, useMutationOpenCaja, useMutationCloseCaja, useMutationCreateCajaEntry, useMutationDeleteCajaEntry, cajaKeys } from './model';

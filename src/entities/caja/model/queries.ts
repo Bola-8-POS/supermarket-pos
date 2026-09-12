@@ -39,7 +39,7 @@ import { useCajaStore } from './store';
 
 const db = supabase as any;
 
-const cajaKeys = {
+export const cajaKeys = {
   all: ['caja'] as const,
   current: (terminalId: string) => [...cajaKeys.all, 'current', terminalId] as const,
   list: () => [...cajaKeys.all, 'list'] as const,

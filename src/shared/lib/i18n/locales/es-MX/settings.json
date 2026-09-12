@@ -79,5 +79,15 @@
     "upToDate": "Ya tienes la versión más reciente",
     "updateCheckFailed": "No se pudieron buscar actualizaciones. Intenta más tarde.",
     "unlicensed": "Este equipo no tiene licencia."
+  },
+  "hardware": {
+    "terminal": {
+      "title": "Terminal",
+      "label": "ID de terminal",
+      "help": "Identifica esta estación de cobro. Se usa para la caja de esta terminal y la bitácora de auditoría. Solo letras, dígitos, - y _.",
+      "save": "Guardar",
+      "saved": "ID de terminal guardado",
+      "invalid": "Usa de 1 a 32 caracteres: letras, dígitos, - o _"
+    }
   }
 }

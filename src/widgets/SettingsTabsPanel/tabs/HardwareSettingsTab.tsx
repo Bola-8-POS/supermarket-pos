@@ -1,7 +1,9 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { LogoUploader } from '@features/upload-logo';
+import { cajaKeys } from '@entities/caja';
 import { useAvailablePrinters } from '@entities/print-job';
 import { useReceiptSettings, useMutationUpdateReceiptSettings } from '@entities/settings';
 import type { ReceiptSettings } from '@entities/settings';
@@ -10,6 +12,7 @@ import type { ReceiptData } from '@shared/lib/edge-function-contracts';
 import { getCurrentLocale } from '@shared/lib/i18n';
 import { openCashDrawer, printJobErrorCopyKey, testPrint } from '@shared/lib/pos-printer';
 import { buildThermalReceiptText } from '@shared/lib/receipt-format';
+import { getTerminalId, setTerminalId } from '@shared/lib/terminal';
 import { POSButton, ProtectedAction } from '@shared/ui';
 import { Checkbox } from '@shared/ui/checkbox';
 import { Input } from '@shared/ui/input';
@@ -57,11 +60,32 @@ const SAMPLE_RECEIPT_DATA: ReceiptData = {
 
 export function HardwareSettingsTab({ currentRole }: Props) {
   const { t } = useTranslation('wAdmin');
+  const { t: tSettings } = useTranslation('settings');
+  const queryClient = useQueryClient();
   const [printing, setPrinting] = useState(false);
   const [openingDrawer, setOpeningDrawer] = useState(false);
   const { data: receiptSettings } = useReceiptSettings();
   const updateReceiptSettings = useMutationUpdateReceiptSettings();
   const { data: printerList, isError: printerListErrored } = useAvailablePrinters();
+
+  // Terminal ID — keys this station's caja + audit trail (src/shared/lib/terminal.ts).
+  const [savedTerminalId, setSavedTerminalId] = useState(() => getTerminalId());
+  const [terminalIdInput, setTerminalIdInput] = useState(savedTerminalId);
+  const [terminalIdError, setTerminalIdError] = useState<string | null>(null);
+
+  function saveTerminalId() {
+    const result = setTerminalId(terminalIdInput);
+    if (!result.ok) {
+      setTerminalIdError(tSettings('hardware.terminal.invalid'));
+      return;
+    }
+    const persisted = getTerminalId();
+    setTerminalIdError(null);
+    setSavedTerminalId(persisted);
+    setTerminalIdInput(persisted);
+    void queryClient.invalidateQueries({ queryKey: cajaKeys.all });
+    toast.success(tSettings('hardware.terminal.saved'));
+  }
 
   // Optimistic local state — mirrors server value, updated immediately on change.
   // Lazy initializer captures the first available server value; afterwards
@@ -124,6 +148,38 @@ export function HardwareSettingsTab({ currentRole }: Props) {
       disabled={printing || openingDrawer}
     >
       <div className="space-y-6">
+        <div className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
+          <h3 className="font-medium">{tSettings('hardware.terminal.title')}</h3>
+          <div className="space-y-1">
+            <Label htmlFor="terminal-id">{tSettings('hardware.terminal.label')}</Label>
+            <Input
+              id="terminal-id"
+              data-testid="terminal-id-input"
+              maxLength={32}
+              value={terminalIdInput}
+              onChange={e => {
+                setTerminalIdInput(e.target.value);
+                setTerminalIdError(null);
+              }}
+            />
+            <p className="text-sm text-muted-foreground">{tSettings('hardware.terminal.help')}</p>
+            {terminalIdError && (
+              <p role="alert" className="text-sm text-destructive">
+                {terminalIdError}
+              </p>
+            )}
+          </div>
+          <POSButton
+            type="button"
+            touchSize="large"
+            data-testid="terminal-id-save"
+            disabled={terminalIdInput === savedTerminalId}
+            onClick={saveTerminalId}
+          >
+            {tSettings('hardware.terminal.save')}
+          </POSButton>
+        </div>
+
         <div className="space-y-4">
           <h2 className="text-lg font-semibold">{t('hardwareSettingsTab.title')}</h2>
           <div className="grid gap-2 sm:grid-cols-2">

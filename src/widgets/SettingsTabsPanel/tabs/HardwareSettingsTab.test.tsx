@@ -117,3 +117,36 @@ describe('HardwareSettingsTab — printJobError copy mapping', () => {
     expect(toast.success).not.toHaveBeenCalled();
   });
 });
+
+describe('HardwareSettingsTab — Terminal ID field', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(toast.success).mockClear();
+    vi.mocked(toast.error).mockClear();
+  });
+
+  it('saves a valid terminal id to localStorage', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<HardwareSettingsTab currentRole="admin" />);
+
+    const input = screen.getByTestId('terminal-id-input');
+    await user.clear(input);
+    await user.type(input, 'POS-2');
+    await user.click(screen.getByTestId('terminal-id-save'));
+
+    expect(localStorage.getItem('pos.terminal_id')).toBe('POS-2');
+  });
+
+  it('shows validation error for an invalid id and does not persist', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<HardwareSettingsTab currentRole="admin" />);
+
+    const input = screen.getByTestId('terminal-id-input');
+    await user.clear(input);
+    await user.type(input, 'bad id');
+    await user.click(screen.getByTestId('terminal-id-save'));
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(localStorage.getItem('pos.terminal_id')).toBeNull();
+  });
+});

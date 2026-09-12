@@ -79,5 +79,15 @@
     "upToDate": "You are on the latest version",
     "updateCheckFailed": "Could not check for updates. Try again later.",
     "unlicensed": "This terminal is not licensed."
+  },
+  "hardware": {
+    "terminal": {
+      "title": "Terminal",
+      "label": "Terminal ID",
+      "help": "Identifies this checkout station. Used to key this terminal's cash register (caja) and audit trail. Letters, digits, - and _ only.",
+      "save": "Save",
+      "saved": "Terminal ID saved",
+      "invalid": "Use 1-32 characters: letters, digits, - or _"
+    }
   }
 }
