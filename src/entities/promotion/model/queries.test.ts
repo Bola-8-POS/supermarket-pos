@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import type { QueryClient } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { renderHook } from '@testing-library/react';
+import type { ReactNode } from 'react';
+import { createElement } from 'react';
+import { describe, expect, it, vi } from 'vitest';
+import { supabase } from '@shared/lib/supabase';
 import type { Tables } from '@shared/lib/supabase.types';
-import { mapPromotionRow } from './queries';
+import { createTestQueryClient } from '@shared/lib/test-utils';
+import { mapPromotionRow, useMutationUpdatePromotion } from './queries';
 
 /** Row shape returned by the `*, promotion_targets(*), promotion_combo_slots(*)` nested-join select. */
 type PromotionRowWithTargets = Tables<'promotions'> & {
@@ -160,3 +167,105 @@ describe('mapPromotionRow', () => {
     expect(result.data.slots).toEqual([]);
   });
 });
+
+// ============================================================================
+// useMutationUpdatePromotion — combo top-level-targets invariant
+// ============================================================================
+
+/* eslint-disable i18next/no-literal-string -- literal supabase-call tracking
+   labels below (table/method names) are test scaffolding, not UI copy. */
+
+type TrackedCall = { table: string; op: string; args: unknown[] };
+
+/**
+ * Builds a `supabase.from` mock that resolves every terminal call
+ * (`.eq()`/`.is()`/`.single()`/a bare await of the chain itself) to `null`
+ * data with no error, while recording every `{table, op, args}` step so a
+ * test can assert exactly which filters a given delete/insert used.
+ */
+function mockTrackedFrom(): TrackedCall[] {
+  const calls: TrackedCall[] = [];
+  const chainMethods = ['select', 'insert', 'update', 'delete', 'eq', 'is', 'order', 'limit'];
+
+  vi.mocked(supabase).from.mockImplementation((table: string) => {
+    const resolved = { data: null, error: null };
+    const chain: Record<string, unknown> = {};
+    for (const op of chainMethods) {
+      chain[op] = vi.fn((...args: unknown[]) => {
+        calls.push({ table, op, args });
+        return chain;
+      });
+    }
+    chain.single = vi.fn(() => {
+      calls.push({ table, op: 'single', args: [] });
+      // Only reached by promotion_combo_slots' `.insert(...).select('id').single()`
+      // in saveComboSlots — needs a slot id to attach the slot's targets to.
+      return Promise.resolve({ data: { id: `${table}-slot-id` }, error: null });
+    });
+    chain.then = (resolve: (v: typeof resolved) => void) => {
+      resolve(resolved);
+    };
+    return chain as unknown as ReturnType<typeof supabase.from>;
+  });
+
+  return calls;
+}
+
+function makeWrapper(queryClient: QueryClient) {
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return createElement(QueryClientProvider, { client: queryClient }, children);
+  };
+}
+
+describe('useMutationUpdatePromotion', () => {
+  it(
+    'unconditionally clears top-level (slot_id IS NULL) targets when the update makes the ' +
+      'promotion a combo, even without passing `targets` — a discount promotion with an ' +
+      'existing top-level target must not keep it after converting to kind:"combo"',
+    async () => {
+      const calls = mockTrackedFrom();
+      const qc = createTestQueryClient();
+      const { result } = renderHook(() => useMutationUpdatePromotion(), {
+        wrapper: makeWrapper(qc),
+      });
+
+      const mutationResult = await result.current.mutateAsync({
+        id: PROMOTION_ID,
+        kind: 'combo',
+        discountType: 'bundle_price',
+        slots: [
+          {
+            quantity: 2,
+            label: 'Any soda',
+            targets: [{ productId: null, categoryId: CATEGORY_A_ID, slotId: null }],
+          },
+        ],
+      });
+      expect(mutationResult.ok).toBe(true);
+
+      // The top-level-targets delete must have fired with `slot_id IS NULL`,
+      // scoped to this promotion — unconditionally, since `targets` was never
+      // passed in this update.
+      const topLevelDelete = calls.find(c => c.table === 'promotion_targets' && c.op === 'delete');
+      expect(topLevelDelete).toBeDefined();
+      const eqCall = calls.find(
+        c => c.table === 'promotion_targets' && c.op === 'eq' && c.args[0] === 'promotion_id'
+      );
+      expect(eqCall?.args).toEqual(['promotion_id', PROMOTION_ID]);
+      const isCall = calls.find(c => c.table === 'promotion_targets' && c.op === 'is');
+      expect(isCall?.args).toEqual(['slot_id', null]);
+
+      // No slot-less (top-level) insert into promotion_targets: every insert
+      // into that table (the slot's own targets, written by saveComboSlots)
+      // must carry a non-null slot_id — never a bare top-level target row.
+      const targetInserts = calls.filter(c => c.table === 'promotion_targets' && c.op === 'insert');
+      for (const insertCall of targetInserts) {
+        const rows = insertCall.args[0] as { slot_id?: string | null }[];
+        for (const row of rows) {
+          expect(row.slot_id).toBeTruthy();
+        }
+      }
+    }
+  );
+});
+/* eslint-enable i18next/no-literal-string */

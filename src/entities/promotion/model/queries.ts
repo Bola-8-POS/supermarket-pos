@@ -359,8 +359,14 @@ export function useMutationUpdatePromotion() {
       // Delete + reinsert (not a diff) — simplest correct approach for a
       // handful of target rows per promotion. Combo promotions keep no
       // top-level (slot-less) targets — their targets live under slots.
-      if (targets !== undefined) {
-        const effectiveTargets = isCombo ? [] : targets;
+      // The clear must run whenever this update makes/keeps the promotion a
+      // combo, even if the caller didn't pass `targets` at all — otherwise
+      // converting an existing discount promotion (which may have top-level
+      // targets) to kind:'combo' via `{ kind:'combo', slots:[...] }` alone
+      // would leave its old top-level targets stale, violating the "combo
+      // top-level targets are always []" invariant.
+      const shouldRewriteTopLevelTargets = isCombo || targets !== undefined;
+      if (shouldRewriteTopLevelTargets) {
         const delRes = await supabaseMutation(() =>
           supabase.from('promotion_targets').delete().eq('promotion_id', id).is('slot_id', null)
         );
@@ -370,8 +376,8 @@ export function useMutationUpdatePromotion() {
           });
           return delRes;
         }
-        if (effectiveTargets.length > 0) {
-          const targetRows: TablesInsert<'promotion_targets'>[] = effectiveTargets.map(t => ({
+        if (!isCombo && targets !== undefined && targets.length > 0) {
+          const targetRows: TablesInsert<'promotion_targets'>[] = targets.map(t => ({
             promotion_id: id,
             product_id: t.productId,
             category_id: t.categoryId,
