@@ -9,6 +9,7 @@ import { callProcessDirectSale } from '@shared/lib/edge-function-contracts';
 import i18n from '@shared/lib/i18n';
 import type { DiscountInfo, SplitPaymentLegInput } from '@shared/lib/payment-processor';
 import { err, networkOfflineError, ok } from '@shared/lib/result';
+import { getTerminalId } from '@shared/lib/terminal';
 
 const placeholderId = () => crypto.randomUUID();
 
@@ -124,6 +125,7 @@ export function useCheckoutSale() {
       shiftId: shift.id,
       cajaSessionId: caja.id,
       idempotencyKey: idempotencyKeyRef.current,
+      terminalId: getTerminalId(),
       ...(payment.method ? { method: payment.method } : {}),
       ...(payment.amount !== undefined ? { amount: payment.amount } : {}),
       ...(payment.tenderedAmount !== undefined ? { tenderedAmount: payment.tenderedAmount } : {}),

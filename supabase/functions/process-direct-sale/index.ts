@@ -39,6 +39,12 @@ const BodySchema = z
     discountAmount: z.number().nonnegative().multipleOf(0.01).optional(),
     customerName: z.string().min(1).max(100).optional(),
     customerPhone: z.string().min(1).max(30).optional(),
+    // Per-terminal caja isolation: forwarded as p_terminal_id so the RPC can
+    // reject a caja session belonging to another terminal.
+    terminalId: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{1,32}$/)
+      .optional(),
     // Phase 27 (PROMO-05/07): manager-PIN authorization for the ad-hoc
     // discount and/or the below-cost floor-guard override.
     managerOverride: z.boolean().optional(),
@@ -340,6 +346,7 @@ Deno.serve(async (req: Request) => {
     p_customer_phone: body.data.customerPhone ?? null,
     p_manager_override: body.data.managerOverride ?? false,
     p_manager_pin: body.data.managerPin ?? null,
+    p_terminal_id: body.data.terminalId ?? null,
   });
   if (error)
     return jsonResponse(

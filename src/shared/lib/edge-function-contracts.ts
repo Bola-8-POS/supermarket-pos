@@ -23,6 +23,7 @@ import { logger } from './logger';
 import { ok, err, inventoryNegativeError, type Result } from './result';
 import { supabase, getCachedAccessToken } from './supabase';
 import type { AppError } from './supabase-contracts';
+import { TERMINAL_ID_PATTERN } from './terminal';
 
 // ============================================================================
 // SHARED SCHEMAS
@@ -657,6 +658,8 @@ export const ProcessDirectSaleRequestSchema = z
     discountAmount: MoneySchema.optional(),
     customerName: z.string().min(1).max(100).optional(),
     customerPhone: z.string().min(1).max(30).optional(),
+    /** Per-terminal caja isolation: forwarded as p_terminal_id so the RPC can reject a caja session belonging to another terminal. */
+    terminalId: z.string().regex(TERMINAL_ID_PATTERN).optional(),
     /** Phase 27 (PROMO-05/07): manager-PIN authorization for the ad-hoc discount and/or the below-cost floor-guard override. */
     managerOverride: z.boolean().optional(),
     /** Phase 27 Plan 08 (G-27-13): the entered PIN of the staff who authorized managerOverride — forwarded to process_direct_sale_atomic for independent server-side re-verification. */

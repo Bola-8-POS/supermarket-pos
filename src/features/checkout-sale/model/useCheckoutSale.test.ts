@@ -166,6 +166,9 @@ describe('useCheckoutSale', () => {
         receiptData: { changeAmount: 0 },
       });
     }
+    expect(mockCallProcessDirectSale).toHaveBeenCalledWith(
+      expect.objectContaining({ terminalId: 'POS-1' })
+    );
   });
 
   it('processCardPayment returns ok with paymentId/receiptData on success', async () => {
