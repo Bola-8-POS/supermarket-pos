@@ -18,6 +18,7 @@ import { describe, it, expect } from 'vitest';
 
 import {
   CategorySchema,
+  PromotionSchema,
   ProductSchema,
   StockMovementReasonSchema,
   StockMovementSchema,
@@ -102,6 +103,75 @@ describe('CategorySchema', () => {
     };
     const result = CategorySchema.safeParse(rest);
     expect(result.success).toBe(false);
+  });
+
+  it('defaults comboEligible to true when absent (combo-promotions schema)', () => {
+    const result = CategorySchema.safeParse(baseValid);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.comboEligible).toBe(true);
+    }
+  });
+
+  it('parses comboEligible=false explicitly', () => {
+    const result = CategorySchema.safeParse({ ...baseValid, comboEligible: false });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.comboEligible).toBe(false);
+    }
+  });
+});
+
+// ─── PromotionSchema ──────────────────────────────────────────────────────────
+
+describe('PromotionSchema', () => {
+  const baseValid = {
+    id: UUID,
+    name: 'Diwali Sale',
+    targets: [],
+    discountType: 'percent',
+    discountValue: 20,
+    startsAt: NOW,
+    endsAt: NOW,
+    daysOfWeek: null,
+    startTime: null,
+    endTime: null,
+    active: true,
+    createdAt: NOW,
+    createdBy: null,
+  };
+
+  it('parses a legacy row shape (no kind/slots) with defaults kind="discount", slots=[]', () => {
+    const result = PromotionSchema.safeParse(baseValid);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.kind).toBe('discount');
+      expect(result.data.slots).toEqual([]);
+    }
+  });
+
+  it('parses an explicit kind="combo" promotion with nested slots and their targets', () => {
+    const result = PromotionSchema.safeParse({
+      ...baseValid,
+      discountType: 'bundle_price',
+      kind: 'combo',
+      slots: [
+        {
+          id: UUID2,
+          promotionId: UUID,
+          position: 0,
+          quantity: 2,
+          label: 'Any soda',
+          targets: [{ id: UUID2, promotionId: UUID, productId: null, categoryId: UUID2 }],
+        },
+      ],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.kind).toBe('combo');
+      expect(result.data.slots).toHaveLength(1);
+      expect(result.data.slots[0]?.targets).toHaveLength(1);
+    }
   });
 });
 

@@ -94,6 +94,7 @@ export function ProductGrid({
     happyHourStart: null,
     happyHourEnd: null,
     routing: 'NONE',
+    comboEligible: true,
     createdAt: new Date(0),
   };
 

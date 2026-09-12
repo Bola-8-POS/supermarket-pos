@@ -289,6 +289,11 @@ export function usePromotionWizardState(promotion: Promotion | null | undefined)
     const percentValue = Number(discountPercentStr);
     const basics = {
       name: name.trim(),
+      // This wizard only ever creates/edits percent/fixed discount
+      // promotions (D-01) — combo promotions have their own dedicated
+      // authoring flow, not this wizard.
+      // eslint-disable-next-line i18next/no-literal-string -- domain enum literal, not UI copy
+      kind: 'discount' as const,
       discountType,
       discountValue: discountType === 'percent' ? percentValue : discountValue,
       startsAt: startOfDay(fromStr),

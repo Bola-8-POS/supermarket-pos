@@ -35,6 +35,7 @@ function makePromotion(overrides: Partial<Promotion> = {}): Promotion {
     id: 'promo-1',
     name: 'Existing Promo',
     targets: [],
+    kind: 'discount',
     discountType: 'percent',
     discountValue: 10,
     startsAt: new Date('2026-01-01T00:00:00Z'),
@@ -46,6 +47,7 @@ function makePromotion(overrides: Partial<Promotion> = {}): Promotion {
     active: true,
     createdAt: new Date('2026-01-01T00:00:00Z'),
     createdBy: null,
+    slots: [],
     ...overrides,
   };
 }

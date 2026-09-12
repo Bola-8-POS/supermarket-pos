@@ -39,6 +39,7 @@ function mapCategoryRow(row: Tables<'categories'>): Result<Category> {
         happyHourEnd: null,
         routing: (row as { routing?: CategoryRouting }).routing ?? 'NONE',
         parentId: (row as { parent_id?: string | null }).parent_id ?? null,
+        comboEligible: row.combo_eligible,
         createdAt: new Date(row.created_at),
       })
     );
@@ -124,6 +125,7 @@ export function useMutationCreateCategory() {
         sort_order: input.sortOrder,
         routing: input.routing,
         parent_id: input.parentId ?? null,
+        combo_eligible: input.comboEligible,
       };
 
       const res = await supabaseMutation(() =>
@@ -156,6 +158,7 @@ export function useMutationUpdateCategory() {
       // happy-hour pricing is now managed in Settings → Promotions.
       if (rest.routing !== undefined) row.routing = rest.routing;
       if (rest.parentId !== undefined) row.parent_id = rest.parentId;
+      if (rest.comboEligible !== undefined) row.combo_eligible = rest.comboEligible;
 
       if (Object.keys(row).length === 0) return ok(null);
 

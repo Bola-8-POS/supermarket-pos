@@ -238,6 +238,7 @@ function makePromotion(overrides: Partial<Promotion> = {}): Promotion {
         categoryId: null,
       },
     ],
+    kind: 'discount',
     discountType: 'percent',
     discountValue: 10,
     startsAt: new Date(now.getTime() - 60 * 60 * 1000),
@@ -249,6 +250,7 @@ function makePromotion(overrides: Partial<Promotion> = {}): Promotion {
     active: true,
     createdAt: now,
     createdBy: null,
+    slots: [],
     ...overrides,
   };
 }

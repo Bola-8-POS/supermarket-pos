@@ -362,6 +362,10 @@ export function CategoryTreeEditor() {
       happyHourEnd: null,
       routing: data.routing,
       parentId: parentId ?? undefined,
+      // This editor has no combo-eligibility UI (that's a Catalog-side
+      // concern, not category tree management) — new categories default to
+      // combo-eligible, matching ProductSchema's own default.
+      comboEligible: true,
     };
 
     const r = await createMutation.mutateAsync(createPayload);

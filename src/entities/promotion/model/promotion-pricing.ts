@@ -102,6 +102,7 @@ export function evaluateBestPromotion(
   let bestPromoCreatedAt: number | null = null;
 
   for (const promo of activePromotions) {
+    if (promo.kind === 'combo') continue;
     if (!promo.active) continue;
     if (now < promo.startsAt || now > promo.endsAt) continue;
 

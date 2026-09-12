@@ -157,10 +157,12 @@ export const DiscountScope = {
 } as const;
 export type DiscountScope = z.infer<typeof DiscountScopeSchema>;
 
-export const DiscountTypeSchema = z.enum(['percent', 'fixed']);
+export const DiscountTypeSchema = z.enum(['percent', 'fixed', 'bundle_price', 'cheapest_free']);
 export const DiscountType = {
   PERCENT: 'percent',
   FIXED: 'fixed',
+  BUNDLE_PRICE: 'bundle_price',
+  CHEAPEST_FREE: 'cheapest_free',
 } as const;
 export type DiscountType = z.infer<typeof DiscountTypeSchema>;
 
@@ -197,6 +199,8 @@ export const CategorySchema = z.object({
   routing: CategoryRoutingSchema.default('NONE'),
   /** Parent category id for hierarchical nesting (max depth 3). Null = root category. */
   parentId: UuidSchema.nullable().optional(),
+  /** Combo-promotions schema (Task 1): whether this category's products can be used as combo slot components. */
+  comboEligible: z.boolean().default(true),
   createdAt: TimestampSchema,
 });
 
@@ -1756,19 +1760,44 @@ export const PromotionTargetSchema = z.object({
   /** Exactly one of productId/categoryId is set — enforced by the DB CHECK constraint. */
   productId: UuidSchema.nullable(),
   categoryId: UuidSchema.nullable(),
+  /** Combo-promotions schema (Task 1): non-null when this target belongs to a combo slot rather than the top-level (slot-less) target list. */
+  slotId: UuidSchema.nullable().optional(),
 });
 
 /** Create/update payload shape for one target row — no id/promotionId (assigned server-side). */
 export const PromotionTargetInputSchema = z.object({
   productId: UuidSchema.nullable(),
   categoryId: UuidSchema.nullable(),
+  slotId: UuidSchema.nullable().optional(),
+});
+
+/** 'discount' = the original percent/fixed promotion; 'combo' = a bundle_price/cheapest_free promotion composed of slots (Task 1/2, combo-promotions). */
+export const PromotionKindSchema = z.enum(['discount', 'combo']);
+export type PromotionKind = z.infer<typeof PromotionKindSchema>;
+
+/** One position in a combo promotion — e.g. "2x [any drink]" — with its own eligible-product/category targets. */
+export const PromotionComboSlotSchema = z.object({
+  id: UuidSchema,
+  promotionId: UuidSchema,
+  position: z.number().int().min(0),
+  quantity: z.number().int().min(1).max(20),
+  label: z.string().max(60).nullable(),
+  targets: z.array(PromotionTargetSchema).default([]),
+});
+
+/** Create/update payload shape for one combo slot — no id/promotionId/position (assigned server-side, position = array index). */
+export const PromotionComboSlotInputSchema = z.object({
+  quantity: z.number().int().min(1).max(20),
+  label: z.string().max(60).nullable(),
+  targets: z.array(PromotionTargetInputSchema).min(1),
 });
 
 export const PromotionSchema = z.object({
   id: UuidSchema,
   name: z.string().min(1).max(100),
-  /** Empty array = store-wide (D-01). Mixed product/category rows are all valid candidates. */
+  /** Empty array = store-wide (D-01). Mixed product/category rows are all valid candidates. Combo promotions: only slot-less (top-level) targets — always []. */
   targets: z.array(PromotionTargetSchema).default([]),
+  kind: PromotionKindSchema.default('discount'),
   discountType: DiscountTypeSchema,
   discountValue: z.number().positive(),
   startsAt: TimestampSchema,
@@ -1783,6 +1812,8 @@ export const PromotionSchema = z.object({
   active: z.boolean().default(true),
   createdAt: TimestampSchema,
   createdBy: UuidSchema.nullable(),
+  /** Combo-promotions schema (Task 1): ordered slots for a kind='combo' promotion, sorted by position. Always [] for kind='discount'. */
+  slots: z.array(PromotionComboSlotSchema).default([]),
 });
 
 export const PromotionCreateSchema = PromotionSchema.omit({
@@ -1790,20 +1821,26 @@ export const PromotionCreateSchema = PromotionSchema.omit({
   createdAt: true,
   targets: true,
   needsReview: true,
+  slots: true,
 }).extend({
   targets: z.array(PromotionTargetInputSchema).default([]),
+  slots: z.array(PromotionComboSlotInputSchema).optional(),
 });
 export const PromotionUpdateSchema = PromotionSchema.omit({
   targets: true,
+  slots: true,
 })
   .partial()
   .required({ id: true })
   .extend({
     targets: z.array(PromotionTargetInputSchema).optional(),
+    slots: z.array(PromotionComboSlotInputSchema).optional(),
   });
 
 export type PromotionTarget = z.infer<typeof PromotionTargetSchema>;
 export type PromotionTargetInput = z.infer<typeof PromotionTargetInputSchema>;
+export type PromotionComboSlot = z.infer<typeof PromotionComboSlotSchema>;
+export type PromotionComboSlotInput = z.infer<typeof PromotionComboSlotInputSchema>;
 export type Promotion = z.infer<typeof PromotionSchema>;
 export type PromotionCreate = z.infer<typeof PromotionCreateSchema>;
 export type PromotionUpdate = z.infer<typeof PromotionUpdateSchema>;

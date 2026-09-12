@@ -22,6 +22,7 @@ function makePromotion(overrides: Partial<Promotion> = {}): Promotion {
         categoryId: null,
       },
     ],
+    kind: 'discount',
     discountType: 'percent',
     discountValue: 20,
     startsAt: new Date('2026-08-01T00:00:00.000Z'),
@@ -33,6 +34,7 @@ function makePromotion(overrides: Partial<Promotion> = {}): Promotion {
     active: true,
     createdAt: new Date('2026-08-01T00:00:00.000Z'),
     createdBy: null,
+    slots: [],
     ...overrides,
   };
 }
@@ -58,6 +60,12 @@ describe('evaluateBestPromotion', () => {
       discountAmount: 20,
       discountedUnitPrice: 80,
     });
+  });
+
+  it('ignores combo-kind promotions', () => {
+    const combo = makePromotion({ kind: 'combo', targets: [], discountValue: 999 });
+    const result = evaluateBestPromotion(PRODUCT, [combo], NOW, 15, null, 14, TZ);
+    expect(result).toBeNull();
   });
 
   it('store-wide promotion (zero targets, D-01) matches any product', () => {
@@ -309,6 +317,7 @@ describe('evaluateBestPromotion', () => {
                     categoryId: null,
                   },
                 ],
+            kind: 'discount',
             discountType: spec.discountType,
             discountValue: spec.discountValue,
             startsAt: new Date(NOW.getTime() + spec.daysOffsetStart * dayMs),
@@ -320,6 +329,7 @@ describe('evaluateBestPromotion', () => {
             active: true,
             createdAt: new Date(NOW.getTime() + spec.daysOffsetCreated * dayMs),
             createdBy: null,
+            slots: [],
           }));
           const product: PromotionPricingProduct = {
             productId: PRODUCT.productId,

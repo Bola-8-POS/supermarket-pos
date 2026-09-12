@@ -102,6 +102,7 @@ export function StepReview({
               categoryId: id,
             })),
           ],
+      kind: 'discount',
       discountType,
       discountValue: displayDiscountValue,
       startsAt: startOfDay(fromStr),
@@ -113,6 +114,7 @@ export function StepReview({
       active: true,
       createdAt: new Date(),
       createdBy: null,
+      slots: [],
     };
     preview = evaluateBestPromotion(
       {

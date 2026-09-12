@@ -184,6 +184,7 @@ async function seedPromotion(
         categoryId: targetRow.category_id as string | null,
       },
     ],
+    kind: (data as { kind?: string }).kind === 'combo' ? 'combo' : 'discount',
     discountType: data.discount_type as 'percent' | 'fixed',
     discountValue: data.discount_value as number,
     startsAt: new Date(data.starts_at as string),
@@ -195,6 +196,7 @@ async function seedPromotion(
     active: data.active as boolean,
     createdAt: new Date(data.created_at as string),
     createdBy: data.created_by as string | null,
+    slots: [],
   };
 }
 

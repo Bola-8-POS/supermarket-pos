@@ -1,5 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { Promotion, PromotionCreate, PromotionUpdate } from '@shared/lib/domain';
+import type {
+  Promotion,
+  PromotionComboSlotInput,
+  PromotionCreate,
+  PromotionUpdate,
+} from '@shared/lib/domain';
 import { PromotionSchema } from '@shared/lib/domain';
 import { logger } from '@shared/lib/logger-instance';
 import {
@@ -25,23 +30,50 @@ const PROMOTION_QUERY_KEY = ['promotions'] as const;
 // ROW MAPPER
 // ============================================================================
 
-/** Row shape returned by the `*, promotion_targets(*)` nested-join select. */
+/** Row shape returned by the `*, promotion_targets(*), promotion_combo_slots(*)` nested-join select. */
 type PromotionRowWithTargets = Tables<'promotions'> & {
   promotion_targets: Tables<'promotion_targets'>[] | null;
+  promotion_combo_slots: Tables<'promotion_combo_slots'>[] | null;
 };
 
-function mapPromotionRow(row: PromotionRowWithTargets): Result<Promotion> {
+function mapTargetRow(t: Tables<'promotion_targets'>) {
+  return {
+    id: t.id,
+    promotionId: t.promotion_id,
+    productId: t.product_id,
+    categoryId: t.category_id,
+    slotId: t.slot_id,
+  };
+}
+
+/**
+ * Pure row mapper — exported for unit testing. Slots are sorted by
+ * `position`; each slot's `targets` are the `promotion_targets` rows whose
+ * `slot_id` matches that slot's id. The promotion's top-level `targets` are
+ * the rows with `slot_id === null` — a slot-scoped target never appears at
+ * both levels.
+ */
+export function mapPromotionRow(row: PromotionRowWithTargets): Result<Promotion> {
   try {
+    const allTargets = row.promotion_targets ?? [];
+    const topLevelTargets = allTargets.filter(t => t.slot_id === null);
+    const slots = [...(row.promotion_combo_slots ?? [])]
+      .sort((a, b) => a.position - b.position)
+      .map(s => ({
+        id: s.id,
+        promotionId: s.promotion_id,
+        position: s.position,
+        quantity: s.quantity,
+        label: s.label,
+        targets: allTargets.filter(t => t.slot_id === s.id).map(mapTargetRow),
+      }));
+
     return ok(
       PromotionSchema.parse({
         id: row.id,
         name: row.name,
-        targets: (row.promotion_targets ?? []).map(t => ({
-          id: t.id,
-          promotionId: t.promotion_id,
-          productId: t.product_id,
-          categoryId: t.category_id,
-        })),
+        targets: topLevelTargets.map(mapTargetRow),
+        kind: row.kind,
         discountType: row.discount_type,
         discountValue: row.discount_value,
         startsAt: new Date(row.starts_at),
@@ -53,11 +85,72 @@ function mapPromotionRow(row: PromotionRowWithTargets): Result<Promotion> {
         active: row.active,
         createdAt: new Date(row.created_at),
         createdBy: row.created_by,
+        slots,
       })
     );
   } catch (e) {
     return err(unknownError(e));
   }
+}
+
+/**
+ * Rewrites a combo promotion's slots (delete-all-then-reinsert, mirroring
+ * the existing targets update strategy — simplest correct approach for a
+ * handful of slot rows per promotion). Deleting a slot cascades its
+ * `promotion_targets` rows (DB `ON DELETE CASCADE` on `slot_id`), so slots
+ * are deleted first, then reinserted with their own targets.
+ */
+async function saveComboSlots(
+  promotionId: string,
+  slots: PromotionComboSlotInput[]
+): Promise<Result<null>> {
+  const delRes = await supabaseMutation(() =>
+    supabase.from('promotion_combo_slots').delete().eq('promotion_id', promotionId)
+  );
+  if (!delRes.ok) {
+    logger.error('promotions.combo_slots_delete_failed', { message: delRes.error.message });
+    return delRes;
+  }
+
+  for (const [index, slot] of slots.entries()) {
+    const slotRow: TablesInsert<'promotion_combo_slots'> = {
+      promotion_id: promotionId,
+      position: index,
+      quantity: slot.quantity,
+      label: slot.label ?? null,
+    };
+    const slotRes = await supabaseMutation(() =>
+      supabase.from('promotion_combo_slots').insert(slotRow).select('id').single()
+    );
+    if (!slotRes.ok) {
+      logger.error('promotions.combo_slot_insert_failed', {
+        message: slotRes.error.message,
+        promotionId,
+      });
+      return slotRes;
+    }
+    const slotId = (slotRes.data as unknown as { id: string }).id;
+
+    const targetRows: TablesInsert<'promotion_targets'>[] = slot.targets.map(t => ({
+      promotion_id: promotionId,
+      product_id: t.productId,
+      category_id: t.categoryId,
+      slot_id: slotId,
+    }));
+    const targetsRes = await supabaseMutation(() =>
+      supabase.from('promotion_targets').insert(targetRows)
+    );
+    if (!targetsRes.ok) {
+      logger.error('promotions.combo_slot_targets_insert_failed', {
+        message: targetsRes.error.message,
+        promotionId,
+        slotId,
+      });
+      return targetsRes;
+    }
+  }
+
+  return ok(null);
 }
 
 // ============================================================================
@@ -66,6 +159,19 @@ function mapPromotionRow(row: PromotionRowWithTargets): Result<Promotion> {
 
 function invalidatePromotionQueries(queryClient: ReturnType<typeof useQueryClient>): void {
   void queryClient.invalidateQueries({ queryKey: PROMOTION_QUERY_KEY });
+}
+
+/** Re-fetches one promotion with its full nested targets/slots shape — used after a combo write, where the slots/targets just saved aren't available in-memory. */
+async function fetchPromotionById(id: string): Promise<Result<Promotion>> {
+  const res = await supabaseQuery(() =>
+    supabase
+      .from('promotions')
+      .select('*, promotion_targets(*), promotion_combo_slots(*)')
+      .eq('id', id)
+      .single()
+  );
+  if (!res.ok) return res;
+  return mapPromotionRow(res.data as unknown as PromotionRowWithTargets);
 }
 
 // ============================================================================
@@ -80,7 +186,7 @@ export function usePromotions() {
       const res = await supabaseQuery(() =>
         supabase
           .from('promotions')
-          .select('*, promotion_targets(*)')
+          .select('*, promotion_targets(*), promotion_combo_slots(*)')
           .order('created_at', { ascending: false })
       );
 
@@ -125,8 +231,10 @@ export function useMutationCreatePromotion() {
 
   return useMutation({
     mutationFn: async (input: PromotionCreate): Promise<Result<Promotion>> => {
+      const isCombo = input.kind === 'combo';
       const insertRow: TablesInsert<'promotions'> = {
         name: input.name,
+        kind: input.kind,
         discount_type: input.discountType,
         discount_value: input.discountValue,
         starts_at: input.startsAt.toISOString(),
@@ -148,6 +256,29 @@ export function useMutationCreatePromotion() {
       }
       const promotionRow = res.data as unknown as Tables<'promotions'>;
       const promotionId = promotionRow.id;
+
+      // Combo promotions: targets live under slots, not at the top level.
+      if (isCombo) {
+        const slotsRes = await saveComboSlots(promotionId, input.slots ?? []);
+        if (!slotsRes.ok) {
+          logger.error('promotions.create_combo_slots_failed', {
+            message: slotsRes.error.message,
+            promotionId,
+          });
+          // The promotion row itself was created successfully — do not
+          // silently leave an orphaned combo promotion with no slots.
+          // Surface the promotion id so the admin can retry via edit.
+          return err(
+            unknownError(
+              new Error(
+                `Promotion "${input.name}" (${promotionId}) was created, but its combo slots failed to save: ${slotsRes.error.message}. Edit the promotion to retry.`
+              )
+            )
+          );
+        }
+        return fetchPromotionById(promotionId);
+      }
+
       let insertedTargets: Tables<'promotion_targets'>[] = [];
 
       if (input.targets.length > 0) {
@@ -181,6 +312,7 @@ export function useMutationCreatePromotion() {
       return mapPromotionRow({
         ...promotionRow,
         promotion_targets: insertedTargets,
+        promotion_combo_slots: [],
       });
     },
     onSuccess: result => {
@@ -200,9 +332,11 @@ export function useMutationUpdatePromotion() {
 
   return useMutation({
     mutationFn: async (input: PromotionUpdate): Promise<Result<null>> => {
-      const { id, targets, ...rest } = input;
+      const { id, targets, slots, ...rest } = input;
+      const isCombo = rest.kind === 'combo';
       const row: TablesUpdate<'promotions'> = {};
       if (rest.name !== undefined) row.name = rest.name;
+      if (rest.kind !== undefined) row.kind = rest.kind;
       if (rest.discountType !== undefined) row.discount_type = rest.discountType;
       if (rest.discountValue !== undefined) row.discount_value = rest.discountValue;
       if (rest.startsAt !== undefined) row.starts_at = rest.startsAt.toISOString();
@@ -223,10 +357,12 @@ export function useMutationUpdatePromotion() {
       }
 
       // Delete + reinsert (not a diff) — simplest correct approach for a
-      // handful of target rows per promotion.
+      // handful of target rows per promotion. Combo promotions keep no
+      // top-level (slot-less) targets — their targets live under slots.
       if (targets !== undefined) {
+        const effectiveTargets = isCombo ? [] : targets;
         const delRes = await supabaseMutation(() =>
-          supabase.from('promotion_targets').delete().eq('promotion_id', id)
+          supabase.from('promotion_targets').delete().eq('promotion_id', id).is('slot_id', null)
         );
         if (!delRes.ok) {
           logger.error('promotions.update_targets_delete_failed', {
@@ -234,8 +370,8 @@ export function useMutationUpdatePromotion() {
           });
           return delRes;
         }
-        if (targets.length > 0) {
-          const targetRows: TablesInsert<'promotion_targets'>[] = targets.map(t => ({
+        if (effectiveTargets.length > 0) {
+          const targetRows: TablesInsert<'promotion_targets'>[] = effectiveTargets.map(t => ({
             promotion_id: id,
             product_id: t.productId,
             category_id: t.categoryId,
@@ -249,6 +385,19 @@ export function useMutationUpdatePromotion() {
             });
             return insRes;
           }
+        }
+      }
+
+      // Combo slots (delete-all-then-reinsert, mirrors the targets strategy
+      // above) — only touched when the caller explicitly passes `slots`.
+      if (slots !== undefined) {
+        const slotsRes = await saveComboSlots(id, slots);
+        if (!slotsRes.ok) {
+          logger.error('promotions.update_combo_slots_failed', {
+            message: slotsRes.error.message,
+            promotionId: id,
+          });
+          return slotsRes;
         }
       }
 
