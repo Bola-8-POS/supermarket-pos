@@ -81,6 +81,18 @@ test.describe('Caja session management', () => {
     await closeDlg.getByLabel(/closing cash count/i).fill('300');
     await closeDlg.getByRole('button', { name: 'Close Caja' }).click();
     await expect(page.getByText(/caja closed successfully/i)).toBeVisible({ timeout: 30_000 });
+
+    // Caja-per-terminal (Task 5) added a post-close reconciliation summary
+    // dialog on success; it sits on top of the dashboard (background content
+    // is aria-hidden while it's open), so it must be dismissed before the
+    // "Open Caja" button underneath is reachable again.
+    const closeSummary = page.getByTestId('caja-close-summary');
+    await expect(closeSummary).toBeVisible({ timeout: 10_000 });
+    // The dialog also has a generic "X" dismiss control whose accessible name
+    // is also "Close" — scope to the DialogFooter's own action button (first
+    // in DOM order) to avoid a strict-mode ambiguity between the two.
+    await closeSummary.getByRole('button', { name: /^close$/i }).first().click();
+
     await expect(page.getByRole('button', { name: 'Open Caja' })).toBeVisible();
     await expect(page.getByText('Closed', { exact: true })).toBeVisible();
     await logout(page);

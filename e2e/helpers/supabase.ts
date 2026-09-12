@@ -164,9 +164,9 @@ export async function resetTestState(): Promise<void> {
 }
 
 /**
- * Opens a new caja session (requires no other open caja). Uses first manager profile as opener.
+ * Opens a new caja session (requires no other open caja for `terminalId`). Uses first manager profile as opener.
  */
-export async function openCaja(openingCash: number): Promise<string> {
+export async function openCaja(openingCash: number, terminalId = 'POS-1'): Promise<string> {
   const admin = getServiceClient();
   const { data: mgr, error: mErr } = await admin.from('profiles').select('id').eq('role', 'manager').limit(1).maybeSingle();
   if (mErr || !mgr) throw new Error('openCaja: no manager profile found');
@@ -203,6 +203,7 @@ export async function openCaja(openingCash: number): Promise<string> {
       opened_by: mgr.id,
       opening_cash: openingCash,
       status: 'open',
+      terminal_id: terminalId,
     })
     .select('id')
     .single();
