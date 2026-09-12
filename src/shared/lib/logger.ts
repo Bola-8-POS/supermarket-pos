@@ -61,11 +61,25 @@ const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
  * Context injected into every log entry automatically.
  */
 export type LogContext = {
-  terminalId: string; // e.g. "POS-1" (set from config/constants.ts)
+  terminalId: string; // e.g. "POS-1" (resolved per log call, see TerminalIdInput below)
   userId?: string; // current staff ID (NOT name â€” never log names)
   shiftId?: string;
   sessionId: string; // random UUID per app session (for correlating logs)
   appVersion: string;
+};
+
+/**
+ * `terminalId` may be a plain string, or a resolver function called fresh on
+ * every log entry -- the latter lets `logger-instance.ts` pass
+ * `getTerminalId` (Settings/localStorage-backed, can change without reload)
+ * instead of a value snapshotted once at logger construction time.
+ */
+type TerminalIdInput = string | (() => string);
+
+/** Input accepted by `createLogger`/`child` -- same as `LogContext` except
+ * `terminalId` may also be a resolver function (see `TerminalIdInput`). */
+export type LoggerContextInput = Omit<Partial<LogContext>, 'terminalId'> & {
+  terminalId?: TerminalIdInput;
 };
 
 // ============================================================================
@@ -93,7 +107,7 @@ export type Logger = {
   info(event: string, payload?: SafeLogPayload): void;
   warn(event: string, payload?: SafeLogPayload): void;
   error(event: string, payload?: SafeLogPayload, raw?: unknown): void;
-  child(additionalContext: Partial<LogContext>): Logger;
+  child(additionalContext: LoggerContextInput): Logger;
 };
 
 // ============================================================================
@@ -224,7 +238,7 @@ function validateEventName(event: string): void {
  * @example
  * ```typescript
  * const logger = createLogger({
- *   terminalId: 'POS-1',
+ *   terminalId: 'POS-1', // or a resolver: () => getTerminalId()
  *   sessionId: crypto.randomUUID(),
  *   appVersion: '1.0.0',
  * })
@@ -232,14 +246,20 @@ function validateEventName(event: string): void {
  * logger.info('tab.opened', { tabId: '123' })
  * ```
  */
-export function createLogger(context: Partial<LogContext>, config?: Partial<LoggerConfig>): Logger {
-  const fullContext: LogContext = {
-    terminalId: context.terminalId || 'UNKNOWN',
-    sessionId: context.sessionId || crypto.randomUUID(),
-    appVersion: context.appVersion || '0.0.0',
-    ...(context.userId !== undefined && { userId: context.userId }),
-    ...(context.shiftId !== undefined && { shiftId: context.shiftId }),
-  };
+export function createLogger(context: LoggerContextInput, config?: Partial<LoggerConfig>): Logger {
+  // terminalId is resolved fresh on every log() call (see resolveTerminalId
+  // below) instead of being snapshotted here, so a caller passing a resolver
+  // function (e.g. logger-instance.ts's getTerminalId) picks up a later
+  // Settings change without needing a logger recreation/reload.
+  const terminalIdInput: TerminalIdInput = context.terminalId ?? 'UNKNOWN';
+  const sessionId = context.sessionId || crypto.randomUUID();
+  const appVersion = context.appVersion || '0.0.0';
+  const userId = context.userId;
+  const shiftId = context.shiftId;
+
+  function resolveTerminalId(): string {
+    return typeof terminalIdInput === 'function' ? terminalIdInput() : terminalIdInput;
+  }
 
   const fullConfig: LoggerConfig = {
     minLevel: config?.minLevel || (import.meta.env.DEV ? 'debug' : 'info'),
@@ -260,12 +280,18 @@ export function createLogger(context: Partial<LogContext>, config?: Partial<Logg
     // Validate event name
     validateEventName(event);
 
-    // Create log entry
+    // Create log entry -- context (incl. terminalId) is built fresh per call.
     const entry: LogEntry = {
       ts: new Date().toISOString(),
       level,
       event,
-      context: fullContext,
+      context: {
+        terminalId: resolveTerminalId(),
+        sessionId,
+        appVersion,
+        ...(userId !== undefined && { userId }),
+        ...(shiftId !== undefined && { shiftId }),
+      },
       ...(payload !== undefined && { payload }),
     };
 
@@ -318,8 +344,19 @@ export function createLogger(context: Partial<LogContext>, config?: Partial<Logg
       log('error', event, payload, raw);
     },
 
-    child(additionalContext: Partial<LogContext>): Logger {
-      return createLogger({ ...fullContext, ...additionalContext }, fullConfig);
+    child(additionalContext: LoggerContextInput): Logger {
+      const childUserId = additionalContext.userId ?? userId;
+      const childShiftId = additionalContext.shiftId ?? shiftId;
+      return createLogger(
+        {
+          terminalId: additionalContext.terminalId ?? terminalIdInput,
+          sessionId,
+          appVersion,
+          ...(childUserId !== undefined && { userId: childUserId }),
+          ...(childShiftId !== undefined && { shiftId: childShiftId }),
+        },
+        fullConfig
+      );
     },
   };
 }

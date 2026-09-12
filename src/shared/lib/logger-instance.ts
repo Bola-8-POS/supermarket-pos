@@ -28,7 +28,7 @@ const SESSION_ID = crypto.randomUUID();
  * Use this throughout the application for all logging.
  */
 export const logger = createLogger({
-  terminalId: getTerminalId(),
+  terminalId: getTerminalId, // resolver, not a snapshot -- re-read on every log call
   appVersion: APP_VERSION,
   sessionId: SESSION_ID,
 });

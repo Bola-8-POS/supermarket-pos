@@ -282,6 +282,62 @@ describe('Logger', () => {
   });
 });
 
+describe('Lazy terminalId resolution', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('accepts a terminalId resolver function and re-invokes it on every log call, not just at creation', async () => {
+    vi.useFakeTimers();
+    let current = 'POS-A';
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const logger = createLogger(
+      { terminalId: () => current, sessionId: 'test-session', appVersion: '1.0.0' },
+      { isDevelopment: false, enableRemoteLogging: true, minLevel: 'info' }
+    );
+
+    logger.info('test.one');
+    current = 'POS-B';
+    logger.info('test.two');
+
+    await vi.advanceTimersByTimeAsync(10000);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as { body: string }).body) as {
+      logs: Array<{ context: { terminalId: string } }>;
+    };
+    expect(body.logs[0]?.context.terminalId).toBe('POS-A');
+    expect(body.logs[1]?.context.terminalId).toBe('POS-B');
+  });
+
+  it('child() preserves the parent resolver when the child does not override terminalId', async () => {
+    vi.useFakeTimers();
+    let current = 'POS-X';
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const parent = createLogger(
+      { terminalId: () => current, sessionId: 'test-session', appVersion: '1.0.0' },
+      { isDevelopment: false, enableRemoteLogging: true, minLevel: 'info' }
+    );
+    const child = parent.child({ userId: 'user-123' });
+
+    current = 'POS-Y';
+    child.info('test.child');
+
+    await vi.advanceTimersByTimeAsync(10000);
+
+    const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as { body: string }).body) as {
+      logs: Array<{ context: { terminalId: string; userId?: string } }>;
+    };
+    expect(body.logs[0]?.context.terminalId).toBe('POS-Y');
+    expect(body.logs[0]?.context.userId).toBe('user-123');
+  });
+});
+
 describe('sanitizePayload', () => {
   it('redacts banned keys', () => {
     const payload = {
