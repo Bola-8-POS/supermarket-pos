@@ -71,8 +71,43 @@ export interface PromotionMatch {
 }
 
 /** Rounds like Postgres's ROUND(...,2) — ties away from zero for positive inputs. */
-function round2(n: number): number {
+export function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/**
+ * Everything a promotion candidate must pass BEFORE scope/target matching:
+ * active flag, the [startsAt, endsAt] date range (inclusive), and the
+ * daysOfWeek/startTime-endTime recurrence AND-filter evaluated in the
+ * store's configured timezone (D-03..D-06). Shared by `evaluateBestPromotion`
+ * (discount-kind candidates) and `evaluateCombos` (combo-kind candidates,
+ * combo-pricing.ts) so the two never drift.
+ */
+export function isPromotionLiveAt(promo: Promotion, now: Date, timezone: string): boolean {
+  if (!promo.active) return false;
+  if (now < promo.startsAt || now > promo.endsAt) return false;
+
+  const needsRecurrenceCheck =
+    (promo.daysOfWeek !== null && promo.daysOfWeek.length > 0) ||
+    (promo.startTime !== null && promo.endTime !== null);
+  if (needsRecurrenceCheck) {
+    const { dayOfWeek, hhmm } = getStoreLocalDowAndTime(now, timezone);
+    if (promo.daysOfWeek !== null && promo.daysOfWeek.length > 0) {
+      if (!promo.daysOfWeek.includes(dayOfWeek)) return false;
+    }
+    if (promo.startTime !== null && promo.endTime !== null) {
+      // Normalize to "HH:MM" — startTime/endTime may come back "HH:MM:SS"
+      // from the DB's `time` column; a straight string compare against
+      // "HH:MM" would otherwise treat an exact-boundary match as less-than
+      // (a shorter string that's a prefix of a longer one compares as
+      // smaller), breaking the inclusive boundary (D-05).
+      const start = promo.startTime.slice(0, 5);
+      const end = promo.endTime.slice(0, 5);
+      if (hhmm < start || hhmm > end) return false;
+    }
+  }
+
+  return true;
 }
 
 /**
@@ -103,8 +138,7 @@ export function evaluateBestPromotion(
 
   for (const promo of activePromotions) {
     if (promo.kind === 'combo') continue;
-    if (!promo.active) continue;
-    if (now < promo.startsAt || now > promo.endsAt) continue;
+    if (!isPromotionLiveAt(promo, now, timezone)) continue;
 
     // D-01: zero targets = store-wide, matches any product. Otherwise match
     // if ANY target row references this product or its category.
@@ -114,29 +148,6 @@ export function evaluateBestPromotion(
         t => t.productId === product.productId || t.categoryId === product.categoryId
       );
     if (!matchesScope) continue;
-
-    // D-03..D-06: recurrence AND-filter — computed once per candidate
-    // iteration in the store's configured timezone (never the runtime's own
-    // local zone), not once per sub-check.
-    const needsRecurrenceCheck =
-      (promo.daysOfWeek !== null && promo.daysOfWeek.length > 0) ||
-      (promo.startTime !== null && promo.endTime !== null);
-    if (needsRecurrenceCheck) {
-      const { dayOfWeek, hhmm } = getStoreLocalDowAndTime(now, timezone);
-      if (promo.daysOfWeek !== null && promo.daysOfWeek.length > 0) {
-        if (!promo.daysOfWeek.includes(dayOfWeek)) continue;
-      }
-      if (promo.startTime !== null && promo.endTime !== null) {
-        // Normalize to "HH:MM" — startTime/endTime may come back "HH:MM:SS"
-        // from the DB's `time` column; a straight string compare against
-        // "HH:MM" would otherwise treat an exact-boundary match as less-than
-        // (a shorter string that's a prefix of a longer one compares as
-        // smaller), breaking the inclusive boundary (D-05).
-        const start = promo.startTime.slice(0, 5);
-        const end = promo.endTime.slice(0, 5);
-        if (hhmm < start || hhmm > end) continue;
-      }
-    }
 
     const rawAmount =
       promo.discountType === 'percent'

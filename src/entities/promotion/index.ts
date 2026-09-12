@@ -17,9 +17,20 @@ export {
 export {
   evaluateBestPromotion,
   getStoreLocalDowAndTime,
+  isPromotionLiveAt,
   type PromotionPricingProduct,
   type PromotionMatch,
 } from './model/promotion-pricing';
+
+export {
+  evaluateCombos,
+  isProductComboEligible,
+  type ComboCartLine,
+  type ComboUnitAllocation,
+  type ComboApplication,
+  type ComboEvaluation,
+  type ComboCategoryLookup,
+} from './model/combo-pricing';
 
 export type {
   Promotion,
