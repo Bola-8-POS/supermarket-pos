@@ -34,6 +34,7 @@ import { useRegisterCajaEntry } from './useRegisterCajaEntry';
 
 const testCaja: CajaSession = {
   id: 'caja-uuid-001',
+  terminalId: 'POS-1',
   openedAt: new Date('2026-04-21T08:00:00.000Z'),
   closedAt: null,
   openedBy: 'staff-uuid-001',

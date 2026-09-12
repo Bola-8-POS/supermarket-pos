@@ -33,6 +33,7 @@ const DATE_RANGE = { from: new Date('2026-01-01'), to: new Date('2026-01-31') };
 const CAJA_REPORT: CajaReport = {
   cajaSession: {
     id: '00000000-0000-0000-0000-000000000001',
+    terminalId: 'POS-1',
     openedAt: new Date('2026-01-01T08:00:00Z'),
     closedAt: null,
     openedBy: '00000000-0000-0000-0000-000000000002',

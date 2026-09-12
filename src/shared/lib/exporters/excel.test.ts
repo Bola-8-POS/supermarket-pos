@@ -22,6 +22,7 @@ function makeCajaReport(overrides: Partial<CajaReport> = {}): CajaReport {
   const base: CajaReport = {
     cajaSession: {
       id: '00000000-0000-0000-0000-000000000001',
+      terminalId: 'POS-1',
       openedAt: new Date('2024-03-15T08:00:00Z'),
       closedAt: null,
       openedBy: '00000000-0000-0000-0000-000000000002',

@@ -5,7 +5,8 @@
     "unknownStaff": "Desconocido"
   },
   "caja": {
-    "closeFailed": "No se pudo cerrar la caja."
+    "closeFailed": "No se pudo cerrar la caja.",
+    "alreadyOpenOnTerminal": "La terminal {{terminal}} ya tiene una caja abierta"
   },
   "reports": {
     "uncategorized": "Sin categoría",

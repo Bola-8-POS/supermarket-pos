@@ -988,6 +988,8 @@ export const CajaSessionSchema = z.object({
   closedByName: z.string().nullable().optional(),
   /** Phase 15: optimistic-concurrency version. Server bumps on every UPDATE. */
   version: z.number().int().nonnegative().optional(),
+  /** Caja-per-terminal: which terminal opened this session. */
+  terminalId: z.string().default('POS-1'),
 });
 
 export const CajaSessionCreateSchema = CajaSessionSchema.omit({

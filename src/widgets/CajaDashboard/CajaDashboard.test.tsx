@@ -139,6 +139,7 @@ vi.mock('@entities/settings', async importOriginal => {
 
 const testCaja: CajaSession = {
   id: 'test-caja-id',
+  terminalId: 'POS-1',
   openedAt: new Date('2026-04-20T08:00:00.000Z'),
   closedAt: null,
   openedBy: 'user-uuid',

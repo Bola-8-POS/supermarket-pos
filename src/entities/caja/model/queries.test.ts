@@ -17,7 +17,13 @@ import { useOpenTabsPendingTotal } from '@entities/tab/model/queries';
 import i18n from '@shared/lib/i18n';
 import { supabase } from '@shared/lib/supabase';
 import { createTestQueryClient } from '@shared/lib/test-utils';
-import { useCajaPaymentSummary, useMutationCreateCajaEntry } from './queries';
+import {
+  useCajaPaymentSummary,
+  useCurrentCaja,
+  useMutationCloseCaja,
+  useMutationCreateCajaEntry,
+  useMutationOpenCaja,
+} from './queries';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -35,6 +41,8 @@ function makeWrapper(queryClient: QueryClient) {
 
 // eslint-disable-next-line @typescript-eslint/unbound-method
 const mockedFrom = vi.mocked(supabase).from;
+// eslint-disable-next-line @typescript-eslint/unbound-method
+const mockedRpc = vi.mocked(supabase).rpc;
 
 // ---------------------------------------------------------------------------
 // useCajaPaymentSummary
@@ -436,6 +444,126 @@ describe('useMutationCreateCajaEntry', () => {
     expect(res.ok).toBe(false);
     if (!res.ok) {
       expect(res.error.code).toBe('DUPLICATE_ENTRY');
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// useCurrentCaja — terminal-scoped (caja-per-terminal, Task 4)
+// ---------------------------------------------------------------------------
+
+describe('useCurrentCaja', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('filters by status=open AND terminal_id', async () => {
+    const eqCalls: unknown[][] = [];
+    const row = {
+      id: '11111111-1111-1111-1111-111111111111',
+      opened_at: '2026-09-12T08:00:00.000Z',
+      closed_at: null,
+      opened_by: '22222222-2222-2222-2222-222222222222',
+      closed_by: null,
+      opening_cash: 100,
+      closing_cash: null,
+      notes: null,
+      status: 'open',
+      terminal_id: 'POS-1',
+      opened_by_profile: null,
+      closed_by_profile: null,
+    };
+    const chain = {
+      select: vi.fn(),
+      eq: vi.fn((...args: unknown[]) => {
+        eqCalls.push(args);
+        return chain;
+      }),
+      limit: vi.fn(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: row, error: null }),
+    };
+    chain.select.mockReturnValue(chain);
+    chain.limit.mockReturnValue(chain);
+    mockedFrom.mockReturnValue(chain as unknown as ReturnType<typeof supabase.from>);
+
+    const qc = createTestQueryClient();
+    const { result } = renderHook(() => useCurrentCaja(), { wrapper: makeWrapper(qc) });
+
+    await waitFor(() => {
+      expect(result.current.data).toBeDefined();
+    });
+
+    expect(eqCalls).toContainEqual(['status', 'open']);
+    expect(eqCalls).toContainEqual(['terminal_id', 'POS-1']);
+    expect(result.current.data?.id).toBe(row.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// useMutationOpenCaja — duplicate-open mapping (caja-per-terminal, Task 4)
+// ---------------------------------------------------------------------------
+
+describe('useMutationOpenCaja', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('maps a 23505 unique-violation to DUPLICATE_ENTRY with a terminal-scoped message', async () => {
+    mockedRpc.mockResolvedValue({
+      data: null,
+      error: { message: 'duplicate key value violates unique constraint', code: '23505' },
+    } as never);
+
+    const qc = createTestQueryClient();
+    const { result } = renderHook(() => useMutationOpenCaja(), { wrapper: makeWrapper(qc) });
+
+    const res = await result.current.mutateAsync({ openingCash: 100, openedBy: 'staff-1' });
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.code).toBe('DUPLICATE_ENTRY');
+      expect(res.error.message).toBe(
+        i18n.t('entities:caja.alreadyOpenOnTerminal', { terminal: 'POS-1' })
+      );
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// useMutationCloseCaja — resolves with cashReconciliation (caja-per-terminal, Task 4)
+// ---------------------------------------------------------------------------
+
+describe('useMutationCloseCaja', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('resolves with the RPC cashReconciliation', async () => {
+    const cashReconciliation = {
+      openingCash: 100,
+      cashSales: 50,
+      expectedCash: 150,
+      closingCash: 140,
+      variance: -10,
+    };
+    mockedRpc.mockResolvedValue({
+      data: { ok: true, cashReconciliation },
+      error: null,
+    } as never);
+
+    const qc = createTestQueryClient();
+    const { result } = renderHook(() => useMutationCloseCaja(), { wrapper: makeWrapper(qc) });
+
+    const res = await result.current.mutateAsync({
+      cajaId: 'caja-1',
+      closedBy: 'staff-1',
+      closingCash: 140,
+      notes: undefined,
+    });
+
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.data).toEqual(cashReconciliation);
     }
   });
 });

@@ -3,6 +3,7 @@ import type { Result } from '@shared/lib/result';
 import { supabase } from '@shared/lib/supabase';
 import { logAgentAction } from '@shared/lib/telemetry';
 import type { AgentActionContext } from '@shared/lib/telemetry';
+import { getTerminalId } from '@shared/lib/terminal';
 import { createPendingAction } from '../pendingActions';
 
 // ─── Tool Definitions ─────────────────────────────────────────────────────────
@@ -106,7 +107,8 @@ async function resolveOpenCajaId(): Promise<string | null> {
   const { data } = await supabase
     .from('caja_sessions')
     .select('id')
-    .is('closed_at', null)
+    .eq('status', 'open')
+    .eq('terminal_id', getTerminalId())
     .limit(1)
     .maybeSingle();
   return data?.id ?? null;

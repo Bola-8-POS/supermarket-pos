@@ -4,11 +4,19 @@
 // resolve excluded callees across a multi-line method chain — 21-08 quirk).
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
-import type { CajaEntry, CajaEntryCreate, CajaReport, CajaSession, PaymentMethod } from '@shared/lib/domain';
+import type {
+  CajaEntry,
+  CajaEntryCreate,
+  CajaReport,
+  CashReconciliation,
+  CajaSession,
+  PaymentMethod,
+} from '@shared/lib/domain';
 import {
   CajaEntrySchema,
   CajaReportSchema,
   CajaSessionSchema,
+  CashReconciliationSchema,
   PAYMENT_METHODS,
   PaymentMethodSchema,
 } from '@shared/lib/domain';
@@ -33,7 +41,7 @@ const db = supabase as any;
 
 const cajaKeys = {
   all: ['caja'] as const,
-  current: () => [...cajaKeys.all, 'current'] as const,
+  current: (terminalId: string) => [...cajaKeys.all, 'current', terminalId] as const,
   list: () => [...cajaKeys.all, 'list'] as const,
   report: (cajaId: string) => [...cajaKeys.all, 'report', cajaId] as const,
 };
@@ -55,6 +63,8 @@ function mapCajaRow(row: Record<string, unknown>): Result<CajaSession> {
         closedByName: row.closed_by_name as string | null | undefined,
         // Phase 15: optimistic-concurrency version (column added 20260512000001)
         ...(typeof row.version === 'number' ? { version: row.version } : {}),
+        // Caja-per-terminal: which terminal opened this session (column added this phase)
+        ...(typeof row.terminal_id === 'string' ? { terminalId: row.terminal_id } : {}),
       })
     );
   } catch (e) {
@@ -67,7 +77,7 @@ export function useCurrentCaja() {
   const setCaja = useCajaStore(s => s.setCaja);
 
   const query = useQuery({
-    queryKey: cajaKeys.current(),
+    queryKey: cajaKeys.current(getTerminalId()),
     queryFn: async (): Promise<Result<CajaSession | null>> => {
       const res = await supabaseQuery(() =>
         db
@@ -76,6 +86,7 @@ export function useCurrentCaja() {
             '*, opened_by_profile:profiles!opened_by(name), closed_by_profile:profiles!closed_by(name)'
           )
           .eq('status', 'open')
+          .eq('terminal_id', getTerminalId())
           .limit(1)
           .maybeSingle()
       );
@@ -167,7 +178,13 @@ export function useMutationOpenCaja() {
       );
 
       if (!res.ok) {
-        logger.error('caja.open.failed', { message: res.error.message });
+        logger.error('caja.open.failed', { message: res.error.message, code: res.error.code });
+        if (res.error.code === 'DUPLICATE_ENTRY') {
+          return err({
+            code: 'DUPLICATE_ENTRY',
+            message: i18n.t('entities:caja.alreadyOpenOnTerminal', { terminal: getTerminalId() }),
+          });
+        }
         return res;
       }
 
@@ -199,13 +216,14 @@ type CloseCajaInput = {
 type CloseCajaRpcResult = {
   ok: boolean;
   error?: { code: string; message: string; openTabCount?: number };
+  cashReconciliation?: unknown;
 };
 
 export function useMutationCloseCaja() {
   const queryClient = useQueryClient();
   const clearCaja = useCajaStore(s => s.clearCaja);
 
-  return useMutation<Result<undefined>, Error, CloseCajaInput>({
+  return useMutation<Result<CashReconciliation>, Error, CloseCajaInput>({
     mutationFn: async ({ cajaId, closedBy, closingCash, notes }) => {
       // Phase 15 Group B: pre-RPC version-guard via direct UPDATE.
       // The close_caja_session RPC owns the actual close transition; we use a
@@ -213,7 +231,9 @@ export function useMutationCloseCaja() {
       // detect concurrent edits BEFORE invoking the RPC. If the row has been
       // touched by another terminal (.eq('version', expected) returns 0 rows),
       // surface STALE_VERSION via handleVersionError.
-      const cached = queryClient.getQueryData<Result<CajaSession | null>>(cajaKeys.current());
+      const cached = queryClient.getQueryData<Result<CajaSession | null>>(
+        cajaKeys.current(getTerminalId())
+      );
       const expected =
         cached?.ok && cached.data && typeof cached.data.version === 'number'
           ? cached.data.version
@@ -259,13 +279,19 @@ export function useMutationCloseCaja() {
         return err(appErr);
       }
 
-      return ok(undefined);
+      try {
+        return ok(CashReconciliationSchema.parse(result.cashReconciliation));
+      } catch (e) {
+        return err(unknownError(e));
+      }
     },
 
     onSuccess: (result, variables) => {
       if (!result.ok) {
         // Phase 15: surface STALE_VERSION conflict
-        const cached = queryClient.getQueryData<Result<CajaSession | null>>(cajaKeys.current());
+        const cached = queryClient.getQueryData<Result<CajaSession | null>>(
+          cajaKeys.current(getTerminalId())
+        );
         const expectedVersion =
           cached?.ok && cached.data && typeof cached.data.version === 'number'
             ? cached.data.version

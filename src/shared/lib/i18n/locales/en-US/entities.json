@@ -5,7 +5,8 @@
     "unknownStaff": "Unknown"
   },
   "caja": {
-    "closeFailed": "Failed to close caja."
+    "closeFailed": "Failed to close caja.",
+    "alreadyOpenOnTerminal": "Terminal {{terminal}} already has an open caja"
   },
   "reports": {
     "uncategorized": "Uncategorized",

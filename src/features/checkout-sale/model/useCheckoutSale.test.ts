@@ -66,6 +66,7 @@ const shift: Shift = {
 
 const caja: CajaSession = {
   id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+  terminalId: 'POS-1',
   openedAt: new Date(),
   closedAt: null,
   openedBy: staff.id,
