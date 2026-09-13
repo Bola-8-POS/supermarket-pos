@@ -104,6 +104,17 @@ jobs:
           NPM_CONFIG_CACHE: ${{ runner.temp }}\npm-cache
         run: npm ci
 
+      - name: Build broker
+        # tauri.conf.json's bundle.resources pulls broker.exe from
+        # ../broker/target/release/broker.exe at bundle time (Phase 19). This
+        # job never built that crate, so every customer installer shipped
+        # without broker.exe — hooks.nsh's ExecWait install call then failed
+        # silently (ExecWait doesn't check exit codes), leaving
+        # PrintBrokerService never registered on the target machine. ci.yml's
+        # tauri-build job already carries this same step; mirror it here.
+        working-directory: broker
+        run: cargo build --release
+
       - name: Materialize .env.production from Environment secrets
         shell: pwsh
         run: |
