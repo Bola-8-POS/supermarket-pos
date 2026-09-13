@@ -74,6 +74,23 @@ describe('CheckoutKeypad', () => {
     expect(screen.getByTestId('keypad-multiplier')).toHaveTextContent('×3');
   });
 
+  test('the multiplier badge carries an i18n aria-label announcing the armed count, while the visible text stays ×N', () => {
+    render(
+      <CheckoutKeypad
+        state={{ buffer: '', multiplier: 3 }}
+        disabled={false}
+        onDigit={noop}
+        onBackspace={noop}
+        onClear={noop}
+        onArmQty={noop}
+        onAdd={noop}
+      />
+    );
+    const badge = screen.getByTestId('keypad-multiplier');
+    expect(badge).toHaveAttribute('aria-label', '×3 armed for next item');
+    expect(badge).toHaveTextContent('×3');
+  });
+
   test('does not render a multiplier badge when nothing is armed', () => {
     render(
       <CheckoutKeypad

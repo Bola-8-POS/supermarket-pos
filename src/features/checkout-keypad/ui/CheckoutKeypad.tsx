@@ -47,7 +47,12 @@ export function CheckoutKeypad({
       >
         {state.buffer || '0'}
         {state.multiplier !== null && (
-          <span data-testid="keypad-multiplier">×{state.multiplier}</span>
+          <span
+            data-testid="keypad-multiplier"
+            aria-label={t('checkoutPanel.keypad.armed', { count: state.multiplier })}
+          >
+            ×{state.multiplier}
+          </span>
         )}
       </output>
 

@@ -437,6 +437,10 @@ export function CheckoutPanel() {
               onBackspace={keypad.backspace}
               onClear={keypad.clear}
               onArmQty={() => {
+                // An empty buffer + × Qty is a silent no-op (nothing typed
+                // yet, not an error) — only a non-empty buffer that fails
+                // parseQty (0, >99, non-integer) earns the qtyRange toast.
+                if (keypad.state.buffer === '') return;
                 if (!keypad.armQty()) toast.error(t('checkoutPanel.keypad.qtyRange'));
               }}
               onAdd={() => {
