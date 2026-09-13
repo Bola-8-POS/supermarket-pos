@@ -160,6 +160,19 @@ export async function resetTestState(): Promise<void> {
     .eq('name', "Parle-G Biscuits 200g");
   await admin.from('categories').update({ combo_eligible: true }).eq('name', 'Snacks');
 
+  // combo-checkout.spec.ts pins these 3 Snacks products' inventory.expiry_date
+  // 365 days out (setInventoryFarFromExpiry) so the near-expiry auto-discount
+  // never stacks with its combo's own pricing. Restore each back to its
+  // scripts/seed-dev-data.ts shelf-life value (re-derived as "N days from
+  // now", the same way the seed script computes expiry_date at seed time —
+  // ensureInventory(alooBhujia,...,60), ensureInventory(parleG,...,150),
+  // ensureInventory(navrattanMix,...,60)) so a later near-expiry-alert spec
+  // asserting against these SKUs sees the seeded shelf life, not a leftover
+  // "far in the future" value from this combo fixture.
+  await setInventoryExpiryDaysFromNow("Haldiram's Aloo Bhujia 200g", 60);
+  await setInventoryExpiryDaysFromNow('Parle-G Biscuits 200g', 150);
+  await setInventoryExpiryDaysFromNow("Haldiram's Navrattan Mix 200g", 60);
+
   // Test-data isolation only: keeps refund.spec.ts's own ledger fixtures out
   // of every OTHER spec's Movements-tab assertions, same pattern as the
   // promotions sweep above.
@@ -866,28 +879,32 @@ export async function seedComboPromotion(opts: {
 }
 
 /**
- * Push a product's `inventory.expiry_date` far into the future so the
- * near-expiry auto-discount (PROMO-02, checkout's default 15%-off trigger)
- * can never fire on it. Other specs (near-expiry alert fixtures) mutate a
- * shared seeded product's expiry_date directly and resetTestState doesn't
- * restore it, so a spec that needs a product's raw base_price un-discounted
- * at checkout (e.g. a combo's "cheapest of N" pricing) must not assume the
- * seed script's original expiry_date has survived — pin it explicitly.
+ * Set a product's `inventory.expiry_date` to `days` from now. Other specs
+ * (near-expiry alert fixtures) mutate a shared seeded product's expiry_date
+ * directly and resetTestState doesn't restore it on its own, so a spec that
+ * needs a product's raw base_price un-discounted at checkout (e.g. a
+ * combo's "cheapest of N" pricing) must not assume the seed script's
+ * original expiry_date has survived — pin it explicitly.
  */
-export async function setInventoryFarFromExpiry(productName: string): Promise<void> {
+export async function setInventoryExpiryDaysFromNow(productName: string, days: number): Promise<void> {
   const admin = getServiceClient();
   const { data: prod, error: pErr } = await admin
     .from('products')
     .select('id')
     .eq('name', productName)
     .maybeSingle();
-  if (pErr || !prod) throw new Error(`setInventoryFarFromExpiry: product "${productName}" not found`);
-  const expiryDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  if (pErr || !prod) throw new Error(`setInventoryExpiryDaysFromNow: product "${productName}" not found`);
+  const expiryDate = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const { error } = await admin
     .from('inventory')
     .update({ expiry_date: expiryDate })
     .eq('product_id', prod.id);
-  if (error) throw new Error(`setInventoryFarFromExpiry failed: ${error.message}`);
+  if (error) throw new Error(`setInventoryExpiryDaysFromNow failed: ${error.message}`);
+}
+
+/** Push a product's `inventory.expiry_date` 365 days out — "far enough" for a spec that just needs the near-expiry auto-discount to never fire, without caring about the seed script's real shelf-life value (see resetTestState's own restore of the exact seeded values for the 3 Snacks fixtures this is used on). */
+export async function setInventoryFarFromExpiry(productName: string): Promise<void> {
+  await setInventoryExpiryDaysFromNow(productName, 365);
 }
 
 /** Set `products.combo_eligible` on a product by name. */
