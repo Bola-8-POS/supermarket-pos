@@ -1,5 +1,13 @@
 import { listen } from '@tauri-apps/api/event';
-import { ArrowRight, Eraser, PauseCircle, ScanBarcode, Search, ShoppingBag } from 'lucide-react';
+import {
+  ArrowRight,
+  Calculator,
+  Eraser,
+  PauseCircle,
+  ScanBarcode,
+  Search,
+  ShoppingBag,
+} from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -7,6 +15,7 @@ import { PaymentForm } from '@widgets/PaymentModal/ui/PaymentForm';
 import { ProductGrid } from '@widgets/ProductGrid/ui/ProductGrid';
 import { useAddLooseWeightItem } from '@features/add-loose-weight-item/model/useAddLooseWeightItem';
 import { WeightEntryDialog } from '@features/add-loose-weight-item/ui/WeightEntryDialog';
+import { CheckoutKeypad, useKeypadBuffer, useKeypadVisible } from '@features/checkout-keypad';
 import { useCheckoutSale } from '@features/checkout-sale/model/useCheckoutSale';
 import { HoldSaleBanner } from '@features/hold-sale/ui/HoldSaleBanner';
 import {
@@ -72,6 +81,20 @@ export function CheckoutPanel() {
   const locked = useLockStateStore(s => s.locked);
   const scannerEnabled =
     !paymentOpen && !weightEntry.isOpen && editingWeightItemId === null && !locked;
+  const keypad = useKeypadBuffer();
+  const [keypadVisible, setKeypadVisible] = useKeypadVisible();
+  const keypadDisabled = !scannerEnabled;
+  // A weighted product is never routed through ProductGrid's onSelect prop
+  // (ProductGrid.selectProduct calls weightEntry.openFor(product) directly
+  // for soldByWeight products instead) — so this is the one place, shared by
+  // both the tile-tap and PLU-keypad-entry paths, where CheckoutPanel learns
+  // a weighted product was picked. A ×N multiplier has no meaning for a
+  // weight-based add, so disarm it here rather than silently carrying it
+  // over to whatever gets tapped next.
+  useEffect(() => {
+    if (weightEntry.isOpen) keypad.takeMultiplier();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run on the isOpen transition; keypad.takeMultiplier is a fresh closure every render (useKeypadBuffer isn't memoized) and would make this effect re-run every render if listed
+  }, [weightEntry.isOpen]);
   // A scan only populates the product search box — it never adds to the cart
   // by itself. useBarcodeScanner hands over the full scanned code in one
   // call, so this always replaces `search` rather than appending to it.
@@ -82,7 +105,11 @@ export function CheckoutPanel() {
       void ensurePeekWindowShown(code);
     },
   });
-  useProducts();
+  // Optional chaining (not a destructure) so the keypad's PLU lookup below
+  // stays safe if this ever renders before the query has data — same shape
+  // ProductGrid's own useProducts() call already handles with its `= []`
+  // default.
+  const productsQuery = useProducts();
   const { data: categories } = useCategories();
   const promotionsQuery = usePromotions();
   const { data: activePromotions } = promotionsQuery;
@@ -132,6 +159,15 @@ export function CheckoutPanel() {
   const comboResult = useCartStore(state => state.comboResult);
   const comboNetSavings = useCartStore(state => state.comboNetSavings());
   const staffId = useStaffStore(state => state.currentStaff?.id ?? '');
+  // Shared by ProductGrid's tile-tap onSelect and the keypad's PLU-hit path
+  // (Task 7) — both add a non-weighted product `times` times, exactly like
+  // the ADD_TO_CART_EVENT peek-window listener below already does for `qty`.
+  const addProductTimes = (product: Product, times: number) => {
+    const match = resolvePromotionMatch(product);
+    for (let i = 0; i < times; i += 1) {
+      addItem(product, [], match?.discountedUnitPrice, match?.promotionId ?? null);
+    }
+  };
   const { syntheticTab, processors, resetIdempotencyKey } = useCheckoutSale();
   const editingWeightItem = items.find(item => item.tempId === editingWeightItemId);
   const hasPriceConflict = items.some(item => item.priceConflict);
@@ -347,10 +383,29 @@ export function CheckoutPanel() {
             {t('checkoutPanel.scanReady')}
           </span>
         </div>
+        <Button
+          type="button"
+          variant={keypadVisible ? 'secondary' : 'ghost'}
+          size="icon"
+          aria-pressed={keypadVisible}
+          aria-label={t('checkoutPanel.keypad.toggle')}
+          data-testid="keypad-toggle"
+          onClick={() => {
+            setKeypadVisible(!keypadVisible);
+          }}
+        >
+          <Calculator className="size-5" />
+        </Button>
         <HoldSaleBanner />
       </div>
 
-      <div className="grid min-h-0 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(24rem,28rem)]">
+      <div
+        className={
+          keypadVisible
+            ? 'grid min-h-0 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(24rem,28rem)]'
+            : 'grid min-h-0 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(24rem,28rem)]'
+        }
+      >
         {/* Catalogue */}
         <section className="flex min-h-0 flex-col gap-3 p-4 lg:p-5">
           <ProductGrid
@@ -359,11 +414,42 @@ export function CheckoutPanel() {
             onSearchChange={setSearch}
             resolvePromotionMatch={resolvePromotionMatch}
             onSelect={product => {
-              const match = resolvePromotionMatch(product);
-              addItem(product, [], match?.discountedUnitPrice, match?.promotionId ?? null);
+              addProductTimes(product, keypad.takeMultiplier());
             }}
           />
         </section>
+
+        {keypadVisible && (
+          <div className="hidden min-h-0 lg:flex">
+            <CheckoutKeypad
+              state={keypad.state}
+              disabled={keypadDisabled}
+              onDigit={keypad.pressDigit}
+              onBackspace={keypad.backspace}
+              onClear={keypad.clear}
+              onArmQty={() => {
+                if (!keypad.armQty()) toast.error(t('checkoutPanel.keypad.qtyRange'));
+              }}
+              onAdd={() => {
+                const code = keypad.takeBuffer().trim();
+                if (!code) return;
+                const hit = (productsQuery.data ?? []).find(
+                  p => p.barcode?.trim() === code && p.isActive
+                );
+                if (hit) {
+                  if (hit.soldByWeight) {
+                    weightEntry.openFor(hit);
+                  } else {
+                    addProductTimes(hit, keypad.takeMultiplier());
+                  }
+                } else {
+                  setSearch(code);
+                  toast.info(t('checkoutPanel.keypad.notFound', { code }));
+                }
+              }}
+            />
+          </div>
+        )}
 
         {/* Cart */}
         <aside className="flex min-h-0 flex-col border-l border-border bg-card">
