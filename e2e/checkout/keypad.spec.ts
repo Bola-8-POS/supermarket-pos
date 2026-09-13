@@ -3,6 +3,7 @@ import { gotoAuthed, loginAs } from '../helpers/auth';
 import { requireIntegrationEnv } from '../helpers/requireEnv';
 import {
   getInventoryQty,
+  getServiceClient,
   openCaja,
   resetTestState,
   setInventoryQty,
@@ -21,6 +22,69 @@ import {
  */
 const PRODUCT_NAME = "Haldiram's Aloo Bhujia 200g";
 const PRODUCT_BARCODE = '8901030800007';
+
+// Same fixture name/shape e2e/inventory/loose-weight-hold-sale.spec.ts uses
+// for its own "always-present, freely toggleable" weighted product —
+// playwright.config.ts runs this suite with workers: 1 / fullyParallel:
+// false, so reusing the same name across spec files never races.
+// resetTestState() (this file's own beforeEach) blanket-resets
+// sold_by_weight=false on every product for test isolation, so the flag is
+// set back to true here, in the one test that needs it, not in beforeEach.
+const WEIGHTED_PRODUCT_NAME = 'E2E Loose Weight A';
+const WEIGHTED_PRICE_PER_KG = 10;
+
+async function ensureWeightedFixture(): Promise<void> {
+  const admin = getServiceClient();
+  const { data: existing } = await admin
+    .from('products')
+    .select('id')
+    .eq('name', WEIGHTED_PRODUCT_NAME)
+    .maybeSingle();
+
+  let productId: string;
+  if (existing) {
+    productId = existing.id as string;
+  } else {
+    const { data: anyCategory } = await admin.from('categories').select('id').limit(1).maybeSingle();
+    if (!anyCategory) {
+      throw new Error('ensureWeightedFixture: no category found to attach the fixture to');
+    }
+    const { data: created } = await admin
+      .from('products')
+      .insert({
+        name: WEIGHTED_PRODUCT_NAME,
+        category_id: anyCategory.id as string,
+        base_price: WEIGHTED_PRICE_PER_KG,
+      })
+      .select('id')
+      .maybeSingle();
+    if (!created) throw new Error('ensureWeightedFixture: product create failed');
+    productId = created.id as string;
+  }
+
+  const { error: updateError } = await admin
+    .from('products')
+    .update({ base_price: WEIGHTED_PRICE_PER_KG, sold_by_weight: true, is_active: true })
+    .eq('id', productId);
+  if (updateError) throw new Error(`ensureWeightedFixture: product update failed - ${updateError.message}`);
+
+  const { data: existingInventory } = await admin
+    .from('inventory')
+    .select('id')
+    .eq('product_id', productId)
+    .maybeSingle();
+  if (existingInventory) {
+    await admin
+      .from('inventory')
+      .update({ quantity_on_hand: 10_000 })
+      .eq('id', existingInventory.id as string);
+  } else {
+    const { error } = await admin
+      .from('inventory')
+      .insert({ product_id: productId, quantity_on_hand: 10_000, low_stock_threshold: 10 });
+    if (error) throw new Error(`ensureWeightedFixture: inventory create failed - ${error.message}`);
+  }
+}
 
 function keypadLocator(page: Page) {
   return page.getByTestId('checkout-keypad');
@@ -73,6 +137,51 @@ test.describe('Checkout keypad', () => {
     // The multiplier is consumed by the add — no badge left armed for
     // whatever gets tapped next.
     await expect(page.getByTestId('keypad-multiplier')).toHaveCount(0);
+  });
+
+  test('selecting a weighted product via the tile disarms an armed multiplier instead of applying it', async ({
+    page,
+  }) => {
+    await ensureWeightedFixture();
+    await page.reload();
+    await expect(
+      page.getByRole('button', { name: new RegExp(`select ${WEIGHTED_PRODUCT_NAME}`, 'i') })
+    ).toBeVisible();
+
+    const keypad = keypadLocator(page);
+    await keypad.getByRole('button', { name: '3', exact: true }).click();
+    await keypad.getByRole('button', { name: /qty/i }).click();
+    await expect(page.getByTestId('keypad-multiplier')).toHaveText('×3');
+
+    await page.getByPlaceholder(/search products/i).fill(WEIGHTED_PRODUCT_NAME);
+    await page
+      .getByRole('button', { name: new RegExp(`select ${WEIGHTED_PRODUCT_NAME}`, 'i') })
+      .click();
+
+    // WeightEntryDialog opens with its own numeric keypad (0-9, '.') — must
+    // scope to the dialog, since CheckoutKeypad's identically-labelled
+    // digit buttons are still in the DOM behind it (merely disabled, not
+    // unmounted), and an unscoped getByRole would match both.
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: '0', exact: true }).click();
+    await dialog.getByRole('button', { name: '.', exact: true }).click();
+    await dialog.getByRole('button', { name: '5', exact: true }).click();
+    await dialog.getByRole('button', { name: /add to cart/i }).click();
+
+    // The weightEntry.isOpen effect in CheckoutPanel disarms the multiplier
+    // the moment the weight dialog opens — badge is gone, and the multiplier
+    // was never applied to this (or any) add.
+    await expect(page.getByTestId('keypad-multiplier')).toHaveCount(0);
+
+    const cartLine = page.getByTestId('cart-line').filter({ hasText: WEIGHTED_PRODUCT_NAME });
+    await expect(cartLine).toBeVisible();
+    await expect(cartLine).not.toContainText(/×\s*3\b/);
+    await expect(cartLine).toContainText('0.500');
+
+    const expectedPrice = Math.round(WEIGHTED_PRICE_PER_KG * 0.5 * 100) / 100;
+    const total = parseMoney(await page.getByTestId('cart-total').innerText());
+    expect(total).toBeCloseTo(expectedPrice, 2);
   });
 
   test('PLU: typing a known barcode and pressing Add adds one unit', async ({ page }) => {
