@@ -460,6 +460,19 @@ test.describe.serial('Full-day soak', () => {
     expect(closePayload.cashReconciliation?.expectedCash).toBe(closingCash);
     expect(closePayload.cashReconciliation?.closingCash).toBe(closingCash);
     expect(closePayload.cashReconciliation?.variance).toBe(0);
+
+    // Caja-per-terminal added a post-close reconciliation summary dialog on
+    // success; it sits on top of the dashboard (background content is
+    // aria-hidden while it's open), so it must be dismissed before the
+    // "Open Caja" button underneath is reachable again. Same fix pattern as
+    // e2e/caja/session-management.spec.ts (commit 223be82).
+    const closeSummary = page.getByTestId('caja-close-summary');
+    await expect(closeSummary).toBeVisible({ timeout: 10_000 });
+    // The dialog also has a generic "X" dismiss control whose accessible name
+    // is also "Close" — scope to the DialogFooter's own action button (first
+    // in DOM order) to avoid a strict-mode ambiguity between the two.
+    await closeSummary.getByRole('button', { name: /^close$/i }).first().click();
+
     await expect(page.getByRole('button', { name: 'Open Caja' })).toBeVisible({ timeout: 30_000 });
   });
 
