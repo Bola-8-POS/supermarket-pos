@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { createJSONStorage, persist } from 'zustand/middleware';
 
 interface LockState {
   locked: boolean;
@@ -13,19 +14,29 @@ interface LockState {
  * down through the FSD layers. Lives in shared/lib (not
  * features/idle-screen-lock) specifically so shared/ui components can depend
  * on it without inverting the FSD import direction (app -> pages -> widgets
- * -> features -> entities -> shared). Deliberately no `persist` middleware --
- * lock state is a live, per-session UI flag, not something that should
- * survive a reload (IdleLockProvider re-arms the idle timer fresh on every
- * mount).
+ * -> features -> entities -> shared).
  *
- * Not shared across Tauri OS windows (e.g. the Product Peek window) -- each
- * window has its own JS realm and its own instance of this store. See
- * 21-RESEARCH.md Open Question 1 / 21-02-PLAN.md's flagged assumption for why
- * ProductPeekWindow is deliberately NOT gated on this store.
+ * Persisted (localStorage key `lock-state`) so that quitting the app while the
+ * overlay is up and relaunching re-shows the overlay instead of the restored
+ * session's route (Supabase session + staff-store are both persisted, so an
+ * in-memory flag alone was a PIN bypass: close window → relaunch → unlocked).
+ * IdleLockProvider clears a stale `locked` whenever there is no authenticated
+ * staff, so a fresh login can never start locked.
+ * The Product Peek window hydrates the same key but never writes it and is
+ * deliberately not gated on it (see 21-RESEARCH.md Open Question 1).
  */
-export const useLockStateStore = create<LockState>()(set => ({
-  locked: false,
-  setLocked: locked => {
-    set({ locked });
-  },
-}));
+export const useLockStateStore = create<LockState>()(
+  persist(
+    set => ({
+      locked: false,
+      setLocked: locked => {
+        set({ locked });
+      },
+    }),
+    {
+      name: 'lock-state',
+      storage: createJSONStorage(() => localStorage),
+      partialize: state => ({ locked: state.locked }),
+    }
+  )
+);

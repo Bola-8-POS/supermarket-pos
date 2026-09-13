@@ -1,4 +1,4 @@
-import { useCallback, type ReactNode } from 'react';
+import { useCallback, useEffect, type ReactNode } from 'react';
 
 import { useTerminalLockSettings } from '@entities/settings';
 import { useStaffStore } from '@entities/staff/model/store';
@@ -24,9 +24,19 @@ export function IdleLockProvider({ children }: IdleLockProviderProps) {
   const isAuthenticated = useStaffStore(s => s.isAuthenticated);
   const currentStaff = useStaffStore(s => s.currentStaff);
   const currentShift = useStaffStore(s => s.currentShift);
+  const hasHydrated = useStaffStore(s => s.hasHydrated);
   const { data: lockSettings } = useTerminalLockSettings();
   const { recordLock, recordUnlock } = useIdleLockAudit();
   const locked = useLockStateStore(s => s.locked);
+
+  // A stale persisted lock must never trap a fresh login: no authenticated
+  // staff ⇒ nothing is locked. Gated on hasHydrated because isAuthenticated is
+  // false for one microtask before the staff store rehydrates.
+  useEffect(() => {
+    if (hasHydrated && !isAuthenticated) {
+      useLockStateStore.getState().setLocked(false);
+    }
+  }, [hasHydrated, isAuthenticated]);
 
   const timeoutMs = (lockSettings?.lockTimeoutSeconds ?? DEFAULT_LOCK_TIMEOUT_SECONDS) * 1000;
 
