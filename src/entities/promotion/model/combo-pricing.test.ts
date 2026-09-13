@@ -624,6 +624,120 @@ describe('evaluateCombos', () => {
   });
 });
 
+describe('parity cross-check with Task 4 integration RPC (process_direct_sale_atomic)', () => {
+  // Each case mirrors one scenario from
+  // promotion-rpc.integration.test.ts's "combo pricing (integration, Task 4)"
+  // describe block, with the same prices/discount config, asserting the
+  // client's evaluateCombos().netSavings equals the server's actual total
+  // discount recorded on order_items for that scenario — the strongest
+  // evidence the two independent implementations agree (Task 4 Step 4).
+
+  it('3x2 (cheapest_free value 1, qty 3 on a category, prices 10/20/30): netSavings 10, matches server total discount 10', () => {
+    const comboId = uid();
+    const combo = makeCombo({
+      id: comboId,
+      discountType: 'cheapest_free',
+      discountValue: 1,
+      slots: [categorySlot('snacks', 3, { promotionId: comboId })],
+    });
+    const lines = [
+      line('A', 10, 1, 'snacks'),
+      line('B', 20, 1, 'snacks'),
+      line('C', 30, 1, 'snacks'),
+    ];
+    const result = evaluateCombos(lines, [combo], NOW, TZ, CATEGORIES);
+    expect(result.netSavings).toBe(10);
+  });
+
+  it('split rows (cheapest_free value 1, qty 3, ONE product qty 3 @ 10): netSavings 10, matches server total discount 10', () => {
+    const comboId = uid();
+    const combo = makeCombo({
+      id: comboId,
+      discountType: 'cheapest_free',
+      discountValue: 1,
+      slots: [categorySlot('snacks', 3, { promotionId: comboId })],
+    });
+    const lines = [line('A', 10, 3, 'snacks')];
+    const result = evaluateCombos(lines, [combo], NOW, TZ, CATEGORIES);
+    expect(result.netSavings).toBe(10);
+  });
+
+  it('bundle_price 25 over two product-specific slots priced 20/10: netSavings 5, matches server total discount 5', () => {
+    const comboId = uid();
+    const combo = makeCombo({
+      id: comboId,
+      discountType: 'bundle_price',
+      discountValue: 25,
+      slots: [
+        productSlot('product-A', 1, { promotionId: comboId, position: 0 }),
+        productSlot('product-B', 1, { promotionId: comboId, position: 1 }),
+      ],
+    });
+    const lines = [line('A', 20, 1, 'snacks'), line('B', 10, 1, 'snacks')];
+    const result = evaluateCombos(lines, [combo], NOW, TZ, CATEGORIES);
+    expect(result.netSavings).toBe(5);
+  });
+
+  it('eligibility: comboEligible=false product never applies: netSavings 0, matches server (no combo discount)', () => {
+    const comboId = uid();
+    const combo = makeCombo({
+      id: comboId,
+      discountType: 'cheapest_free',
+      discountValue: 1,
+      slots: [categorySlot('snacks', 1, { promotionId: comboId })],
+    });
+    const lines = [line('A', 10, 1, 'snacks', { comboEligible: false })];
+    const result = evaluateCombos(lines, [combo], NOW, TZ, CATEGORIES);
+    expect(result.netSavings).toBe(0);
+  });
+
+  it('per-line promotion beats the combo: with the per-line discounts already applied, netSavings 0 (combo never wins), matching the server (rows carry the discount promotion, not the combo)', () => {
+    const comboId = uid();
+    const combo = makeCombo({
+      id: comboId,
+      discountType: 'cheapest_free',
+      discountValue: 1,
+      slots: [categorySlot('snacks', 3, { promotionId: comboId })],
+    });
+    // Same per-line discounts the server's 50%-off promotion produced for
+    // prices 10/20/30 (5/10/15) — the combo's gross (freeing the cheapest
+    // unit, 10) nets out at 10 - 30 <= 0, so it never applies here either.
+    const lines = [
+      line('A', 10, 1, 'snacks', { lineDiscountPerUnit: 5 }),
+      line('B', 20, 1, 'snacks', { lineDiscountPerUnit: 10 }),
+      line('C', 30, 1, 'snacks', { lineDiscountPerUnit: 15 }),
+    ];
+    const result = evaluateCombos(lines, [combo], NOW, TZ, CATEGORIES);
+    expect(result.netSavings).toBe(0);
+  });
+
+  it('clamp-fix regression (bundle_price 0.95 over 42.84/18.79/29.22/0.09): netSavings 89.99, matches server total discount 89.99', () => {
+    // Same repro as the "bundle_price proportional remainder is clamped..."
+    // case above and the integration suite's "clamp-fix regression" case —
+    // restated here explicitly as the Task 4 Step 4 cross-check.
+    const comboId = uid();
+    const combo = makeCombo({
+      id: comboId,
+      discountType: 'bundle_price',
+      discountValue: 0.95,
+      slots: [
+        categorySlot('atta', 1, { promotionId: comboId, position: 0 }),
+        categorySlot('ghee', 1, { promotionId: comboId, position: 1 }),
+        categorySlot('tea', 1, { promotionId: comboId, position: 2 }),
+        categorySlot('coffee', 1, { promotionId: comboId, position: 3 }),
+      ],
+    });
+    const lines = [
+      line('A', 42.84, 1, 'atta'),
+      line('B', 18.79, 1, 'ghee'),
+      line('C', 29.22, 1, 'tea'),
+      line('D', 0.09, 1, 'coffee'),
+    ];
+    const result = evaluateCombos(lines, [combo], NOW, TZ, CATEGORIES);
+    expect(result.netSavings).toBe(89.99);
+  });
+});
+
 describe('isProductComboEligible', () => {
   it('true when the product and its whole category chain are eligible', () => {
     expect(
