@@ -181,16 +181,28 @@ function tryFillCombo(combo: Promotion, units: ComboUnit[]): ComboUnit[] | null 
   return [...claimed];
 }
 
+/** Tolerance for float-vs-cent comparisons after repeated `round2` passes. */
+const EPSILON = 1e-9;
+
 /**
  * Prices one already-filled application: computes `gross` (the table in
  * spec A.1) and the per-unit allocation, in the same pass so the two can
  * never drift apart (`Σ allocation === gross` always holds by construction).
+ * Returns `null` when pricing turns out to be impossible for this
+ * application (see the bundle_price/fixed overflow-guard below) — the
+ * caller treats that exactly like a failed `tryFillCombo` (skip this
+ * candidate this round).
  */
 function priceApplication(
   combo: Promotion,
   pickedUnits: ComboUnit[]
-): { gross: number; allocations: ComboUnitAllocation[] } {
+): { gross: number; allocations: ComboUnitAllocation[] } | null {
   if (combo.discountType === 'percent') {
+    // Deliberate deviation from spec A.1's literal `round2(Σunit × value/100)`
+    // wording: gross here is the SUM of the already-rounded per-unit amounts,
+    // not an independently-rounded total. This is required so
+    // `Σ allocations === gross` holds exactly (the floor-guard/parity
+    // contract needs that), and it's what Task 4's plpgsql port must mirror.
     const allocations = pickedUnits.map(u => ({
       tempId: u.tempId,
       discountAmount: round2((u.price * combo.discountValue) / 100),
@@ -213,7 +225,13 @@ function priceApplication(
 
   // bundle_price | fixed — proportional to unit price, rounded to 2dp,
   // remainder on the last unit (ascending original unit index) so the
-  // allocated total always equals gross exactly.
+  // allocated total always equals gross exactly. The naive per-unit
+  // proportional amount is provably <= that unit's own price (gross <=
+  // sumPrice by construction), but the *remainder* dumped onto the last
+  // unit is not bounded by its price — a cheap trailing unit can be handed
+  // more than it costs. Clamp every unit to its own price and push any
+  // resulting overflow back onto earlier units' remaining headroom
+  // (ascending index), so the total allocated still equals gross exactly.
   const sumPrice = pickedUnits.reduce((sum, u) => sum + u.price, 0);
   const gross =
     combo.discountType === 'bundle_price'
@@ -232,6 +250,38 @@ function priceApplication(
       amounts.set(u, amount);
     }
   });
+
+  // Clamp every unit to its own price (in practice only the remainder-
+  // bearing last unit can ever overflow, but every unit is swept
+  // defensively), collecting the overflow as a residual to redistribute.
+  let residual = 0;
+  for (const u of ordered) {
+    const amount = amounts.get(u) ?? 0;
+    if (amount > u.price + EPSILON) {
+      residual = round2(residual + (amount - u.price));
+      amounts.set(u, u.price);
+    }
+  }
+
+  if (residual > EPSILON) {
+    for (const u of ordered) {
+      if (residual <= EPSILON) break;
+      const headroom = round2(u.price - (amounts.get(u) ?? 0));
+      if (headroom <= EPSILON) continue;
+      const add = Math.min(headroom, residual);
+      amounts.set(u, round2((amounts.get(u) ?? 0) + add));
+      residual = round2(residual - add);
+    }
+  }
+
+  if (residual > EPSILON) {
+    // Unreachable given gross <= sumPrice by construction — total headroom
+    // across the application always covers any remainder. If this ever
+    // trips, gross itself was invalid for this application; treat it as no
+    // application rather than silently over-allocating past a unit's price.
+    return null;
+  }
+
   const allocations = pickedUnits.map(u => ({
     tempId: u.tempId,
     discountAmount: amounts.get(u) ?? 0,
@@ -273,7 +323,9 @@ export function evaluateCombos(
       const pickedUnits = tryFillCombo(combo, units);
       if (pickedUnits === null) continue;
 
-      const { gross, allocations } = priceApplication(combo, pickedUnits);
+      const priced = priceApplication(combo, pickedUnits);
+      if (priced === null) continue;
+      const { gross, allocations } = priced;
       const lineDiscountSum = pickedUnits.reduce((sum, u) => sum + u.lineDiscountPerUnit, 0);
       const net = round2(gross - lineDiscountSum);
       if (net <= 0) continue;

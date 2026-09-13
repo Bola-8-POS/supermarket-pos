@@ -79,6 +79,7 @@ const CATEGORIES: Map<string, ComboCategoryLookup> = new Map([
   ['atta', { comboEligible: true, parentId: null }],
   ['ghee', { comboEligible: true, parentId: null }],
   ['tea', { comboEligible: true, parentId: null }],
+  ['coffee', { comboEligible: true, parentId: null }],
 ]);
 
 /** A slot whose sole target matches an entire category. */
@@ -92,6 +93,21 @@ function categorySlot(
     promotionId,
     quantity,
     targets: [{ id: uid(), promotionId, productId: null, categoryId, slotId: uid() }],
+    ...overrides,
+  });
+}
+
+/** A slot whose sole target matches one specific product id. */
+function productSlot(
+  productId: string,
+  quantity: number,
+  overrides: Partial<PromotionComboSlot> = {}
+): PromotionComboSlot {
+  const promotionId = overrides.promotionId ?? uid();
+  return makeSlot({
+    promotionId,
+    quantity,
+    targets: [{ id: uid(), promotionId, productId, categoryId: null, slotId: uid() }],
     ...overrides,
   });
 }
@@ -201,6 +217,45 @@ describe('evaluateCombos', () => {
     const result = evaluateCombos(lines, [combo], NOW, TZ, CATEGORIES);
     expect(result.applications).toHaveLength(0);
     expect(result.netSavings).toBe(0);
+  });
+
+  it('bundle_price proportional remainder is clamped to the unit price, not allocated over it', () => {
+    // Repro: Σ=90.94, discountValue=0.95 -> gross=89.99. Naive proportional
+    // allocation dumps the whole rounding remainder on the last unit (index
+    // order), which for a 0.09 unit would come out to 0.10 — over its own
+    // price — without the clamp+redistribute fix.
+    const comboId = uid();
+    const combo = makeCombo({
+      id: comboId,
+      discountType: 'bundle_price',
+      discountValue: 0.95,
+      slots: [
+        categorySlot('atta', 1, { promotionId: comboId, position: 0 }),
+        categorySlot('ghee', 1, { promotionId: comboId, position: 1 }),
+        categorySlot('tea', 1, { promotionId: comboId, position: 2 }),
+        categorySlot('coffee', 1, { promotionId: comboId, position: 3 }),
+      ],
+    });
+    const lines = [
+      line('A', 42.84, 1, 'atta'),
+      line('B', 18.79, 1, 'ghee'),
+      line('C', 29.22, 1, 'tea'),
+      line('D', 0.09, 1, 'coffee'),
+    ];
+    const result = evaluateCombos(lines, [combo], NOW, TZ, CATEGORIES);
+
+    expect(result.applications).toHaveLength(1);
+    const app = result.applications[0];
+    expect(app?.gross).toBe(89.99);
+
+    const priceByTempId = new Map(lines.map(l => [l.tempId, l.unitPrice]));
+    let sum = 0;
+    for (const u of app?.units ?? []) {
+      const price = priceByTempId.get(u.tempId) ?? 0;
+      expect(u.discountAmount).toBeLessThanOrEqual(price); // no unit over-allocated, incl. D@0.09
+      sum += u.discountAmount;
+    }
+    expect(Math.round(sum * 100) / 100).toBe(89.99); // Σ allocations === gross, even after clamping
   });
 
   it('percent 10 over two slots: each unit gets 10% of its own price', () => {
@@ -378,6 +433,88 @@ describe('evaluateCombos', () => {
     expect(tempIds).toEqual(['A', 'B']);
   });
 
+  it('slots of the same combo fill in position-ascending order, not input-array order', () => {
+    // Two units share category 'snacks': A@30 (pricier), B@10. Slot
+    // position 0 targets the whole category (qty 1); slot position 1
+    // targets product A specifically (qty 1). The slots are passed to the
+    // combo in the REVERSE of position order to prove the implementation
+    // sorts by `position`, not array order, before filling.
+    //
+    // Position-ascending fill (position 0 first): slot 0's "highest-priced
+    // eligible match" greedily claims A (30 > 10), leaving slot 1 (which
+    // needs product A specifically) with nothing free that matches ->
+    // the whole combo fails to fill this round. If fill order were instead
+    // array order (slot targeting product A processed first), A would go
+    // to slot 1 and B would satisfy slot 0's category requirement, and the
+    // combo WOULD apply — so this is a real, order-sensitive outcome, not
+    // an incidental one.
+    const comboId = uid();
+    const combo = makeCombo({
+      id: comboId,
+      discountType: 'cheapest_free',
+      discountValue: 1,
+      slots: [
+        productSlot('product-A', 1, { promotionId: comboId, position: 1 }),
+        categorySlot('snacks', 1, { promotionId: comboId, position: 0 }),
+      ],
+    });
+    const lines = [line('A', 30, 1, 'snacks'), line('B', 10, 1, 'snacks')];
+    const result = evaluateCombos(lines, [combo], NOW, TZ, CATEGORIES);
+    expect(result.applications).toHaveLength(0);
+  });
+
+  it('best-net wins: a higher-net combo is chosen over a lower-net combo competing for the same unit', () => {
+    const comboLowNetId = uid();
+    const comboLowNet = makeCombo({
+      id: comboLowNetId,
+      discountType: 'fixed',
+      discountValue: 10, // gross 10, net 10
+      slots: [categorySlot('snacks', 1, { promotionId: comboLowNetId })],
+    });
+    const comboHighNetId = uid();
+    const comboHighNet = makeCombo({
+      id: comboHighNetId,
+      discountType: 'fixed',
+      discountValue: 40, // gross 40, net 40
+      slots: [categorySlot('snacks', 1, { promotionId: comboHighNetId })],
+    });
+    const lines = [line('A', 100, 1, 'snacks')];
+    // Passed low-net-first so a win for the high-net combo proves the
+    // selection is net-based, not array-order-based.
+    const result = evaluateCombos(lines, [comboLowNet, comboHighNet], NOW, TZ, CATEGORIES);
+
+    expect(result.applications).toHaveLength(1);
+    const app = result.applications[0];
+    expect(app?.promotionId).toBe(comboHighNetId);
+    expect(app?.gross).toBe(40);
+  });
+
+  it('exact net tie: the newer createdAt combo wins', () => {
+    const comboOlderId = uid();
+    const comboOlder = makeCombo({
+      id: comboOlderId,
+      discountType: 'fixed',
+      discountValue: 40, // gross 40, net 40 — same as comboNewer
+      createdAt: new Date('2026-08-01T00:00:00.000Z'),
+      slots: [categorySlot('snacks', 1, { promotionId: comboOlderId })],
+    });
+    const comboNewerId = uid();
+    const comboNewer = makeCombo({
+      id: comboNewerId,
+      discountType: 'fixed',
+      discountValue: 40,
+      createdAt: new Date('2026-08-15T00:00:00.000Z'),
+      slots: [categorySlot('snacks', 1, { promotionId: comboNewerId })],
+    });
+    const lines = [line('A', 100, 1, 'snacks')];
+    // comboOlder passed FIRST in the array — if array order (rather than
+    // createdAt) decided ties, the older one would win here.
+    const result = evaluateCombos(lines, [comboOlder, comboNewer], NOW, TZ, CATEGORIES);
+
+    expect(result.applications).toHaveLength(1);
+    expect(result.applications[0]?.promotionId).toBe(comboNewerId);
+  });
+
   it('fast-check: unit consumption, per-unit discount, allocation sum, and net invariants hold', () => {
     const categoryNames = ['snacks', 'atta', 'ghee'] as const;
     const linesArb = fc.array(
@@ -386,6 +523,12 @@ describe('evaluateCombos', () => {
         priceCents: fc.integer({ min: 100, max: 5000 }),
         quantity: fc.integer({ min: 1, max: 3 }),
         category: fc.constantFrom(...categoryNames),
+        lineDiscountCents: fc.integer({ min: 0, max: 2000 }),
+        // Mostly-eligible/mostly-not-weight, biased so the loop still gets
+        // exercised most of the time while these exclusion paths are still
+        // property-tested (not just example-tested).
+        comboEligible: fc.integer({ min: 0, max: 9 }).map(n => n < 8),
+        soldByWeight: fc.integer({ min: 0, max: 9 }).map(n => n < 2),
       }),
       { minLength: 2, maxLength: 6 }
     );
@@ -416,9 +559,12 @@ describe('evaluateCombos', () => {
             categoryId: spec.category,
             quantity: spec.quantity,
             unitPrice: spec.priceCents / 100,
-            lineDiscountPerUnit: 0,
-            soldByWeight: false,
-            comboEligible: true,
+            // Capped to the unit's own price — a per-line discount larger
+            // than the price itself isn't a case this algorithm needs to
+            // handle (upstream pricing already guarantees it).
+            lineDiscountPerUnit: Math.min(spec.lineDiscountCents / 100, spec.priceCents / 100),
+            soldByWeight: spec.soldByWeight,
+            comboEligible: spec.comboEligible,
           }));
 
           const combos: Promotion[] = comboSpecs.map(spec => {
