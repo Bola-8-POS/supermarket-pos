@@ -245,39 +245,39 @@ jobs:
           # file's raw name.
           $nsisExe = Get-ChildItem -Path (Join-Path $bundleRoot 'nsis') -Filter '*-setup.exe' | Select-Object -First 1
           $nsisSig = Get-ChildItem -Path (Join-Path $bundleRoot 'nsis') -Filter '*-setup.exe.sig' | Select-Object -First 1
-          $msiFile = Get-ChildItem -Path (Join-Path $bundleRoot 'msi') -Filter '*.msi' | Select-Object -First 1
-          $msiSig = Get-ChildItem -Path (Join-Path $bundleRoot 'msi') -Filter '*.msi.sig' | Select-Object -First 1
 
-          if (-not $nsisExe -or -not $nsisSig -or -not $msiFile -or -not $msiSig) {
-            Write-Host "FAILED: could not locate all 4 built artifacts (nsis .exe/.exe.sig, msi/.msi.sig) under '$bundleRoot'." -ForegroundColor Red
+          if (-not $nsisExe -or -not $nsisSig) {
+            Write-Host "FAILED: could not locate built artifacts (nsis .exe/.exe.sig) under '$bundleRoot'." -ForegroundColor Red
             exit 1
           }
 
           $nsisSignature = (Get-Content -LiteralPath $nsisSig.FullName -Raw).Trim()
-          $msiSignature = (Get-Content -LiteralPath $msiSig.FullName -Raw).Trim()
           $nsisSanitizedName = $nsisExe.Name -replace ' ', '.'
-          $msiSanitizedName = $msiFile.Name -replace ' ', '.'
           $exeUrl = "https://github.com/$repo/releases/download/$tag/$nsisSanitizedName"
-          $msiUrl = "https://github.com/$repo/releases/download/$tag/$msiSanitizedName"
           $pubDate = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
 
           # Manifest shape matches a real prior release's latest.json byte-for-byte
           # (fetched via `gh release download v1.2.3 --repo zedfauji/supermarket-pos-taj
           # -p latest.json` during this fix's verification) rather than a guessed shape.
+          #
+          # 'windows-x86_64' is the key Tauri's updater plugin actually reads by
+          # default — it is NOT an msi-specific key despite the prior manifest
+          # pointing it at the msi asset. Now that bundle.targets is nsis-only
+          # (v1.6.2, msi never wired up the print broker install), this key MUST
+          # point at the nsis exe or the updater silently finds no update.
           $manifest = [ordered]@{
             version  = $version
             notes    = 'See CHANGELOG.md for release notes.'
             pub_date = $pubDate
             platforms = [ordered]@{
-              'windows-x86_64'     = [ordered]@{ signature = $msiSignature; url = $msiUrl }
-              'windows-x86_64-msi'  = [ordered]@{ signature = $msiSignature; url = $msiUrl }
+              'windows-x86_64'      = [ordered]@{ signature = $nsisSignature; url = $exeUrl }
               'windows-x86_64-nsis' = [ordered]@{ signature = $nsisSignature; url = $exeUrl }
             }
           }
           $manifestPath = Join-Path $bundleRoot 'latest.json'
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $manifestPath -Encoding utf8 -NoNewline
 
-          $assetPaths = @($nsisExe.FullName, $nsisSig.FullName, $msiFile.FullName, $msiSig.FullName, $manifestPath)
+          $assetPaths = @($nsisExe.FullName, $nsisSig.FullName, $manifestPath)
 
           gh release view $tag --repo $repo *>$null
           if ($LASTEXITCODE -eq 0) {
