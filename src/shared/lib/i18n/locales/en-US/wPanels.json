@@ -288,7 +288,8 @@
     "clearCartBody": "All lines are removed. Nothing has been charged.",
     "clearCartConfirm": "Clear",
     "subtotal": "Subtotal",
-    "scanReady": "Scanner ready"
+    "scanReady": "Scanner ready",
+    "comboSavings": "Combo savings"
   },
   "holdSale": {
     "badge": "Sale held",

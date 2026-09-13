@@ -1,6 +1,6 @@
 import { listen } from '@tauri-apps/api/event';
 import { ArrowRight, Eraser, PauseCircle, ScanBarcode, Search, ShoppingBag } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { PaymentForm } from '@widgets/PaymentModal/ui/PaymentForm';
@@ -17,7 +17,13 @@ import {
 import type { AddToCartPayload } from '@features/open-product-peek-window/model/useProductPeekWindow';
 import { useNearExpiryAlerts } from '@entities/inventory';
 import { useCategories, useProducts } from '@entities/product';
-import { evaluateBestPromotion, usePromotions } from '@entities/promotion';
+import {
+  evaluateBestPromotion,
+  evaluateCombos,
+  usePromotions,
+  type ComboCartLine,
+  type ComboCategoryLookup,
+} from '@entities/promotion';
 import { useSettings } from '@entities/settings';
 import { useStaffStore } from '@entities/staff';
 import { useCartStore } from '@entities/tab/model/cartStore';
@@ -31,6 +37,15 @@ import { useBarcodeScanner } from '@shared/lib/useBarcodeScanner';
 import { Badge, ConfirmDialog, MoneyDisplay, POSButton, ScrollArea } from '@shared/ui';
 import { Button } from '@shared/ui/button';
 import { Input } from '@shared/ui/input';
+
+// Combos have day-of-week/time-window recurrence like discount promotions
+// (isPromotionLiveAt) — re-evaluate on this tick so a live-updating cart
+// doesn't need a page refresh to pick up a combo that just came into (or
+// went out of) its active window. Mirrors PaymentForm's own
+// DEFAULT_TIMEZONE fallback (process_direct_sale_atomic's
+// COALESCE(..., 'America/Mexico_City')) for when settings hasn't loaded yet.
+const COMBO_REEVALUATION_INTERVAL_MS = 60_000;
+const DEFAULT_TIMEZONE = 'America/Mexico_City';
 
 export function CheckoutPanel() {
   const { t } = useTranslation('wPanels');
@@ -68,7 +83,7 @@ export function CheckoutPanel() {
     },
   });
   useProducts();
-  useCategories();
+  const { data: categories } = useCategories();
   const promotionsQuery = usePromotions();
   const { data: activePromotions } = promotionsQuery;
   const nearExpiryQuery = useNearExpiryAlerts();
@@ -113,10 +128,73 @@ export function CheckoutPanel() {
   const holdCart = useCartStore(state => state.holdCart);
   const isHeld = useCartStore(state => state.heldCart !== null);
   const flagPriceConflict = useCartStore(state => state.flagPriceConflict);
+  const setComboResult = useCartStore(state => state.setComboResult);
+  const comboResult = useCartStore(state => state.comboResult);
+  const comboNetSavings = useCartStore(state => state.comboNetSavings());
   const staffId = useStaffStore(state => state.currentStaff?.id ?? '');
   const { syntheticTab, processors, resetIdempotencyKey } = useCheckoutSale();
   const editingWeightItem = items.find(item => item.tempId === editingWeightItemId);
   const hasPriceConflict = items.some(item => item.priceConflict);
+
+  // Task 5: minimal-per-product lookup for evaluateCombos' category-chain
+  // eligibility walk, memoized on the categories query's own data reference
+  // (stable until refetch) rather than rebuilt every render.
+  const categoriesById = useMemo(() => {
+    const map = new Map<string, ComboCategoryLookup>();
+    for (const category of categories ?? []) {
+      map.set(category.id, { comboEligible: category.comboEligible, parentId: category.parentId });
+    }
+    return map;
+  }, [categories]);
+
+  // Combos carry the same day-of-week/time-window recurrence as discount
+  // promotions (isPromotionLiveAt) — a cart left open across a window
+  // boundary needs periodic re-evaluation, not just on cart/data changes.
+  const [comboTick, setComboTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setComboTick(tick => tick + 1);
+    }, COMBO_REEVALUATION_INTERVAL_MS);
+    return () => {
+      clearInterval(interval);
+    };
+  }, []);
+
+  useEffect(() => {
+    const lines: ComboCartLine[] = items.map(item => {
+      const modifierDelta = item.selectedModifiers.reduce((sum, m) => sum + m.priceDelta, 0);
+      return {
+        tempId: item.tempId,
+        productId: item.product.id,
+        categoryId: item.product.categoryId,
+        quantity: item.quantity,
+        unitPrice: item.product.basePrice + modifierDelta,
+        lineDiscountPerUnit: Math.max(0, item.product.basePrice - item.unitPrice),
+        soldByWeight: item.weightGrams != null,
+        comboEligible: item.product.comboEligible,
+      };
+    });
+    const timezone = appSettings?.general.timezone ?? DEFAULT_TIMEZONE;
+    setComboResult(
+      evaluateCombos(lines, activePromotions ?? [], new Date(), timezone, categoriesById)
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- comboTick drives the periodic re-evaluation above; setComboResult is a stable Zustand action reference
+  }, [items, activePromotions, categoriesById, appSettings, comboTick]);
+
+  // Map<tempId, promotionName> — one lookup built once per render from the
+  // latest combo evaluation, not per cart line, so CartItem's comboLabel prop
+  // stays a cheap map read.
+  const comboLabelByTempId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const application of comboResult?.applications ?? []) {
+      for (const unit of application.units) {
+        if (!map.has(unit.tempId)) {
+          map.set(unit.tempId, application.promotionName);
+        }
+      }
+    }
+    return map;
+  }, [comboResult]);
 
   // PROMO-08: on reconnect, re-evaluate every promotion-sourced cart line
   // against freshly-refetched promotions/near-expiry data. A stale offline
@@ -343,6 +421,7 @@ export function CheckoutPanel() {
                     onNotesChange={notes => {
                       setItemNotes(item.tempId, notes);
                     }}
+                    comboLabel={comboLabelByTempId.get(item.tempId)}
                     {...(item.weightGrams != null
                       ? {
                           onEditWeight: () => {
@@ -356,6 +435,26 @@ export function CheckoutPanel() {
             </ScrollArea>
           )}
 
+          {comboResult != null && comboResult.applications.length > 0 && (
+            <section
+              data-testid="combo-applications"
+              className="shrink-0 space-y-1 border-t border-border px-4 py-2 text-sm"
+            >
+              {comboResult.applications.map((application, index) => (
+                <div
+                  // Applications aren't individually id'd on the cart side (an
+                  // application can repeat the same promotionId), so pair id
+                  // with index for a stable-enough key within one render.
+                  key={`${application.promotionId}-${String(index)}`}
+                  className="flex justify-between text-success-strong"
+                >
+                  <span>{application.promotionName}</span>
+                  <span>−{formatMoney(application.net)}</span>
+                </div>
+              ))}
+            </section>
+          )}
+
           <div className="shrink-0 space-y-3 border-t border-border bg-background/60 p-4 backdrop-blur-sm">
             <dl className="space-y-1 text-sm">
               <div className="flex justify-between text-muted-foreground">
@@ -364,12 +463,22 @@ export function CheckoutPanel() {
                   <MoneyDisplay amount={total} size="sm" />
                 </dd>
               </div>
+              {comboNetSavings > 0 && (
+                <div className="flex justify-between text-success-strong">
+                  <dt>{t('checkoutPanel.comboSavings')}</dt>
+                  <dd data-testid="combo-savings">−{formatMoney(comboNetSavings)}</dd>
+                </div>
+              )}
               <div className="flex items-end justify-between">
                 <dt className="text-[0.6875rem] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   {t('checkoutPanel.cartTotal')}
                 </dt>
-                <dd>
-                  <MoneyDisplay amount={total} size="xl" className="text-[2.5rem] leading-none" />
+                <dd data-testid="cart-total">
+                  <MoneyDisplay
+                    amount={total - comboNetSavings}
+                    size="xl"
+                    className="text-[2.5rem] leading-none"
+                  />
                 </dd>
               </div>
             </dl>

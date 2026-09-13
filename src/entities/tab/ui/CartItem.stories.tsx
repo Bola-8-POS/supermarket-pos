@@ -67,6 +67,7 @@ const meta = {
     onQuantitySet: () => {},
     onRemove: () => {},
     onNotesChange: () => {},
+    comboLabel: undefined,
   },
 } satisfies Meta<typeof CartItem>;
 

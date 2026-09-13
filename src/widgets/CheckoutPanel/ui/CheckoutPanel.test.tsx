@@ -1,8 +1,11 @@
 import { act, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useCategories } from '@entities/product';
+import type * as PromotionModule from '@entities/promotion';
 import { useStaffStore } from '@entities/staff/model/store';
 import { useCartStore } from '@entities/tab/model/cartStore';
-import type { Product, Staff } from '@shared/lib/domain';
+import type { Category, Product, Promotion, Staff } from '@shared/lib/domain';
+import { formatMoney } from '@shared/lib/format';
 import { renderWithProviders } from '@shared/lib/test-utils';
 import { CheckoutPanel } from './CheckoutPanel';
 
@@ -10,6 +13,20 @@ vi.mock('@entities/product', () => ({
   useProducts: vi.fn(),
   useCategories: vi.fn(),
 }));
+
+// Controllable promotions list (Task 5's combo evaluation) — evaluateCombos
+// and isProductComboEligible stay the real implementation; only
+// usePromotions() is swapped, mirroring PaymentForm.test.tsx's pattern.
+const { mockPromotionsData } = vi.hoisted(() => ({
+  mockPromotionsData: [] as Promotion[],
+}));
+vi.mock('@entities/promotion', async importOriginal => {
+  const actual = await importOriginal<typeof PromotionModule>();
+  return {
+    ...actual,
+    usePromotions: () => ({ data: mockPromotionsData }),
+  };
+});
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn().mockResolvedValue(() => undefined),
@@ -157,8 +174,15 @@ const mockStaff: Staff = {
 
 describe('CheckoutPanel', () => {
   beforeEach(() => {
-    useCartStore.setState({ items: [], heldCart: null });
+    useCartStore.setState({ items: [], heldCart: null, comboResult: null });
     vi.mocked(useStaffStore).mockImplementation(mockStoreState({ currentStaff: mockStaff }));
+    mockPromotionsData.length = 0;
+    // Real useCategories() always returns a defined object — never bare
+    // `undefined` — so the default here matches that invariant (only the
+    // Task 5 combo describe below overrides `.data` with real fixtures).
+    vi.mocked(useCategories).mockReturnValue({
+      data: undefined,
+    } as ReturnType<typeof useCategories>);
   });
 
   it('populates the search box with the scanned barcode instead of adding to the cart', async () => {
@@ -247,5 +271,121 @@ describe('CheckoutPanel', () => {
         mockProductB.barcode
       );
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 5 — live combo evaluation in the cart
+// ---------------------------------------------------------------------------
+
+const comboCategoryId = '22222222-2222-2222-2222-222222222222';
+
+const mockComboCategory: Category = {
+  id: comboCategoryId,
+  name: 'Combo Category',
+  color: '#000000',
+  sortOrder: 0,
+  happyHourStart: null,
+  happyHourEnd: null,
+  routing: 'NONE',
+  parentId: null,
+  comboEligible: true,
+  createdAt: new Date(),
+};
+
+function comboProduct(id: string): Product {
+  return {
+    ...mockProductA,
+    id,
+    name: `Combo Item ${id}`,
+    barcode: null,
+    categoryId: comboCategoryId,
+    basePrice: 10,
+    comboEligible: true,
+  };
+}
+
+/** Buy-3-pay-2 combo: one slot of quantity 3 on comboCategoryId, cheapest unit free. */
+function makeComboPromotion(): Promotion {
+  const now = new Date();
+  return {
+    id: 'combo-promo-1',
+    name: '3x2 Combo',
+    targets: [],
+    kind: 'combo',
+    discountType: 'cheapest_free',
+    discountValue: 1,
+    startsAt: new Date(now.getTime() - 60 * 60 * 1000),
+    endsAt: new Date(now.getTime() + 60 * 60 * 1000),
+    daysOfWeek: null,
+    startTime: null,
+    endTime: null,
+    needsReview: false,
+    active: true,
+    createdAt: now,
+    createdBy: null,
+    slots: [
+      {
+        id: 'slot-1',
+        promotionId: 'combo-promo-1',
+        position: 0,
+        quantity: 3,
+        label: null,
+        targets: [
+          {
+            id: 'target-1',
+            promotionId: 'combo-promo-1',
+            productId: null,
+            categoryId: comboCategoryId,
+            slotId: 'slot-1',
+          },
+        ],
+      },
+    ],
+  };
+}
+
+describe('CheckoutPanel — combo evaluation (Task 5)', () => {
+  beforeEach(() => {
+    useCartStore.setState({ items: [], heldCart: null, comboResult: null });
+    vi.mocked(useStaffStore).mockImplementation(mockStoreState({ currentStaff: mockStaff }));
+    mockPromotionsData.length = 0;
+    mockPromotionsData.push(makeComboPromotion());
+    vi.mocked(useCategories).mockReturnValue({
+      data: [mockComboCategory],
+    } as ReturnType<typeof useCategories>);
+  });
+
+  it('applies a 3x2 combo across 3 eligible lines: shows the application, the savings row, and the adjusted total', async () => {
+    renderWithProviders(<CheckoutPanel />);
+
+    act(() => {
+      useCartStore.getState().addItem(comboProduct('combo-a'), []);
+      useCartStore.getState().addItem(comboProduct('combo-b'), []);
+      useCartStore.getState().addItem(comboProduct('combo-c'), []);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('combo-applications')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('combo-applications')).toHaveTextContent('3x2 Combo');
+    expect(screen.getByTestId('combo-savings')).toHaveTextContent(`−${formatMoney(10)}`);
+    // 3 lines x $10 = $30 subtotal, minus $10 combo savings = $20 total.
+    expect(screen.getByTestId('cart-total')).toHaveTextContent(formatMoney(20));
+  });
+
+  it('shows no combo section when fewer than 3 eligible lines are in the cart', async () => {
+    renderWithProviders(<CheckoutPanel />);
+
+    act(() => {
+      useCartStore.getState().addItem(comboProduct('combo-a'), []);
+      useCartStore.getState().addItem(comboProduct('combo-b'), []);
+    });
+
+    await waitFor(() => {
+      expect(useCartStore.getState().items).toHaveLength(2);
+    });
+    expect(screen.queryByTestId('combo-applications')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('combo-savings')).not.toBeInTheDocument();
   });
 });

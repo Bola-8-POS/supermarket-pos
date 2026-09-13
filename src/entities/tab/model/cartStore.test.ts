@@ -39,7 +39,7 @@ describe('cartStore', () => {
   };
 
   beforeEach(() => {
-    useCartStore.setState({ items: [], heldCart: null });
+    useCartStore.setState({ items: [], heldCart: null, comboResult: null });
   });
 
   describe('addItem', () => {
@@ -569,6 +569,64 @@ describe('cartStore', () => {
       useCartStore.getState().setLineQuantity(tempId, 0);
 
       expect(useCartStore.getState().items).toHaveLength(0);
+    });
+  });
+
+  describe('combo evaluation (Task 5)', () => {
+    const mockComboResult = {
+      applications: [
+        {
+          promotionId: 'combo-1',
+          promotionName: '3x2 Combo',
+          discountType: 'percent' as const,
+          discountRate: null,
+          units: [{ tempId: 'temp-1', discountAmount: 10 }],
+          gross: 10,
+          net: 10,
+        },
+      ],
+      netSavings: 10,
+    };
+
+    it('comboResult defaults to null and comboNetSavings defaults to 0', () => {
+      expect(useCartStore.getState().comboResult).toBeNull();
+      expect(useCartStore.getState().comboNetSavings()).toBe(0);
+    });
+
+    it('setComboResult stores the evaluation and comboNetSavings reflects its netSavings', () => {
+      useCartStore.getState().setComboResult(mockComboResult);
+
+      expect(useCartStore.getState().comboResult).toEqual(mockComboResult);
+      expect(useCartStore.getState().comboNetSavings()).toBe(10);
+    });
+
+    it('clearCart resets comboResult to null', () => {
+      useCartStore.getState().addItem(mockProduct, []);
+      useCartStore.getState().setComboResult(mockComboResult);
+
+      useCartStore.getState().clearCart();
+
+      expect(useCartStore.getState().comboResult).toBeNull();
+    });
+
+    it('holdCart resets comboResult to null', () => {
+      useCartStore.getState().addItem(mockProduct, []);
+      useCartStore.getState().setComboResult(mockComboResult);
+
+      useCartStore.getState().holdCart();
+
+      expect(useCartStore.getState().comboResult).toBeNull();
+    });
+
+    it('resumeHeld resets comboResult to null', () => {
+      useCartStore.getState().addItem(mockProduct, []);
+      useCartStore.getState().holdCart();
+      useCartStore.getState().addItem({ ...mockProduct, id: 'other-product' }, []);
+      useCartStore.getState().setComboResult(mockComboResult);
+
+      useCartStore.getState().resumeHeld();
+
+      expect(useCartStore.getState().comboResult).toBeNull();
     });
   });
 });

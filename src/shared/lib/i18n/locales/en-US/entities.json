@@ -31,6 +31,7 @@
     "notesFor": "Note for {{name}}"
     ,"nearExpiry": "Expires in {{days}} days"
     ,"priceConflict": "Price changed — tap to review"
+    ,"comboApplied": "Combo: {{name}}"
   },
   "categoryTabs": {
     "showAll": "Show all categories",

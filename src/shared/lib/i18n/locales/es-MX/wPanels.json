@@ -288,7 +288,8 @@
     "clearCartBody": "Se quitan todas las partidas. No se ha cobrado nada.",
     "clearCartConfirm": "Vaciar",
     "subtotal": "Subtotal",
-    "scanReady": "Escáner listo"
+    "scanReady": "Escáner listo",
+    "comboSavings": "Ahorro por combo"
   },
   "holdSale": {
     "badge": "Venta en espera",

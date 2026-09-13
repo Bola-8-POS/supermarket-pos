@@ -25,6 +25,7 @@ beforeAll(() => {
 
 import type * as PromotionModule from '@entities/promotion';
 import { useStaffStore } from '@entities/staff/model/store';
+import { useCartStore } from '@entities/tab/model/cartStore';
 import type { Tab } from '@entities/tab/model/types';
 import type { Promotion } from '@shared/lib/domain';
 import type { ReceiptData } from '@shared/lib/edge-function-contracts';
@@ -319,6 +320,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockSettings.billing = { ...DEFAULT_MOCK_BILLING };
   mockPromotionsData.length = 0;
+  useCartStore.setState({ comboResult: null });
   useStaffStore.setState({
     currentStaff: {
       id: staffId,
@@ -1182,5 +1184,66 @@ describe('PaymentForm — Apply Promotion selector', () => {
 
     // The weaker 5% candidate ($9.50) never overwrites the already-better $9 line.
     expect(screen.getByTestId('total-row')).toHaveTextContent('9.00');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 5 — combo savings subtracted pre-tax; combo promotions excluded from
+// the "Apply Promotion" selector (that's the live-cart combo evaluation's
+// job, not this ad-hoc picker's).
+// ---------------------------------------------------------------------------
+
+describe('PaymentForm — combo savings (Task 5)', () => {
+  it('subtracts comboNetSavings from the subtotal before tax (taxRate=0: total-row reflects it 1:1)', () => {
+    useCartStore.setState({
+      comboResult: {
+        applications: [
+          {
+            promotionId: 'combo-1',
+            promotionName: '3x2 Combo',
+            discountType: 'cheapest_free',
+            discountRate: null,
+            units: [{ tempId: 'temp-1', discountAmount: 5 }],
+            gross: 5,
+            net: 5,
+          },
+        ],
+        netSavings: 5,
+      },
+    });
+    renderForm();
+
+    // testTab: itemsSubtotal=$20, taxRate=0 -> total-row = 20 - 5 = 15.
+    expect(screen.getByTestId('total-row')).toHaveTextContent('15.00');
+  });
+
+  it('a combo (kind="combo") promotion never appears in the "Apply Promotion" select — only kind="discount" ones do', async () => {
+    const user = userEvent.setup();
+    mockPromotionsData.push(
+      makePromotion({ kind: 'combo', name: 'Hidden Combo Promo' }),
+      makePromotion({
+        id: '88888888-8888-8888-8888-888888888888',
+        name: 'Visible Discount Promo',
+      })
+    );
+    renderWithProviders(
+      <PaymentForm
+        tab={promotableTab}
+        staffId={staffId}
+        onPaymentSuccess={vi.fn()}
+        processors={makeCheckoutProcessors()}
+      />
+    );
+
+    expect(screen.getByTestId('apply-promotion-section')).toBeInTheDocument();
+    await user.click(screen.getByTestId('apply-promotion-select'));
+    expect(screen.getByText('Visible Discount Promo')).toBeInTheDocument();
+    expect(screen.queryByText('Hidden Combo Promo')).not.toBeInTheDocument();
+  });
+
+  it('the section stays hidden when only a combo promotion is currently active', () => {
+    mockPromotionsData.push(makePromotion({ kind: 'combo' }));
+    renderForm();
+    expect(screen.queryByTestId('apply-promotion-section')).not.toBeInTheDocument();
   });
 });

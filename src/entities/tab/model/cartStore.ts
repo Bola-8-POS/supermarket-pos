@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type { ComboEvaluation } from '@entities/promotion';
 import type { CartItem, Product, Modifier } from '@shared/lib/domain';
 import { CartItemSchema } from '@shared/lib/domain';
 import { logger } from '@shared/lib/logger-instance';
@@ -10,6 +11,12 @@ import { logger } from '@shared/lib/logger-instance';
 interface CartState {
   items: CartItem[];
   heldCart: CartItem[] | null;
+  /**
+   * Live combo-promotion evaluation for the current `items` (Task 5) — a
+   * derived, transient view of the cart, never persisted and always reset
+   * whenever `items` is replaced wholesale (clearCart/holdCart/resumeHeld).
+   */
+  comboResult: ComboEvaluation | null;
 }
 
 interface CartActions {
@@ -76,6 +83,9 @@ interface CartActions {
   holdCart: () => void;
   resumeHeld: () => void;
   discardHeld: () => void;
+
+  /** Stores the latest combo-promotion evaluation for the current cart (Task 5). */
+  setComboResult: (result: ComboEvaluation | null) => void;
 }
 
 interface CartSelectors {
@@ -87,6 +97,9 @@ interface CartSelectors {
 
   /** True when the cart has no items. */
   isCartEmpty: () => boolean;
+
+  /** Net savings from the last combo evaluation, or 0 when none. */
+  comboNetSavings: () => number;
 }
 
 type CartStore = CartState & CartActions & CartSelectors;
@@ -152,6 +165,7 @@ export const useCartStore = create<CartStore>()(
     (set, get) => ({
       items: [],
       heldCart: null,
+      comboResult: null,
 
       addItem: (product, modifiers, unitPrice?, promotionId?) => {
         const state = get();
@@ -341,7 +355,7 @@ export const useCartStore = create<CartStore>()(
 
       clearCart: () => {
         logger.info('cart.cleared');
-        set({ items: [] });
+        set({ items: [], comboResult: null });
       },
 
       holdCart: () => {
@@ -355,7 +369,7 @@ export const useCartStore = create<CartStore>()(
           return;
         }
         logger.info('cart.held');
-        set({ heldCart: state.items, items: [] });
+        set({ heldCart: state.items, items: [], comboResult: null });
       },
 
       resumeHeld: () => {
@@ -366,6 +380,7 @@ export const useCartStore = create<CartStore>()(
           return {
             items: state.heldCart,
             heldCart: swappedActiveCart ? state.items : null,
+            comboResult: null,
           };
         });
         logger.info('cart.resumed', { swappedActiveCart });
@@ -376,11 +391,17 @@ export const useCartStore = create<CartStore>()(
         set({ heldCart: null });
       },
 
+      setComboResult: result => {
+        set({ comboResult: result });
+      },
+
       totalAmount: () => get().items.reduce((sum, item) => sum + item.lineTotal, 0),
 
       itemCount: () => get().items.reduce((count, item) => count + item.quantity, 0),
 
       isCartEmpty: () => get().items.length === 0,
+
+      comboNetSavings: () => get().comboResult?.netSavings ?? 0,
     }),
     {
       name: HELD_CART_STORE_NAME,

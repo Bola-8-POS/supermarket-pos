@@ -18,6 +18,8 @@ export interface CartItemProps {
   onRemove: () => void;
   onNotesChange: (notes: string) => void;
   onEditWeight?: () => void;
+  /** Name of the combo promotion that consumed at least one unit of this line (Task 5), undefined when none. */
+  comboLabel: string | undefined;
 }
 
 export function CartItem({
@@ -26,6 +28,7 @@ export function CartItem({
   onRemove,
   onNotesChange,
   onEditWeight,
+  comboLabel,
 }: CartItemProps) {
   const { t } = useTranslation('entities');
   const { data: nearExpiryAlerts } = useNearExpiryAlerts();
@@ -98,8 +101,16 @@ export function CartItem({
         </div>
       </div>
 
-      {(nearExpiry || item.priceConflict || item.selectedModifiers.length > 0) && (
+      {(nearExpiry ||
+        item.priceConflict ||
+        item.selectedModifiers.length > 0 ||
+        comboLabel !== undefined) && (
         <div className="flex flex-wrap items-center gap-1.5">
+          {comboLabel !== undefined ? (
+            <Badge variant="brand" data-testid="cart-item-combo-badge">
+              {t('cartItem.comboApplied', { name: comboLabel })}
+            </Badge>
+          ) : null}
           {nearExpiry ? (
             <Badge variant="warning">
               {t('cartItem.nearExpiry', { days: nearExpiry.daysUntilExpiry })}

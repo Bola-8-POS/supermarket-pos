@@ -12,7 +12,7 @@ import { ReceiptPreview } from '@features/process-payment/ui/ReceiptPreview';
 import { evaluateBestPromotion, usePromotions } from '@entities/promotion';
 import { useReceiptSettings, useSettings } from '@entities/settings';
 import { useStaffStore } from '@entities/staff/model/store';
-import { calcWeightedLineTotal } from '@entities/tab/model/cartStore';
+import { calcWeightedLineTotal, useCartStore } from '@entities/tab/model/cartStore';
 import type { Tab } from '@entities/tab/model/types';
 import {
   PAYMENT_METHODS,
@@ -324,7 +324,12 @@ export function PaymentForm({
   // AND ends_at`. Empty list hides the "Apply Promotion" section entirely.
   const activePromotionOptions = useMemo(() => {
     const now = new Date();
-    return (allPromotions ?? []).filter(p => p.active && now >= p.startsAt && now <= p.endsAt);
+    // kind === 'combo' promotions are never manually selectable here — they're
+    // priced automatically by the live cart's own combo evaluation (Task 5),
+    // not by this ad-hoc "Apply Promotion" picker.
+    return (allPromotions ?? []).filter(
+      p => p.kind === 'discount' && p.active && now >= p.startsAt && now <= p.endsAt
+    );
   }, [allPromotions]);
   const selectedPromotion = activePromotionOptions.find(p => p.id === selectedPromotionId) ?? null;
 
@@ -379,7 +384,13 @@ export function PaymentForm({
     () => calculateDiscountAmount(discountBase, discountType, discountValue),
     [discountBase, discountType, discountValue]
   );
-  const afterDiscount = Math.round((baseSubtotal - discountAmount) * 100) / 100;
+  // Task 5: combo-promotion savings from the live cart. Combo discounts never
+  // touch a cart line's own unitPrice/lineTotal (they're a whole-cart
+  // allocation, not a per-line price), so itemsSubtotal above doesn't yet
+  // reflect them — subtracted here, at the same pre-tax stage as the ad-hoc
+  // discount, so tax is always computed on the true post-combo base.
+  const comboNetSavings = useCartStore(s => s.comboNetSavings());
+  const afterDiscount = Math.round((baseSubtotal - discountAmount - comboNetSavings) * 100) / 100;
   const taxAmount = useMemo(() => {
     if (taxInclusive) {
       // Inclusive mode (TAX-02): afterDiscount already IS the total — decompose

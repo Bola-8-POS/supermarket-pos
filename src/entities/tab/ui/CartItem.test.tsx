@@ -72,6 +72,7 @@ describe('CartItem', () => {
         onQuantitySet={noop}
         onRemove={noop}
         onNotesChange={noop}
+        comboLabel={undefined}
       />
     );
 
@@ -86,6 +87,7 @@ describe('CartItem', () => {
         onQuantitySet={noop}
         onRemove={noop}
         onNotesChange={noop}
+        comboLabel={undefined}
       />
     );
 
@@ -101,6 +103,7 @@ describe('CartItem', () => {
         onQuantitySet={noop}
         onRemove={noop}
         onNotesChange={noop}
+        comboLabel={undefined}
       />
     );
 
@@ -115,6 +118,7 @@ describe('CartItem', () => {
         onQuantitySet={noop}
         onRemove={noop}
         onNotesChange={noop}
+        comboLabel={undefined}
       />
     );
 
@@ -132,11 +136,44 @@ describe('CartItem', () => {
         onQuantitySet={noop}
         onRemove={noop}
         onNotesChange={noop}
+        comboLabel={undefined}
       />
     );
 
     // Only the "X% off" text renders next to the discount indicator — no
     // promotion-name free text anywhere on the line (UI-SPEC long-text rule).
     expect(screen.getByText('20% off')).toBeInTheDocument();
+  });
+
+  describe('comboLabel (Task 5)', () => {
+    it('renders no combo badge when comboLabel is undefined', () => {
+      renderWithProviders(
+        <CartItem
+          item={buildItem()}
+          onQuantitySet={noop}
+          onRemove={noop}
+          onNotesChange={noop}
+          comboLabel={undefined}
+        />
+      );
+
+      expect(screen.queryByTestId('cart-item-combo-badge')).not.toBeInTheDocument();
+    });
+
+    it('renders a distinct combo badge with the promotion name when comboLabel is set', () => {
+      renderWithProviders(
+        <CartItem
+          item={buildItem()}
+          onQuantitySet={noop}
+          onRemove={noop}
+          onNotesChange={noop}
+          comboLabel="3x2 Combo"
+        />
+      );
+
+      const badge = screen.getByTestId('cart-item-combo-badge');
+      expect(badge).toBeInTheDocument();
+      expect(badge).toHaveTextContent('3x2 Combo');
+    });
   });
 });

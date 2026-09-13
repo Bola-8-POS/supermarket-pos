@@ -31,6 +31,7 @@
     "notesFor": "Nota para {{name}}"
     ,"nearExpiry": "Caduca en {{days}} días"
     ,"priceConflict": "Precio cambió — toca para revisar"
+    ,"comboApplied": "Combo: {{name}}"
   },
   "categoryTabs": {
     "showAll": "Mostrar todas las categorías",
