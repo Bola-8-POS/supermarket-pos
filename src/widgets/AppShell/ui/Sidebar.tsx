@@ -8,7 +8,7 @@ import {
   Wifi,
   WifiOff,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { AgentButton } from '@features/agent-chat';
@@ -19,6 +19,7 @@ import { useStaffStore } from '@entities/staff/model/store';
 import { usePermissions } from '@entities/staff/model/usePermissions';
 import { NAV_GROUPS, NAV_ITEMS, type NavItem } from '@shared/config/navigation';
 import { useOnlineStatus } from '@shared/lib/connectivity';
+import { confirmNavigation, useNavigationGuardStore } from '@shared/lib/navigation-guard';
 import type { StaffAction } from '@shared/lib/rbac';
 import { getTerminalId } from '@shared/lib/terminal';
 import { cn } from '@shared/lib/utils';
@@ -27,6 +28,19 @@ import { Button } from '@shared/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@shared/ui/tooltip';
 
 type GatedTarget = { action: StaffAction; path: string };
+
+// Navigation from the sidebar must honour the page-installed guard (Settings
+// installs one while a tab has unsaved changes). NavLink handles the default
+// case; when a guard is installed we take over and navigate imperatively.
+function useGuardedNavigate() {
+  const navigate = useNavigate();
+  return useCallback(
+    async (to: string) => {
+      if (await confirmNavigation()) void navigate(to);
+    },
+    [navigate]
+  );
+}
 
 function BrandMark({ compact }: { compact: boolean }) {
   const { t } = useTranslation('wPanels');
@@ -70,6 +84,8 @@ function NavEntry({
   const { t } = useTranslation('wPanels');
   const Icon = item.icon;
   const label = t(item.labelKey);
+  const hasGuard = useNavigationGuardStore(s => s.guard !== null);
+  const guardedNavigate = useGuardedNavigate();
 
   const link = (
     <NavLink
@@ -78,6 +94,11 @@ function NavEntry({
         if (gated && item.requiredAction) {
           event.preventDefault();
           onGated({ action: item.requiredAction, path: item.path });
+          return;
+        }
+        if (hasGuard) {
+          event.preventDefault();
+          void guardedNavigate(item.path);
         }
       }}
       className={({ isActive }) =>
@@ -161,6 +182,8 @@ export function Sidebar({ collapsed, onToggle, toggleHidden }: SidebarProps) {
   const grantManagerActions = useStaffStore(s => s.grantManagerActions);
   const { data: nearExpiryAlerts } = useNearExpiryAlerts();
   const [gatedTarget, setGatedTarget] = useState<GatedTarget | null>(null);
+  const hasGuard = useNavigationGuardStore(s => s.guard !== null);
+  const guardedNavigate = useGuardedNavigate();
 
   const shiftStart = currentShift
     ? new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(
@@ -169,12 +192,20 @@ export function Sidebar({ collapsed, onToggle, toggleHidden }: SidebarProps) {
     : null;
 
   function handleSignOut() {
-    logout();
-    void navigate('/login');
+    void (async () => {
+      if (!(await confirmNavigation())) return;
+      logout();
+      void navigate('/login');
+    })();
   }
 
   const homeLabel = t('appShell.home');
-  const isHome = location.pathname === '/home';
+  // Not UI copy — kept as a variable (rather than inlined) purely so the
+  // guardedNavigate(HOME_PATH) call below isn't a raw string-literal call
+  // argument, which i18next/no-literal-string's `callees` check (mode: 'all')
+  // otherwise flags on any callee not in its exclude list.
+  const HOME_PATH = '/home';
+  const isHome = location.pathname === HOME_PATH;
 
   return (
     <TooltipProvider delayDuration={150}>
@@ -199,8 +230,14 @@ export function Sidebar({ collapsed, onToggle, toggleHidden }: SidebarProps) {
         >
           {/* Home */}
           <NavLink
-            to="/home"
+            to={HOME_PATH}
             aria-label={homeLabel}
+            onClick={event => {
+              if (hasGuard) {
+                event.preventDefault();
+                void guardedNavigate(HOME_PATH);
+              }
+            }}
             className={cn(
               'group/nav relative flex h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium text-sidebar-muted transition-[background-color,color] duration-150 outline-none select-none hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:ring-3 focus-visible:ring-ring/40',
               isHome && 'bg-sidebar-accent text-sidebar-foreground',
@@ -352,7 +389,7 @@ export function Sidebar({ collapsed, onToggle, toggleHidden }: SidebarProps) {
             grantManagerActions([gatedTarget.action]);
             const path = gatedTarget.path;
             setGatedTarget(null);
-            void navigate(path);
+            void guardedNavigate(path);
           }}
         />
       </div>
