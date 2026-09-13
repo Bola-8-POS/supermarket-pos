@@ -30,6 +30,8 @@ export type MoneyInputProps = {
   disabled?: boolean;
   /** Additional CSS classes */
   className?: string;
+  /** Test hook forwarded to the underlying <input> (e.g. for a value shared across multiple possible input types). */
+  'data-testid'?: string;
 };
 
 /**
@@ -72,6 +74,7 @@ export function MoneyInput({
   ariaLabel,
   disabled = false,
   className,
+  'data-testid': dataTestId,
 }: MoneyInputProps) {
   const { t } = useTranslation('common');
   const inputId = useId();
@@ -137,6 +140,7 @@ export function MoneyInput({
           disabled={disabled}
           className="pl-8 text-numeric font-medium"
           {...(!label ? { 'aria-label': ariaLabel ?? t('moneyInput.amountAria') } : {})}
+          {...(dataTestId ? { 'data-testid': dataTestId } : {})}
         />
       </div>
     </div>

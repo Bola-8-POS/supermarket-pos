@@ -25,6 +25,7 @@ export {
 export {
   evaluateCombos,
   isProductComboEligible,
+  isCategoryChainEligible,
   type ComboCartLine,
   type ComboUnitAllocation,
   type ComboApplication,

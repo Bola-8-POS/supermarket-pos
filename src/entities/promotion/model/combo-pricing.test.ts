@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { Promotion, PromotionComboSlot } from '@shared/lib/domain';
 import {
   evaluateCombos,
+  isCategoryChainEligible,
   isProductComboEligible,
   type ComboCartLine,
   type ComboCategoryLookup,
@@ -767,5 +768,32 @@ describe('isProductComboEligible', () => {
     expect(isProductComboEligible({ comboEligible: true, categoryId: 'unknown' }, empty)).toBe(
       true
     );
+  });
+});
+
+describe('isCategoryChainEligible', () => {
+  it('true when the category and its whole ancestor chain are eligible', () => {
+    expect(isCategoryChainEligible('snacks', CATEGORIES)).toBe(true);
+  });
+
+  it('false when the category itself is marked ineligible', () => {
+    const map: Map<string, ComboCategoryLookup> = new Map([
+      ['snacks-ineligible', { comboEligible: false, parentId: null }],
+    ]);
+    expect(isCategoryChainEligible('snacks-ineligible', map)).toBe(false);
+  });
+
+  it('false when any ancestor up to 3 levels is ineligible (3-deep chain)', () => {
+    const chain: Map<string, ComboCategoryLookup> = new Map([
+      ['grandparent', { comboEligible: false, parentId: null }],
+      ['parent', { comboEligible: true, parentId: 'grandparent' }],
+      ['child', { comboEligible: true, parentId: 'parent' }],
+    ]);
+    expect(isCategoryChainEligible('child', chain)).toBe(false);
+  });
+
+  it('a missing category lookup is treated as eligible, not a crash', () => {
+    const empty: Map<string, ComboCategoryLookup> = new Map();
+    expect(isCategoryChainEligible('unknown', empty)).toBe(true);
   });
 });

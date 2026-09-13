@@ -12,6 +12,7 @@ import {
   type Promotion,
 } from '@entities/promotion';
 import { PromotionDialog } from '@features/manage-promotions';
+import { formatMoney } from '@shared/lib/format';
 import { cn } from '@shared/lib/utils';
 import {
   Badge,
@@ -28,6 +29,7 @@ import {
 import type { StatusBadgeProps } from '@shared/ui';
 
 type PromotionStatus = 'promo_active' | 'promo_scheduled' | 'promo_expired' | 'promo_inactive';
+type KindFilter = 'all' | 'discounts' | 'combos';
 
 function derivePromotionStatus(p: Promotion): PromotionStatus {
   const now = new Date();
@@ -51,6 +53,7 @@ export default function PromotionsPage() {
     promotion: null,
   });
   const [statusFilter, setStatusFilter] = useState<StatusBadgeProps['status'] | null>(null);
+  const [kindFilter, setKindFilter] = useState<KindFilter>('all');
   const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
@@ -110,9 +113,13 @@ export default function PromotionsPage() {
     return c;
   }, [promotions]);
 
-  const visiblePromotions = statusFilter
-    ? promotions.filter(p => derivePromotionStatus(p) === statusFilter)
-    : promotions;
+  const visiblePromotions = promotions
+    .filter(p => !statusFilter || derivePromotionStatus(p) === statusFilter)
+    .filter(p => {
+      if (kindFilter === 'discounts') return p.kind === 'discount';
+      if (kindFilter === 'combos') return p.kind === 'combo';
+      return true;
+    });
 
   const columns: ColumnDef<Promotion>[] = [
     {
@@ -126,6 +133,13 @@ export default function PromotionsPage() {
       header: tAdmin('promotionsListPanel.columnScope'),
       cell: ({ row }) => {
         const p = row.original;
+        if (p.kind === 'combo') {
+          return (
+            <span className="text-sm">
+              {tAdmin('promotionsListPanel.scopeCombo', { count: p.slots.length })}
+            </span>
+          );
+        }
         if (p.targets.length === 0) {
           return (
             <Badge variant="secondary" className="text-xs">
@@ -145,12 +159,32 @@ export default function PromotionsPage() {
     {
       id: 'discount',
       header: tAdmin('promotionsListPanel.columnDiscount'),
-      cell: ({ row }) =>
-        row.original.discountType === 'percent' ? (
-          <span className="font-mono tabular-nums">{row.original.discountValue}%</span>
-        ) : (
-          <MoneyDisplay amount={row.original.discountValue} size="sm" />
-        ),
+      cell: ({ row }) => {
+        const p = row.original;
+        switch (p.discountType) {
+          case 'percent':
+            return <span className="font-mono tabular-nums">{p.discountValue}%</span>;
+          case 'bundle_price':
+            return (
+              <span className="text-sm">
+                {tAdmin('promotionsListPanel.comboPricing.bundle_price', {
+                  amount: formatMoney(p.discountValue),
+                })}
+              </span>
+            );
+          case 'cheapest_free':
+            return (
+              <span className="text-sm">
+                {tAdmin('promotionsListPanel.comboPricing.cheapest_free', {
+                  count: p.discountValue,
+                })}
+              </span>
+            );
+          case 'fixed':
+          default:
+            return <MoneyDisplay amount={p.discountValue} size="sm" />;
+        }
+      },
     },
     {
       id: 'dateRange',
@@ -227,6 +261,30 @@ export default function PromotionsPage() {
       }
     >
       <p className="text-sm text-muted-foreground">{tAdmin('promotionsListPanel.hint')}</p>
+
+      <div
+        className="flex w-fit gap-1 rounded-xl bg-muted p-1"
+        role="group"
+        aria-label={tAdmin('promotionsListPanel.kindFilterLabel')}
+      >
+        {/* eslint-disable-next-line i18next/no-literal-string -- kind-filter keys, not UI copy (labels are t()-wrapped below) */}
+        {(['all', 'discounts', 'combos'] as const).map(kf => (
+          <POSButton
+            key={kf}
+            type="button"
+            touchSize="default"
+            variant={kindFilter === kf ? 'default' : 'ghost'}
+            aria-pressed={kindFilter === kf}
+            data-testid={`promotions-kind-filter-${kf}`}
+            onClick={() => {
+              setKindFilter(kf);
+            }}
+            className={cn('min-w-24', kindFilter !== kf && 'hover:bg-card')}
+          >
+            {tAdmin(`promotionsListPanel.kindFilter.${kf}`)}
+          </POSButton>
+        ))}
+      </div>
 
       <div
         className="flex flex-wrap gap-3"

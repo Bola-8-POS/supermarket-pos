@@ -602,6 +602,7 @@
     "scopeCategory": "Categoría",
     "scopeStoreWide": "Toda la tienda",
     "scopeTargetCounts": "{{productCount}} producto(s), {{categoryCount}} categoría(s)",
+    "scopeCombo": "Combo · {{count}} espacio(s)",
     "toggleActiveAriaLabel": "Alternar promoción activa",
     "edit": "Editar",
     "delete": "Eliminar",
@@ -616,7 +617,19 @@
     "statScheduled": "Programadas",
     "statExpired": "Vencidas",
     "statInactive": "Pausadas",
-    "statNeedsReview": "Requieren revisión"
+    "statNeedsReview": "Requieren revisión",
+    "kindFilterLabel": "Filtrar por tipo",
+    "kindFilter": {
+      "all": "Todas",
+      "discounts": "Descuentos",
+      "combos": "Combos"
+    },
+    "comboPricing": {
+      "bundle_price": "Paquete de {{amount}}",
+      "percent": "{{value}}% de descuento",
+      "fixed": "{{amount}} de descuento",
+      "cheapest_free": "{{count}} gratis"
+    }
   },
   "promotionFormDialog": {
     "createTitle": "Nueva promoción",
@@ -690,7 +703,19 @@
       "timeWindowValue": "{{startTime}}–{{endTime}}",
       "noRecurrence": "Sin recurrencia — activa todos los días dentro del rango de fechas",
       "previewLabel": "Ejemplo: {{productName}} — {{originalPrice}} → {{discountedPrice}}",
-      "noPreview": "Ningún producto coincide actualmente con el alcance de esta promoción, así que no hay un ejemplo disponible."
+      "noPreview": "Ningún producto coincide actualmente con el alcance de esta promoción, así que no hay un ejemplo disponible.",
+      "combo": {
+        "compositionLabel": "Composición",
+        "pricingLabel": "Precio",
+        "slotLine": "{{quantity}} × {{targets}}",
+        "noTargets": "Aún no hay productos o categorías seleccionados",
+        "pricingBundle": "Paquete de {{amount}}",
+        "pricingPercent": "{{value}}% de descuento",
+        "pricingFixed": "{{amount}} de descuento",
+        "pricingCheapestFree": "{{count}} gratis",
+        "previewLabel": "Ejemplo: {{originalPrice}} → {{discountedPrice}}",
+        "noPreview": "Agrega al menos un producto o categoría elegible en cada espacio para ver un ejemplo en vivo."
+      }
     }
   },
   "promotionDialog": {
@@ -703,6 +728,45 @@
     "sectionWhen": "Cuándo",
     "sectionWhenHint": "Fechas de vigencia y, opcionalmente, días y horario.",
     "summaryTitle": "Resumen",
-    "cancel": "Cancelar"
+    "cancel": "Cancelar",
+    "kind": {
+      "label": "Tipo",
+      "discount": "Descuento",
+      "combo": "Combo",
+      "editLockedHint": "El tipo de una promoción no se puede cambiar después de crearla — elimínala y crea una nueva en su lugar."
+    },
+    "composition": {
+      "title": "Composición",
+      "hint": "Agrega uno o más espacios — cada espacio es una cantidad de productos o categorías elegibles.",
+      "slot": "Espacio {{number}}",
+      "quantity": "Cantidad",
+      "label": "Etiqueta (opcional)",
+      "addSlot": "Agregar espacio",
+      "removeSlot": "Quitar espacio",
+      "noEligible": "No se encontraron productos o categorías elegibles para combos — marca primero un producto o categoría como elegible.",
+      "validationError": "Agrega al menos un espacio, cada uno con una cantidad de 1 a 20 y al menos un producto o categoría."
+    },
+    "pricing": {
+      "title": "Precio",
+      "hint": "Elige cómo se fija el precio del combo una vez que cada espacio está lleno.",
+      "typeLabel": "Tipo de precio",
+      "bundle_price": "Precio del paquete",
+      "percent": "Porcentaje de descuento",
+      "fixed": "Monto fijo de descuento",
+      "cheapest_free": "El más barato gratis",
+      "valueLabel": {
+        "bundle_price": "Precio total del paquete",
+        "percent": "Porcentaje de descuento",
+        "fixed": "Monto de descuento",
+        "cheapest_free": "Número de unidades gratis"
+      },
+      "help": {
+        "bundle_price": "Todo el combo se vende a este precio total fijo, sin importar el precio individual de cada artículo.",
+        "percent": "Este porcentaje se descuenta del precio combinado de cada unidad del combo.",
+        "fixed": "Este monto fijo se descuenta del precio combinado de cada unidad del combo.",
+        "cheapest_free": "Las N unidades más baratas del combo son gratis; el resto se cobra a precio completo."
+      },
+      "validationError": "Ingresa un valor válido para este tipo de precio."
+    }
   }
 }

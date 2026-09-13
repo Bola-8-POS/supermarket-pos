@@ -101,6 +101,25 @@ export function isProductComboEligible(
   return true;
 }
 
+/**
+ * A category can fill a combo slot (as a category-wide target) only if it,
+ * AND every ancestor up to 3 levels, is combo-eligible. Same chain-walk as
+ * `isProductComboEligible`, minus the leading product-level check. A
+ * category missing from the map is treated as eligible (never hides a
+ * category just because its own lookup is absent).
+ */
+export function isCategoryChainEligible(
+  categoryId: string,
+  categoriesById: Map<string, ComboCategoryLookup>
+): boolean {
+  const chain = getCategoryChain(categoryId, categoriesById);
+  for (const chainId of chain) {
+    const category = categoriesById.get(chainId);
+    if (category != null && !category.comboEligible) return false;
+  }
+  return true;
+}
+
 /** Internal expanded unit — one per physical item, tracking enough to match/allocate/tie-break. */
 interface ComboUnit {
   tempId: string;

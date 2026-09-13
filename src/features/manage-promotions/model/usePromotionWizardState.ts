@@ -4,12 +4,33 @@ import {
   useMutationUpdatePromotion,
   type Promotion,
 } from '@entities/promotion';
-import type { DiscountType } from '@shared/lib/domain';
+import type { DiscountType, PromotionComboSlotInput, PromotionKind } from '@shared/lib/domain';
 import type { Result } from '@shared/lib/result';
 
 export type PromotionWizardStep = 'basics' | 'scope' | 'validity' | 'review';
 
 export const WIZARD_STEP_ORDER: PromotionWizardStep[] = ['basics', 'scope', 'validity', 'review'];
+
+/** One combo slot row in the wizard's in-progress (unsaved) state (Task 7). `key` is a client-only stable id — never sent to the server. */
+export interface SlotDraft {
+  key: string;
+  quantity: number;
+  label: string;
+  productIds: string[];
+  categoryIds: string[];
+}
+
+/** In-progress (string-buffered) combo pricing state — mirrors `discountPercentStr`'s raw-string convention; `Number()` applied once, at validate/save time. */
+export interface ComboPricingDraft {
+  type: DiscountType;
+  value: string;
+}
+
+const DEFAULT_COMBO_PRICING: ComboPricingDraft = { type: 'bundle_price', value: '0' };
+
+function makeEmptySlot(): SlotDraft {
+  return { key: crypto.randomUUID(), quantity: 1, label: '', productIds: [], categoryIds: [] };
+}
 
 function toDateStr(d: Date): string {
   const y = d.getFullYear();
@@ -44,6 +65,12 @@ export function usePromotionWizardState(promotion: Promotion | null | undefined)
   const [furthestValidStep, setFurthestValidStep] = useState(0);
 
   const [name, setName] = useState('');
+  // Combo builder (Task 7). `kind` defaults to 'discount' and is immutable
+  // once editing an existing promotion (enforced by the caller disabling the
+  // segmented control — the hook itself doesn't need to know isEdit).
+  const [kind, setKindState] = useState<PromotionKind>('discount');
+  const [slots, setSlots] = useState<SlotDraft[]>([]);
+  const [comboPricing, setComboPricingState] = useState<ComboPricingDraft>(DEFAULT_COMBO_PRICING);
   const [discountType, setDiscountType] = useState<DiscountType>('percent');
   const [discountValue, setDiscountValue] = useState(0);
   // String-buffered percent input (mirrors PromotionFormDialog/NearExpirySettingsTab):
@@ -89,6 +116,24 @@ export function usePromotionWizardState(promotion: Promotion | null | undefined)
        existing open/promotion reset effect. */
     if (promotion) {
       setName(promotion.name);
+      setKindState(promotion.kind);
+      if (promotion.kind === 'combo') {
+        setSlots(
+          promotion.slots.map(s => ({
+            key: crypto.randomUUID(),
+            quantity: s.quantity,
+            label: s.label ?? '',
+            productIds: s.targets.filter(t => t.productId != null).map(t => t.productId as string),
+            categoryIds: s.targets
+              .filter(t => t.categoryId != null)
+              .map(t => t.categoryId as string),
+          }))
+        );
+        setComboPricingState({ type: promotion.discountType, value: String(promotion.discountValue) });
+      } else {
+        setSlots([]);
+        setComboPricingState(DEFAULT_COMBO_PRICING);
+      }
       setDiscountType(promotion.discountType);
       setDiscountValue(promotion.discountValue);
       setDiscountPercentStr(String(promotion.discountValue));
@@ -124,6 +169,9 @@ export function usePromotionWizardState(promotion: Promotion | null | undefined)
       setFurthestValidStep(WIZARD_STEP_ORDER.length - 1);
     } else {
       setName('');
+      setKindState('discount');
+      setSlots([]);
+      setComboPricingState(DEFAULT_COMBO_PRICING);
       setDiscountType('percent');
       setDiscountValue(0);
       setDiscountPercentStr('0');
@@ -147,6 +195,90 @@ export function usePromotionWizardState(promotion: Promotion | null | undefined)
   function handleDiscountTypeChange(next: DiscountType) {
     setDiscountType(next);
     if (next === 'percent') setDiscountPercentStr('0');
+  }
+
+  /**
+   * Switches between a plain discount promotion and a combo (Task 7). A
+   * no-op re-click of the already-active option is ignored — unlike
+   * handleDiscountTypeChange's own reset-on-every-click behavior, resetting
+   * an entire composed combo (multiple slots + multi-select choices) on an
+   * accidental re-click of the same segment would be a much costlier data
+   * loss than that single-field precedent, so this guards against it.
+   * discount→combo (create or edit — edit disables the control entirely, so
+   * this only ever fires in create mode) seeds one empty slot; combo→discount
+   * clears the slots and resets comboPricing to the default. The top-level
+   * scope state (storeWide/selectedProductIds/selectedCategoryIds) is
+   * deliberately left untouched either way — it's simply not rendered while
+   * kind is 'combo', so switching back to 'discount' restores it as-is.
+   */
+  function setKind(next: PromotionKind) {
+    if (next === kind) return;
+    setKindState(next);
+    if (next === 'combo') {
+      setSlots([makeEmptySlot()]);
+    } else {
+      setSlots([]);
+      setComboPricingState(DEFAULT_COMBO_PRICING);
+    }
+  }
+
+  /** Appends one empty slot to the combo composition. */
+  function addSlot() {
+    setSlots(prev => [...prev, makeEmptySlot()]);
+  }
+
+  /** Removes the slot matching `key`. */
+  function removeSlot(key: string) {
+    setSlots(prev => prev.filter(s => s.key !== key));
+  }
+
+  /** Merges `patch` into the slot matching `key`. */
+  function updateSlot(key: string, patch: Partial<Omit<SlotDraft, 'key'>>) {
+    setSlots(prev => prev.map(s => (s.key === key ? { ...s, ...patch } : s)));
+  }
+
+  /** Merges `patch` into the in-progress combo pricing draft. */
+  function setComboPricing(patch: Partial<ComboPricingDraft>) {
+    setComboPricingState(prev => ({ ...prev, ...patch }));
+  }
+
+  /** Sum of every slot's quantity — the ceiling `cheapest_free` must stay strictly under. */
+  function totalSlotQuantity(): number {
+    return slots.reduce((sum, s) => sum + s.quantity, 0);
+  }
+
+  /**
+   * Composition validity (Task 7): at least one slot, each with quantity in
+   * 1..20 and at least one product or category target.
+   */
+  function isCompositionValid(): boolean {
+    if (slots.length === 0) return false;
+    return slots.every(
+      s =>
+        s.quantity >= 1 &&
+        s.quantity <= 20 &&
+        (s.productIds.length > 0 || s.categoryIds.length > 0)
+    );
+  }
+
+  /**
+   * Combo pricing validity (Task 7): bundle_price/fixed accept any positive
+   * value; percent must be in (0, 100]; cheapest_free must be a positive
+   * integer strictly less than the total quantity across every slot (a
+   * cheapest_free combo must always leave at least one non-free unit,
+   * mirroring the DB CHECK's own spirit).
+   */
+  function isComboPricingValid(): boolean {
+    const value = Number(comboPricing.value);
+    switch (comboPricing.type) {
+      case 'percent':
+        return value > 0 && value <= 100;
+      case 'cheapest_free':
+        return Number.isInteger(value) && value >= 1 && value < totalSlotQuantity();
+      case 'bundle_price':
+      case 'fixed':
+        return value > 0;
+    }
   }
 
   /**
@@ -233,9 +365,16 @@ export function usePromotionWizardState(promotion: Promotion | null | undefined)
     return true;
   }
 
-  /** Pure (no side effects) mirror of validateBasics(), for isStepValid(). */
+  /**
+   * Pure (no side effects) mirror of validateBasics(), for isStepValid().
+   * Task 7: the percent/fixed discount-value check only applies to
+   * kind === 'discount' — a combo promotion's Basics section doesn't render
+   * those fields at all (its pricing is validated separately by
+   * isComboPricingValid, in its own Pricing section).
+   */
   function isBasicsStepValid(): boolean {
     if (!name.trim()) return false;
+    if (kind === 'combo') return true;
     const percentValue = Number(discountPercentStr);
     if (discountType === 'percent' && (percentValue <= 0 || percentValue > 100)) return false;
     if (discountType === 'fixed' && discountValue <= 0) return false;
@@ -260,7 +399,12 @@ export function usePromotionWizardState(promotion: Promotion | null | undefined)
     }
   }
 
-  /** Validates the Basics & Discount step's fields (D-08 forward-nav gate). */
+  /**
+   * Validates the Basics & Discount step's fields (D-08 forward-nav gate).
+   * Task 7: skips the percent/fixed discount-value check entirely when
+   * kind === 'combo' — that section isn't rendered in combo mode, and combo
+   * pricing has its own validator (isComboPricingValid) in its own section.
+   */
   function validateBasics(): boolean {
     let hasError = false;
     if (!name.trim()) {
@@ -269,6 +413,10 @@ export function usePromotionWizardState(promotion: Promotion | null | undefined)
       hasError = true;
     } else {
       setNameError(null);
+    }
+    if (kind === 'combo') {
+      setValueError(null);
+      return !hasError;
     }
     const percentValue = Number(discountPercentStr);
     if (discountType === 'percent' && (percentValue <= 0 || percentValue > 100)) {
@@ -287,15 +435,20 @@ export function usePromotionWizardState(promotion: Promotion | null | undefined)
 
   async function save(): Promise<Result<Promotion | null>> {
     const percentValue = Number(discountPercentStr);
+    const isCombo = kind === 'combo';
     const basics = {
       name: name.trim(),
-      // This wizard only ever creates/edits percent/fixed discount
-      // promotions (D-01) — combo promotions have their own dedicated
-      // authoring flow, not this wizard.
-      // eslint-disable-next-line i18next/no-literal-string -- domain enum literal, not UI copy
-      kind: 'discount' as const,
-      discountType,
-      discountValue: discountType === 'percent' ? percentValue : discountValue,
+      kind,
+      // Task 7: a combo promotion's discount type/value come from
+      // comboPricing (bundle_price/percent/fixed/cheapest_free), not the
+      // Basics section's percent/fixed fields, which only apply to
+      // kind === 'discount'.
+      discountType: isCombo ? comboPricing.type : discountType,
+      discountValue: isCombo
+        ? Number(comboPricing.value)
+        : discountType === 'percent'
+          ? percentValue
+          : discountValue,
       startsAt: startOfDay(fromStr),
       endsAt: endOfDay(toStr),
       // D-04/D-05: gated on `recurring` too (not just the raw field state)
@@ -309,21 +462,47 @@ export function usePromotionWizardState(promotion: Promotion | null | undefined)
     };
 
     // D-01: storeWide -> [] (store-wide/no restriction); otherwise one row
-    // per selected product/category, each with the other FK null.
-    const targets = storeWide
+    // per selected product/category, each with the other FK null. A combo
+    // promotion always sends top-level targets as [] regardless of the
+    // (preserved-but-hidden) scope state — a combo's only targets live on
+    // its slots.
+    const targets = isCombo
       ? []
-      : [
-          ...selectedProductIds.map(id => ({ productId: id, categoryId: null })),
-          ...selectedCategoryIds.map(id => ({ productId: null, categoryId: id })),
-        ];
+      : storeWide
+        ? []
+        : [
+            ...selectedProductIds.map(id => ({ productId: id, categoryId: null })),
+            ...selectedCategoryIds.map(id => ({ productId: null, categoryId: id })),
+          ];
+
+    // Task 7: SlotDraft -> PromotionComboSlotInput (client-only `key` is
+    // never sent; array order becomes `position` server-side via
+    // saveComboSlots). Omitted entirely (not []) for a discount promotion —
+    // PromotionCreate/UpdateSchema treat `slots` as optional and the entity
+    // mutation layer defaults a missing value to [] itself.
+    const slotsInput: PromotionComboSlotInput[] | undefined = isCombo
+      ? slots.map(s => ({
+          quantity: s.quantity,
+          label: s.label ? s.label : null,
+          targets: [
+            ...s.productIds.map(id => ({ productId: id, categoryId: null })),
+            ...s.categoryIds.map(id => ({ productId: null, categoryId: id })),
+          ],
+        }))
+      : undefined;
+
+    // exactOptionalPropertyTypes: only include `slots` at all when it's a
+    // combo (an explicit `slots: undefined` key is not the same as omitting
+    // the key entirely under this compiler flag).
+    const slotsField = slotsInput ? { slots: slotsInput } : {};
 
     if (promotion) {
       // Edit mode now has a real Scope-step picker (28-03) — the selected
       // set (never omitted) always reflects the admin's current choice,
       // including an explicit `[]` for a promotion switched to store-wide.
-      return updateMutation.mutateAsync({ id: promotion.id, ...basics, targets });
+      return updateMutation.mutateAsync({ id: promotion.id, ...basics, targets, ...slotsField });
     }
-    return createMutation.mutateAsync({ ...basics, targets });
+    return createMutation.mutateAsync({ ...basics, targets, ...slotsField });
   }
 
   return {
@@ -333,6 +512,16 @@ export function usePromotionWizardState(promotion: Promotion | null | undefined)
     setFurthestValidStep,
     name,
     setName,
+    kind,
+    setKind,
+    slots,
+    addSlot,
+    removeSlot,
+    updateSlot,
+    comboPricing,
+    setComboPricing,
+    isCompositionValid,
+    isComboPricingValid,
     discountType,
     handleDiscountTypeChange,
     discountValue,

@@ -1,15 +1,28 @@
 import { useTranslation } from 'react-i18next';
+import { useCategories } from '@entities/category';
 import { useProducts } from '@entities/product';
-import { evaluateBestPromotion, type Promotion } from '@entities/promotion';
+import {
+  evaluateBestPromotion,
+  evaluateCombos,
+  type ComboCartLine,
+  type ComboCategoryLookup,
+  type Promotion,
+} from '@entities/promotion';
 import { useSettings } from '@entities/settings';
-import type { DiscountType } from '@shared/lib/domain';
+import type { DiscountType, Product, PromotionComboSlot, PromotionKind } from '@shared/lib/domain';
 import { formatMoney } from '@shared/lib/format';
+import type { ComboPricingDraft, SlotDraft } from '../../model/usePromotionWizardState';
 
 export interface StepReviewProps {
   name: string;
+  kind: PromotionKind;
   discountType: DiscountType;
   discountValue: number;
   discountPercentStr: string;
+  /** Combo composition (Task 7) — always [] when kind === 'discount'. */
+  slots: SlotDraft[];
+  /** Combo pricing draft (Task 7) — ignored when kind === 'discount'. */
+  comboPricing: ComboPricingDraft;
   fromStr: string;
   toStr: string;
   storeWide: boolean;
@@ -47,6 +60,33 @@ function endOfDay(str: string): Date {
 }
 
 /**
+ * The worked example's per-slot example product (Task 7 ambiguity
+ * resolution): the first eligible product referenced by the slot's OWN
+ * targets — if the slot targets specific products, the first of those; if
+ * it targets a category, the first product in the catalog directly in that
+ * category. Null when the slot has no targets yet (e.g. a freshly-added,
+ * still-empty slot) — the caller skips the whole worked example in that case.
+ */
+function resolveExampleProduct(slot: SlotDraft, products: Product[]): Product | null {
+  if (slot.productIds.length > 0) {
+    const id = slot.productIds[0];
+    return products.find(p => p.id === id) ?? null;
+  }
+  if (slot.categoryIds.length > 0) {
+    const categoryId = slot.categoryIds[0];
+    return products.find(p => p.categoryId === categoryId) ?? null;
+  }
+  return null;
+}
+
+function hasResolvedProduct(entry: {
+  slot: SlotDraft;
+  product: Product | null;
+}): entry is { slot: SlotDraft; product: Product } {
+  return entry.product !== null;
+}
+
+/**
  * Review step of the promotion wizard (D-07 final step, D-09 live preview).
  * Read-only summary of every prior-step value, plus a live computed-price
  * example via evaluateBestPromotion against the first catalog product
@@ -56,9 +96,12 @@ function endOfDay(str: string): Date {
  */
 export function StepReview({
   name,
+  kind,
   discountType,
   discountValue,
   discountPercentStr,
+  slots,
+  comboPricing,
   fromStr,
   toStr,
   storeWide,
@@ -71,7 +114,9 @@ export function StepReview({
 }: StepReviewProps) {
   const { t } = useTranslation('wAdmin');
   const { data: products } = useProducts();
+  const { data: categories } = useCategories();
   const { data: appSettings } = useSettings();
+  const isCombo = kind === 'combo';
 
   const displayDiscountValue =
     discountType === 'percent' ? Number(discountPercentStr) : discountValue;
@@ -82,7 +127,7 @@ export function StepReview({
       (products ?? []).find(p => selectedCategoryIds.includes(p.categoryId)));
 
   let preview: ReturnType<typeof evaluateBestPromotion> = null;
-  if (sampleProduct && appSettings) {
+  if (!isCombo && sampleProduct && appSettings) {
     const previewPromotion: Promotion = {
       id: PREVIEW_ID,
       name: name.trim() || PREVIEW_ID,
@@ -131,10 +176,124 @@ export function StepReview({
     );
   }
 
+  // Task 7 combo worked example: resolve one example product per slot from
+  // the slot's OWN targets. Any slot with no resolvable example product
+  // (e.g. still empty) silently skips the whole worked example — no crash,
+  // just no "Example: …" line.
+  let comboPreview: { originalTotal: number; discountedTotal: number } | null = null;
+  if (isCombo && slots.length > 0) {
+    const resolved = slots.map(slot => ({
+      slot,
+      product: resolveExampleProduct(slot, products ?? []),
+    }));
+    const numericPricingValue = Number(comboPricing.value);
+    if (resolved.every(hasResolvedProduct) && Number.isFinite(numericPricingValue)) {
+      const comboSlots: PromotionComboSlot[] = resolved.map(({ slot }, index) => ({
+        id: `${PREVIEW_ID}-slot-${String(index)}`,
+        promotionId: PREVIEW_ID,
+        position: index,
+        quantity: slot.quantity,
+        label: slot.label ? slot.label : null,
+        targets: [
+          ...slot.productIds.map(id => ({
+            id: PREVIEW_TARGET_ID,
+            promotionId: PREVIEW_ID,
+            productId: id,
+            categoryId: null,
+          })),
+          ...slot.categoryIds.map(id => ({
+            id: PREVIEW_TARGET_ID,
+            promotionId: PREVIEW_ID,
+            productId: null,
+            categoryId: id,
+          })),
+        ],
+      }));
+      const previewCombo: Promotion = {
+        id: PREVIEW_ID,
+        name: name.trim() || PREVIEW_ID,
+        targets: [],
+        kind: 'combo',
+        discountType: comboPricing.type,
+        discountValue: numericPricingValue,
+        startsAt: startOfDay(fromStr),
+        endsAt: endOfDay(toStr),
+        daysOfWeek: recurring && daysOfWeek !== null && daysOfWeek.length > 0 ? daysOfWeek : null,
+        startTime: recurring ? startTime : null,
+        endTime: recurring ? endTime : null,
+        needsReview: false,
+        active: true,
+        createdAt: new Date(),
+        createdBy: null,
+        slots: comboSlots,
+      };
+      const lines: ComboCartLine[] = resolved.filter(hasResolvedProduct).map(({ slot, product }, index) => ({
+        tempId: `slot-${String(index)}`,
+        productId: product.id,
+        categoryId: product.categoryId,
+        quantity: slot.quantity,
+        unitPrice: product.basePrice,
+        lineDiscountPerUnit: 0,
+        soldByWeight: false,
+        comboEligible: true,
+      }));
+      const categoriesById = new Map<string, ComboCategoryLookup>(
+        (categories ?? []).map(c => [c.id, { comboEligible: c.comboEligible, parentId: c.parentId ?? null }])
+      );
+      const evaluation = evaluateCombos(
+        lines,
+        [previewCombo],
+        new Date(),
+        // eslint-disable-next-line i18next/no-literal-string -- IANA timezone fallback identifier, not UI copy
+        appSettings?.general.timezone ?? 'UTC',
+        categoriesById
+      );
+      const originalTotal = lines.reduce((sum, l) => sum + l.unitPrice * l.quantity, 0);
+      comboPreview = {
+        originalTotal,
+        discountedTotal: originalTotal - evaluation.netSavings,
+      };
+    }
+  }
+
   const recurrenceDayLabels = (daysOfWeek ?? []).flatMap(day => {
     const key = DAY_KEYS[day];
     return key ? [t(`promotionWizard.validity.day.${key}`)] : [];
   });
+
+  /** Combo slot summary line: joined names of the slot's own product/category targets. */
+  function slotTargetsSummary(slot: SlotDraft): string {
+    const names = [
+      ...slot.productIds.flatMap(id => {
+        const p = (products ?? []).find(x => x.id === id);
+        return p ? [p.name] : [];
+      }),
+      ...slot.categoryIds.flatMap(id => {
+        const c = (categories ?? []).find(x => x.id === id);
+        return c ? [c.name] : [];
+      }),
+    ];
+    return names.length > 0 ? names.join(', ') : t('promotionWizard.review.combo.noTargets');
+  }
+
+  function comboPricingSentence(): string {
+    const value = comboPricing.value;
+    switch (comboPricing.type) {
+      case 'percent':
+        return t('promotionWizard.review.combo.pricingPercent', { value });
+      case 'fixed':
+        return t('promotionWizard.review.combo.pricingFixed', {
+          amount: formatMoney(Number(value) || 0),
+        });
+      case 'cheapest_free':
+        return t('promotionWizard.review.combo.pricingCheapestFree', { count: value });
+      case 'bundle_price':
+      default:
+        return t('promotionWizard.review.combo.pricingBundle', {
+          amount: formatMoney(Number(value) || 0),
+        });
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -143,25 +302,55 @@ export function StepReview({
           <span className="text-muted-foreground">{t('promotionWizard.review.nameLabel')}</span>
           <span className="font-medium">{name || '—'}</span>
         </div>
-        <div className="flex justify-between text-sm">
-          <span className="text-muted-foreground">{t('promotionWizard.review.discountLabel')}</span>
-          <span className="font-medium">
-            {discountType === 'percent'
-              ? t('promotionWizard.review.percentValue', { value: displayDiscountValue })
-              : formatMoney(displayDiscountValue)}
-          </span>
-        </div>
-        <div className="flex justify-between text-sm">
-          <span className="text-muted-foreground">{t('promotionWizard.review.scopeLabel')}</span>
-          <span className="font-medium">
-            {storeWide
-              ? t('promotionsListPanel.scopeStoreWide')
-              : t('promotionsListPanel.scopeTargetCounts', {
-                  productCount: selectedProductIds.length,
-                  categoryCount: selectedCategoryIds.length,
-                })}
-          </span>
-        </div>
+        {isCombo ? (
+          <>
+            <div className="flex justify-between gap-4 text-sm">
+              <span className="shrink-0 text-muted-foreground">
+                {t('promotionWizard.review.combo.compositionLabel')}
+              </span>
+              <span className="flex flex-col items-end gap-0.5 text-right font-medium">
+                {slots.map(slot => (
+                  <span key={slot.key}>
+                    {t('promotionWizard.review.combo.slotLine', {
+                      quantity: slot.quantity,
+                      targets: slotTargetsSummary(slot),
+                    })}
+                  </span>
+                ))}
+              </span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">
+                {t('promotionWizard.review.combo.pricingLabel')}
+              </span>
+              <span className="font-medium">{comboPricingSentence()}</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">
+                {t('promotionWizard.review.discountLabel')}
+              </span>
+              <span className="font-medium">
+                {discountType === 'percent'
+                  ? t('promotionWizard.review.percentValue', { value: displayDiscountValue })
+                  : formatMoney(displayDiscountValue)}
+              </span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">{t('promotionWizard.review.scopeLabel')}</span>
+              <span className="font-medium">
+                {storeWide
+                  ? t('promotionsListPanel.scopeStoreWide')
+                  : t('promotionsListPanel.scopeTargetCounts', {
+                      productCount: selectedProductIds.length,
+                      categoryCount: selectedCategoryIds.length,
+                    })}
+              </span>
+            </div>
+          </>
+        )}
         <div className="flex justify-between text-sm">
           <span className="text-muted-foreground">
             {t('promotionWizard.review.dateRangeLabel')}
@@ -190,7 +379,20 @@ export function StepReview({
       </div>
 
       <div className="rounded-xl border border-border bg-card p-4 shadow-xs">
-        {preview && sampleProduct ? (
+        {isCombo ? (
+          comboPreview ? (
+            <p className="text-sm">
+              {t('promotionWizard.review.combo.previewLabel', {
+                originalPrice: formatMoney(comboPreview.originalTotal),
+                discountedPrice: formatMoney(comboPreview.discountedTotal),
+              })}
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {t('promotionWizard.review.combo.noPreview')}
+            </p>
+          )
+        ) : preview && sampleProduct ? (
           <p className="text-sm">
             {t('promotionWizard.review.previewLabel', {
               productName: sampleProduct.name,

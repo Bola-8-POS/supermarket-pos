@@ -342,6 +342,342 @@ describe('usePromotionWizardState — Validity step validity (D-04/D-05)', () =>
 // TESTS — isStepValid dispatcher (D-08, full 4-step gate)
 // ============================================================================
 
+// ============================================================================
+// TESTS — Combo builder (Task 7): kind switch, composition/pricing
+// validation, save() payload shape
+// ============================================================================
+
+describe('usePromotionWizardState — kind switch (Task 7)', () => {
+  it('defaults kind to "discount" with no slots on a fresh create-mode wizard', () => {
+    const { result } = renderHook(() => usePromotionWizardState(null), { wrapper });
+    expect(result.current.kind).toBe('discount');
+    expect(result.current.slots).toEqual([]);
+  });
+
+  it('switching kind to "combo" seeds exactly one empty slot', () => {
+    const { result } = renderHook(() => usePromotionWizardState(null), { wrapper });
+    act(() => {
+      result.current.setKind('combo');
+    });
+    expect(result.current.slots).toHaveLength(1);
+    expect(result.current.slots[0]).toMatchObject({
+      quantity: 1,
+      label: '',
+      productIds: [],
+      categoryIds: [],
+    });
+    expect(typeof result.current.slots[0]?.key).toBe('string');
+    expect(result.current.slots[0]?.key.length).toBeGreaterThan(0);
+  });
+
+  it('switching kind back to "discount" clears slots and resets comboPricing to the default', () => {
+    const { result } = renderHook(() => usePromotionWizardState(null), { wrapper });
+    act(() => {
+      result.current.setKind('combo');
+    });
+    act(() => {
+      result.current.setComboPricing({ type: 'percent', value: '50' });
+    });
+    act(() => {
+      result.current.setKind('discount');
+    });
+    expect(result.current.slots).toEqual([]);
+    expect(result.current.comboPricing).toEqual({ type: 'bundle_price', value: '0' });
+  });
+
+  it('preserves (but hides) the top-level scope selection when switching to combo and back', () => {
+    const { result } = renderHook(() => usePromotionWizardState(null), { wrapper });
+    act(() => {
+      result.current.handleStoreWideChange(false);
+    });
+    act(() => {
+      result.current.handleScopeSelectionChange({ productIds: ['p-1'], categoryIds: [] });
+    });
+    act(() => {
+      result.current.setKind('combo');
+    });
+    expect(result.current.selectedProductIds).toEqual(['p-1']);
+    act(() => {
+      result.current.setKind('discount');
+    });
+    expect(result.current.selectedProductIds).toEqual(['p-1']);
+    expect(result.current.storeWide).toBe(false);
+  });
+
+  it('edit-mode prefills kind and slots from a combo promotion', () => {
+    const promotion = makePromotion({
+      kind: 'combo',
+      discountType: 'cheapest_free',
+      discountValue: 1,
+      slots: [
+        {
+          id: 'slot-1',
+          promotionId: 'promo-1',
+          position: 0,
+          quantity: 2,
+          label: 'Snack',
+          targets: [
+            { id: 't-1', promotionId: 'promo-1', productId: 'p-1', categoryId: null, slotId: 'slot-1' },
+          ],
+        },
+      ],
+    });
+    const { result } = renderHook(() => usePromotionWizardState(promotion), { wrapper });
+    expect(result.current.kind).toBe('combo');
+    expect(result.current.comboPricing).toEqual({ type: 'cheapest_free', value: '1' });
+    expect(result.current.slots).toHaveLength(1);
+    expect(result.current.slots[0]).toMatchObject({
+      quantity: 2,
+      label: 'Snack',
+      productIds: ['p-1'],
+      categoryIds: [],
+    });
+  });
+});
+
+describe('usePromotionWizardState — combo slot actions (Task 7)', () => {
+  it('addSlot appends an empty slot; removeSlot removes by key; updateSlot patches by key', () => {
+    const { result } = renderHook(() => usePromotionWizardState(null), { wrapper });
+    act(() => {
+      result.current.setKind('combo');
+    });
+    const firstKey = result.current.slots[0]?.key as string;
+
+    act(() => {
+      result.current.addSlot();
+    });
+    expect(result.current.slots).toHaveLength(2);
+
+    act(() => {
+      result.current.updateSlot(firstKey, { quantity: 3, productIds: ['p-9'] });
+    });
+    expect(result.current.slots[0]).toMatchObject({ quantity: 3, productIds: ['p-9'] });
+
+    const secondKey = result.current.slots[1]?.key as string;
+    act(() => {
+      result.current.removeSlot(secondKey);
+    });
+    expect(result.current.slots).toHaveLength(1);
+    expect(result.current.slots[0]?.key).toBe(firstKey);
+  });
+});
+
+describe('usePromotionWizardState — composition validation matrix (Task 7)', () => {
+  it('is invalid with zero slots', () => {
+    const { result } = renderHook(() => usePromotionWizardState(null), { wrapper });
+    act(() => {
+      result.current.setKind('combo');
+    });
+    act(() => {
+      result.current.removeSlot(result.current.slots[0]?.key as string);
+    });
+    expect(result.current.slots).toEqual([]);
+    expect(result.current.isCompositionValid()).toBe(false);
+  });
+
+  it('is invalid when a slot has no product/category targets', () => {
+    const { result } = renderHook(() => usePromotionWizardState(null), { wrapper });
+    act(() => {
+      result.current.setKind('combo');
+    });
+    expect(result.current.isCompositionValid()).toBe(false);
+  });
+
+  it('is invalid when a slot quantity is out of the 1..20 range', () => {
+    const { result } = renderHook(() => usePromotionWizardState(null), { wrapper });
+    act(() => {
+      result.current.setKind('combo');
+    });
+    const key = result.current.slots[0]?.key as string;
+    act(() => {
+      result.current.updateSlot(key, { quantity: 21, productIds: ['p-1'] });
+    });
+    expect(result.current.isCompositionValid()).toBe(false);
+    act(() => {
+      result.current.updateSlot(key, { quantity: 0 });
+    });
+    expect(result.current.isCompositionValid()).toBe(false);
+  });
+
+  it('is valid when every slot has quantity 1..20 and at least one target', () => {
+    const { result } = renderHook(() => usePromotionWizardState(null), { wrapper });
+    act(() => {
+      result.current.setKind('combo');
+    });
+    const key = result.current.slots[0]?.key as string;
+    act(() => {
+      result.current.updateSlot(key, { quantity: 2, categoryIds: ['c-1'] });
+    });
+    expect(result.current.isCompositionValid()).toBe(true);
+  });
+});
+
+describe('usePromotionWizardState — validateBasics/isBasicsStepValid ignore the discount value in combo mode (Task 7)', () => {
+  it('validateBasics does not fail on the (unrendered) discount percent/fixed check once kind is combo', () => {
+    const { result } = renderHook(() => usePromotionWizardState(null), { wrapper });
+    act(() => {
+      result.current.setName('Snack Combo');
+    });
+    act(() => {
+      result.current.setKind('combo');
+    });
+    // discountPercentStr defaults to '0' and discountType defaults to
+    // 'percent' — under the pre-Task-7 discount-only rule this would be an
+    // invalid percent (<= 0) and fail validateBasics even though the Basics
+    // section no longer renders those fields at all in combo mode.
+    expect(result.current.validateBasics()).toBe(true);
+    expect(result.current.isStepValid('basics')).toBe(true);
+  });
+});
+
+describe('usePromotionWizardState — combo pricing validation matrix (Task 7)', () => {
+  function setupCombo(totalQuantity: number) {
+    const { result } = renderHook(() => usePromotionWizardState(null), { wrapper });
+    act(() => {
+      result.current.setKind('combo');
+    });
+    const key = result.current.slots[0]?.key as string;
+    act(() => {
+      result.current.updateSlot(key, { quantity: totalQuantity, productIds: ['p-1'] });
+    });
+    return result;
+  }
+
+  it('bundle_price: any positive value is valid, zero/negative invalid', () => {
+    const result = setupCombo(3);
+    act(() => {
+      result.current.setComboPricing({ type: 'bundle_price', value: '10' });
+    });
+    expect(result.current.isComboPricingValid()).toBe(true);
+    act(() => {
+      result.current.setComboPricing({ value: '0' });
+    });
+    expect(result.current.isComboPricingValid()).toBe(false);
+  });
+
+  it('fixed: any positive value is valid, zero/negative invalid', () => {
+    const result = setupCombo(3);
+    act(() => {
+      result.current.setComboPricing({ type: 'fixed', value: '5' });
+    });
+    expect(result.current.isComboPricingValid()).toBe(true);
+    act(() => {
+      result.current.setComboPricing({ value: '-1' });
+    });
+    expect(result.current.isComboPricingValid()).toBe(false);
+  });
+
+  it('percent: valid only in (0, 100]', () => {
+    const result = setupCombo(3);
+    act(() => {
+      result.current.setComboPricing({ type: 'percent', value: '50' });
+    });
+    expect(result.current.isComboPricingValid()).toBe(true);
+    act(() => {
+      result.current.setComboPricing({ value: '100' });
+    });
+    expect(result.current.isComboPricingValid()).toBe(true);
+    act(() => {
+      result.current.setComboPricing({ value: '101' });
+    });
+    expect(result.current.isComboPricingValid()).toBe(false);
+    act(() => {
+      result.current.setComboPricing({ value: '0' });
+    });
+    expect(result.current.isComboPricingValid()).toBe(false);
+  });
+
+  it('cheapest_free: must be an integer strictly less than the total slot quantity', () => {
+    const result = setupCombo(3); // total slot quantity = 3
+    act(() => {
+      result.current.setComboPricing({ type: 'cheapest_free', value: '2' });
+    });
+    expect(result.current.isComboPricingValid()).toBe(true);
+    act(() => {
+      result.current.setComboPricing({ value: '3' }); // == total -> invalid
+    });
+    expect(result.current.isComboPricingValid()).toBe(false);
+    act(() => {
+      result.current.setComboPricing({ value: '0' }); // < 1 -> invalid
+    });
+    expect(result.current.isComboPricingValid()).toBe(false);
+    act(() => {
+      result.current.setComboPricing({ value: '1.5' }); // non-integer -> invalid
+    });
+    expect(result.current.isComboPricingValid()).toBe(false);
+  });
+
+  it('cheapest_free total slot quantity sums across ALL slots, not just one', () => {
+    const { result } = renderHook(() => usePromotionWizardState(null), { wrapper });
+    act(() => {
+      result.current.setKind('combo');
+    });
+    const key1 = result.current.slots[0]?.key as string;
+    act(() => {
+      result.current.updateSlot(key1, { quantity: 2, productIds: ['p-1'] });
+    });
+    act(() => {
+      result.current.addSlot();
+    });
+    const key2 = result.current.slots[1]?.key as string;
+    act(() => {
+      result.current.updateSlot(key2, { quantity: 1, productIds: ['p-2'] });
+    });
+    // total quantity = 3
+    act(() => {
+      result.current.setComboPricing({ type: 'cheapest_free', value: '2' });
+    });
+    expect(result.current.isComboPricingValid()).toBe(true);
+    act(() => {
+      result.current.setComboPricing({ value: '3' });
+    });
+    expect(result.current.isComboPricingValid()).toBe(false);
+  });
+});
+
+describe('usePromotionWizardState — save() payload shape for a combo (Task 7)', () => {
+  it('maps a full 3x2 combo (two slots) to kind/discountType/discountValue/slots/targets', async () => {
+    createMutateAsync.mockClear();
+    const { result } = renderHook(() => usePromotionWizardState(null), { wrapper });
+    act(() => {
+      result.current.setName('3x2 Snacks');
+    });
+    act(() => {
+      result.current.setKind('combo');
+    });
+    const key1 = result.current.slots[0]?.key as string;
+    act(() => {
+      result.current.updateSlot(key1, { quantity: 3, label: 'Buy 3', productIds: ['p-1'] });
+    });
+    act(() => {
+      result.current.addSlot();
+    });
+    const key2 = result.current.slots[1]?.key as string;
+    act(() => {
+      result.current.updateSlot(key2, { quantity: 2, label: '', categoryIds: ['c-1'] });
+    });
+    act(() => {
+      result.current.setComboPricing({ type: 'cheapest_free', value: '2' });
+    });
+    await act(async () => {
+      await result.current.save();
+    });
+    expect(createMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: '3x2 Snacks',
+        kind: 'combo',
+        discountType: 'cheapest_free',
+        discountValue: 2,
+        targets: [],
+        slots: [
+          { quantity: 3, label: 'Buy 3', targets: [{ productId: 'p-1', categoryId: null }] },
+          { quantity: 2, label: null, targets: [{ productId: null, categoryId: 'c-1' }] },
+        ],
+      })
+    );
+  });
+});
+
 describe('usePromotionWizardState — isStepValid dispatcher (D-08)', () => {
   it('dispatches to basics/scope/validity checks and always allows review', () => {
     const { result } = renderHook(() => usePromotionWizardState(null), { wrapper });
