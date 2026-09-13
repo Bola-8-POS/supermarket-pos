@@ -924,4 +924,308 @@ describe('process_direct_sale_atomic — combo pricing (integration, Task 4)', (
       }
     }
   );
+
+  itPlain(
+    'CRITICAL FIX regression: two simultaneously-active combos targeting the SAME pool — the winning (highest-net) combo discounts the correct units, not a losing candidate\'s leftover scratch array',
+    async () => {
+      // Reproduces the round-1 review's Critical finding: the per-slot
+      // scratch pick used to be written into the SAME variable
+      // (v_best_units) that holds the eventual winner's units, unconditionally,
+      // for every slot of every candidate combo — not just the winner.
+      //
+      // comboB deliberately targets the SAME category X as comboA (rather
+      // than a disjoint product) so it can never independently win in a
+      // LATER round either: once comboA consumes all 3 units in round 1,
+      // comboB has zero eligible candidates left in round 2 and fails to
+      // fill — the only way comboB's units could ever end up discounted is
+      // via the round-1 aliasing bug itself, not via legitimate multi-round
+      // application (a combo targeting a genuinely disjoint product, e.g.
+      // one nobody else wants, WOULD legitimately win in a later round —
+      // that's correct multi-application behaviour, not this bug).
+      //
+      // Candidates are evaluated `ORDER BY created_at DESC` (newest first):
+      // comboA (newer) is evaluated FIRST and correctly recorded as the
+      // winner (net 10 > comboB's net 1) — but comboB (older), evaluated
+      // SECOND in the same round, still runs its own (successful, 1-unit)
+      // slot-fill afterwards. Under the bug that slot-fill's scratch write
+      // clobbered v_best_units (aliased to the same variable) with comboB's
+      // single highest-priced pick (p3) right before the allocation step
+      // read it — so the allocation would apply comboA's cheapest_free
+      // logic over comboB's leftover [p3] instead of comboA's real
+      // [p1,p2,p3], freeing p3 (price 30) instead of p1 (price 10). This
+      // test fails under the bug (wrong unit freed / wrong total) and
+      // passes under the fix.
+      const p1 = await seedComboProduct('multi-A', 10, 0);
+      const p2 = await seedComboProduct('multi-B', 20, 0);
+      const p3 = await seedComboProduct('multi-C', 30, 0);
+      await testDb.from('products').update({ category_id: p1.categoryId }).eq('id', p2.productId);
+      await testDb.from('products').update({ category_id: p1.categoryId }).eq('id', p3.productId);
+
+      const now = new Date();
+      // comboA (newer, created_at ~now): cheapest_free over category X
+      // (p1/p2/p3) — gross 10 (frees the cheapest, p1), net 10.
+      const comboAId = await seedComboPromotion('cheapest_free', 1, [
+        { quantity: 3, categoryId: p1.categoryId },
+      ]);
+      // comboB (older, created_at 1 day earlier): fixed 1, ALSO over
+      // category X (quantity-1 slot) — gross LEAST(1, price-of-whichever-
+      // unit-it-picks) = 1, net 1. Always loses to comboA's net 10 within
+      // round 1, and has nothing left to match in round 2 once comboA
+      // consumes all 3 units, so it must never actually apply.
+      const { data: comboBRow, error: comboBErr } = await testDb
+        .from('promotions')
+        .insert({
+          name: `Combo Test Promo B ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          kind: 'combo',
+          discount_type: 'fixed',
+          discount_value: 1,
+          starts_at: new Date(now.getTime() - 24 * 60 * 60_000 - 60_000).toISOString(),
+          ends_at: new Date(now.getTime() + 60 * 60_000).toISOString(),
+          created_at: new Date(now.getTime() - 24 * 60 * 60_000).toISOString(),
+        })
+        .select('id')
+        .single();
+      if (comboBErr || !comboBRow) throw new Error(`comboB insert failed: ${comboBErr?.message ?? 'no row'}`);
+      const comboBId = comboBRow.id as string;
+      const { data: comboBSlot, error: comboBSlotErr } = await testDb
+        .from('promotion_combo_slots')
+        .insert({ promotion_id: comboBId, position: 0, quantity: 1 })
+        .select('id')
+        .single();
+      if (comboBSlotErr || !comboBSlot) throw new Error(`comboB slot insert failed: ${comboBSlotErr?.message ?? 'no row'}`);
+      await testDb.from('promotion_targets').insert({
+        promotion_id: comboBId,
+        category_id: p1.categoryId,
+        slot_id: comboBSlot.id as string,
+      });
+
+      const { staffId, shiftId } = await getStaffAndShift(['cashier', 'manager', 'admin']);
+      const { cajaId } = await getOrCreateOpenCaja(staffId);
+      const { taxRatePercent, taxInclusive } = await getBillingSettings();
+      // (10+20+30) - 10 (comboA frees p1) = 50; comboB never applies.
+      const amount = deriveTotal(50, taxRatePercent, taxInclusive);
+      const idKey = `combo-multi-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+      let tabId: string | undefined;
+      try {
+        const { data, error } = await testDb.rpc('process_direct_sale_atomic', {
+          p_staff_id: staffId,
+          p_shift_id: shiftId,
+          p_caja_session_id: cajaId,
+          p_items: [
+            { product_id: p1.productId, quantity: 1, unit_price: 10, modifier_ids: [], modifier_price_delta: 0, notes: '' },
+            { product_id: p2.productId, quantity: 1, unit_price: 20, modifier_ids: [], modifier_price_delta: 0, notes: '' },
+            { product_id: p3.productId, quantity: 1, unit_price: 30, modifier_ids: [], modifier_price_delta: 0, notes: '' },
+          ],
+          p_idempotency_key: idKey,
+          p_method: 'cash',
+          p_amount: amount,
+          p_tendered_amount: amount,
+          p_manager_override: false,
+        } as never);
+
+        expect(error).toBeNull();
+        const result = data as { ok?: boolean; tabId?: string; code?: string; message?: string };
+        expect(result.ok).toBe(true);
+        tabId = result.tabId;
+        expect(tabId).toBeTruthy();
+
+        const rows = await fetchOrderItems(tabId as string);
+        expect(rows).toHaveLength(3);
+        const p1Row = rows.find(r => r.product_id === p1.productId);
+        const p2Row = rows.find(r => r.product_id === p2.productId);
+        const p3Row = rows.find(r => r.product_id === p3.productId);
+
+        // comboA's units, correctly: p1 (cheapest) freed, p2/p3 at full
+        // price, all three carrying comboA's id (not comboB's, and not a
+        // wrong unit like p3 being freed instead of p1 — the exact
+        // corruption the aliasing bug produced).
+        expect(Number(p1Row!.unit_price)).toBe(0);
+        expect(Number(p1Row!.discount_amount)).toBe(10);
+        expect(p1Row!.promotion_id).toBe(comboAId);
+        expect(Number(p2Row!.unit_price)).toBe(20);
+        expect(Number(p2Row!.discount_amount ?? 0)).toBe(0);
+        expect(p2Row!.promotion_id).toBe(comboAId);
+        expect(Number(p3Row!.unit_price)).toBe(30);
+        expect(Number(p3Row!.discount_amount ?? 0)).toBe(0);
+        expect(p3Row!.promotion_id).toBe(comboAId);
+      } finally {
+        await cleanupCombo(tabId, [p1, p2, p3], [comboAId, comboBId]);
+      }
+    }
+  );
+
+  itPlain(
+    'floor guard is scoped to the whole application: a 3x2 whose freed unit alone would trip a naive per-row check succeeds without override',
+    async () => {
+      // p1 (freed, price 10) has cost_price 5 — its own post-combo row
+      // (unit_price 0) is below its own cost, which is exactly what the
+      // PRIOR (per-row) floor guard checked and would have blocked. The
+      // application's aggregate revenue (0 + 20 + 30 = 50) comfortably
+      // covers the aggregate cost (5 + 1 + 1 = 7), so the corrected
+      // application-level guard must let this through with no override.
+      const p1 = await seedComboProduct('floor-ok-A', 10, 5);
+      const p2 = await seedComboProduct('floor-ok-B', 20, 1);
+      const p3 = await seedComboProduct('floor-ok-C', 30, 1);
+      await testDb.from('products').update({ category_id: p1.categoryId }).eq('id', p2.productId);
+      await testDb.from('products').update({ category_id: p1.categoryId }).eq('id', p3.productId);
+      const promotionId = await seedComboPromotion('cheapest_free', 1, [
+        { quantity: 3, categoryId: p1.categoryId },
+      ]);
+
+      const { staffId, shiftId } = await getStaffAndShift(['cashier', 'manager', 'admin']);
+      const { cajaId } = await getOrCreateOpenCaja(staffId);
+      const { taxRatePercent, taxInclusive } = await getBillingSettings();
+      const amount = deriveTotal(50, taxRatePercent, taxInclusive);
+      const idKey = `combo-floor-ok-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+      let tabId: string | undefined;
+      try {
+        const { data, error } = await testDb.rpc('process_direct_sale_atomic', {
+          p_staff_id: staffId,
+          p_shift_id: shiftId,
+          p_caja_session_id: cajaId,
+          p_items: [
+            { product_id: p1.productId, quantity: 1, unit_price: 10, modifier_ids: [], modifier_price_delta: 0, notes: '' },
+            { product_id: p2.productId, quantity: 1, unit_price: 20, modifier_ids: [], modifier_price_delta: 0, notes: '' },
+            { product_id: p3.productId, quantity: 1, unit_price: 30, modifier_ids: [], modifier_price_delta: 0, notes: '' },
+          ],
+          p_idempotency_key: idKey,
+          p_method: 'cash',
+          p_amount: amount,
+          p_tendered_amount: amount,
+          p_manager_override: false,
+        } as never);
+
+        expect(error).toBeNull();
+        const result = data as { ok?: boolean; tabId?: string; code?: string };
+        expect(result.ok).toBe(true);
+        tabId = result.tabId;
+        expect(tabId).toBeTruthy();
+
+        const rows = await fetchOrderItems(tabId as string);
+        const p1Row = rows.find(r => r.product_id === p1.productId);
+        expect(Number(p1Row!.unit_price)).toBe(0);
+      } finally {
+        await cleanupCombo(tabId, [p1, p2, p3], [promotionId]);
+      }
+    }
+  );
+
+  itPlain(
+    'floor guard is scoped to the whole application: an application that IS below cost in aggregate still requires manager override',
+    async () => {
+      // Aggregate cost (100+100+100=300) vastly exceeds aggregate post-combo
+      // revenue (0+20+30=50) — confirms the application-level check isn't
+      // simply removed, only re-scoped.
+      const p1 = await seedComboProduct('floor-bad-A', 10, 100);
+      const p2 = await seedComboProduct('floor-bad-B', 20, 100);
+      const p3 = await seedComboProduct('floor-bad-C', 30, 100);
+      await testDb.from('products').update({ category_id: p1.categoryId }).eq('id', p2.productId);
+      await testDb.from('products').update({ category_id: p1.categoryId }).eq('id', p3.productId);
+      const promotionId = await seedComboPromotion('cheapest_free', 1, [
+        { quantity: 3, categoryId: p1.categoryId },
+      ]);
+
+      const { staffId, shiftId } = await getStaffAndShift(['cashier', 'manager', 'admin']);
+      const { cajaId } = await getOrCreateOpenCaja(staffId);
+      const idKey = `combo-floor-bad-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+      try {
+        const { data, error } = await testDb.rpc('process_direct_sale_atomic', {
+          p_staff_id: staffId,
+          p_shift_id: shiftId,
+          p_caja_session_id: cajaId,
+          p_items: [
+            { product_id: p1.productId, quantity: 1, unit_price: 10, modifier_ids: [], modifier_price_delta: 0, notes: '' },
+            { product_id: p2.productId, quantity: 1, unit_price: 20, modifier_ids: [], modifier_price_delta: 0, notes: '' },
+            { product_id: p3.productId, quantity: 1, unit_price: 30, modifier_ids: [], modifier_price_delta: 0, notes: '' },
+          ],
+          p_idempotency_key: idKey,
+          p_method: 'cash',
+          p_amount: 50, // irrelevant — expected to be rejected before payment
+          p_tendered_amount: 50,
+          p_manager_override: false,
+        } as never);
+
+        expect(error).toBeNull();
+        const result = data as { ok?: boolean; code?: string };
+        expect(result.ok).toBe(false);
+        expect(result.code).toBe('BELOW_COST_REQUIRES_OVERRIDE');
+
+        const { data: leaked } = await testDb
+          .from('order_items')
+          .select('id')
+          .eq('product_id', p1.productId);
+        expect(leaked ?? []).toHaveLength(0);
+      } finally {
+        await cleanupCombo(undefined, [p1, p2, p3], [promotionId]);
+      }
+    }
+  );
+
+  itPlain(
+    'a line with its own per-line promotion, untouched by any combo, keeps its original promotion_id/discount_rate/discount_amount after the combo pass runs',
+    async () => {
+      // p1 (category Z) carries a 20%-off per-line discount promotion and is
+      // NOT a target of comboY (category Y, p2/p3) — but comboY DOES apply
+      // to p2/p3, so the re-materialization block runs. p1 must come through
+      // the "unconsumed" (ELSE) branch of that block completely unchanged.
+      const p1 = await seedComboProduct('untouched', 10, 1);
+      const p2 = await seedComboProduct('comboY-A', 20, 0);
+      const p3 = await seedComboProduct('comboY-B', 10, 0);
+      await testDb.from('products').update({ category_id: p2.categoryId }).eq('id', p3.productId);
+      const discountPromo = await seedPromotion(p1.productId, 'percent', 20);
+      const promotionId = await seedComboPromotion('cheapest_free', 1, [
+        { quantity: 2, categoryId: p2.categoryId },
+      ]);
+
+      const { staffId, shiftId } = await getStaffAndShift(['cashier', 'manager', 'admin']);
+      const { cajaId } = await getOrCreateOpenCaja(staffId);
+      const { taxRatePercent, taxInclusive } = await getBillingSettings();
+      // p1: 10 - 2 (20% off) = 8. p2/p3: 20+10-10 (comboY frees cheapest, p3) = 20.
+      const amount = deriveTotal(28, taxRatePercent, taxInclusive);
+      const idKey = `combo-untouched-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+      let tabId: string | undefined;
+      try {
+        const { data, error } = await testDb.rpc('process_direct_sale_atomic', {
+          p_staff_id: staffId,
+          p_shift_id: shiftId,
+          p_caja_session_id: cajaId,
+          p_items: [
+            { product_id: p1.productId, quantity: 1, unit_price: 10, modifier_ids: [], modifier_price_delta: 0, notes: '' },
+            { product_id: p2.productId, quantity: 1, unit_price: 20, modifier_ids: [], modifier_price_delta: 0, notes: '' },
+            { product_id: p3.productId, quantity: 1, unit_price: 10, modifier_ids: [], modifier_price_delta: 0, notes: '' },
+          ],
+          p_idempotency_key: idKey,
+          p_method: 'cash',
+          p_amount: amount,
+          p_tendered_amount: amount,
+          p_manager_override: false,
+        } as never);
+
+        expect(error).toBeNull();
+        const result = data as { ok?: boolean; tabId?: string };
+        expect(result.ok).toBe(true);
+        tabId = result.tabId;
+        expect(tabId).toBeTruthy();
+
+        const rows = await fetchOrderItems(tabId as string);
+        expect(rows).toHaveLength(3);
+        const p1Row = rows.find(r => r.product_id === p1.productId);
+        expect(p1Row).toBeDefined();
+        expect(p1Row!.promotion_id).toBe(discountPromo.id);
+        expect(Number(p1Row!.discount_rate)).toBe(20);
+        expect(Number(p1Row!.discount_amount)).toBe(2);
+        expect(Number(p1Row!.unit_price)).toBe(8);
+
+        const p3Row = rows.find(r => r.product_id === p3.productId);
+        expect(Number(p3Row!.unit_price)).toBe(0);
+        expect(p3Row!.promotion_id).toBe(promotionId);
+      } finally {
+        await cleanupCombo(tabId, [p1, p2, p3], [promotionId, discountPromo.id]);
+      }
+    }
+  );
 });

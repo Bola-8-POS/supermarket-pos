@@ -24,7 +24,7 @@ CREATE OR REPLACE FUNCTION public.process_direct_sale_atomic(p_staff_id uuid, p_
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
- SET search_path TO 'public'
+ SET search_path = public, pg_temp
 AS $function$
 DECLARE
   v_existing_payment_id uuid; v_existing_tab_id uuid; v_existing_group_id uuid; v_existing_payment_ids uuid[];
@@ -59,6 +59,17 @@ DECLARE
   v_running numeric; v_idx int; v_n int;
   v_residual numeric; v_unit_price numeric; v_unit_discount numeric;
   v_before jsonb; v_grp record;
+  -- Review fix (round 1, Critical): dedicated per-slot scratch array, kept
+  -- strictly separate from v_best_units (the WINNING application's units,
+  -- written only inside the `IF v_gross > 0 AND v_net > v_best_net` branch).
+  -- v_best_units used to double as this scratch during every slot-fill of
+  -- EVERY candidate combo, so after the FOR v_combo loop it held whichever
+  -- candidate's last slot was evaluated last, not necessarily the winner's.
+  v_slot_units int[];
+  -- Review fix (round 1, Important #2): per-application counter so the
+  -- below-cost floor guard can be checked once per whole combo application
+  -- (Σrevenue vs Σcost across every unit it consumed), not per resulting row.
+  v_app_no int := 0;
 BEGIN
   -- Phase 27 gap-closure code review (CR-01/CR-02): coalesce a stray SQL NULL
   -- to false so a caller that omits the parameter (or passes NULL explicitly,
@@ -309,7 +320,8 @@ BEGIN
   CREATE TEMP TABLE IF NOT EXISTS _sale_units (
     unit_no serial PRIMARY KEY, item_idx int NOT NULL, product_id uuid NOT NULL, category_id uuid NOT NULL,
     price numeric NOT NULL, line_discount numeric NOT NULL, eligible boolean NOT NULL,
-    combo_promo_id uuid, combo_discount numeric, combo_rate numeric, consumed boolean NOT NULL DEFAULT false
+    combo_promo_id uuid, combo_discount numeric, combo_rate numeric, consumed boolean NOT NULL DEFAULT false,
+    app_no int
   ) ON COMMIT DROP;
   TRUNCATE _sale_units;
   INSERT INTO _sale_units (item_idx, product_id, category_id, price, line_discount, eligible)
@@ -339,7 +351,15 @@ BEGIN
     LOOP
       v_app_units := ARRAY[]::int[]; v_sum := 0;
       FOR v_slot IN SELECT s.id, s.quantity FROM promotion_combo_slots s WHERE s.promotion_id = v_combo.id ORDER BY s.position LOOP
-        SELECT array_agg(unit_no ORDER BY price DESC, unit_no) INTO v_best_units   -- reuse var as scratch
+        -- Review fix (round 1, Critical): v_slot_units is a dedicated
+        -- per-slot scratch array — NEVER v_best_units, which must hold only
+        -- the winning application's units (written once, in the winner
+        -- branch below). Aliasing the two meant this scratch write, which
+        -- fires unconditionally for every slot of every candidate combo
+        -- (not just the eventual winner), clobbered whatever the previous
+        -- winner branch had stored, so the allocation step below could end
+        -- up discounting a completely different combo's units.
+        SELECT array_agg(unit_no ORDER BY price DESC, unit_no) INTO v_slot_units
         FROM (
           SELECT u.unit_no, u.price FROM _sale_units u
           WHERE NOT u.consumed AND u.eligible AND NOT (u.unit_no = ANY(v_app_units))
@@ -351,8 +371,8 @@ BEGIN
                 AND (t.product_id = u.product_id OR t.category_id IN (SELECT id FROM anc)))
           ORDER BY u.price DESC, u.unit_no LIMIT v_slot.quantity
         ) pick;
-        IF v_best_units IS NULL OR array_length(v_best_units, 1) < v_slot.quantity THEN v_app_units := NULL; EXIT; END IF;
-        v_app_units := v_app_units || v_best_units;
+        IF v_slot_units IS NULL OR array_length(v_slot_units, 1) < v_slot.quantity THEN v_app_units := NULL; EXIT; END IF;
+        v_app_units := v_app_units || v_slot_units;
       END LOOP;
       CONTINUE WHEN v_app_units IS NULL OR array_length(v_app_units, 1) IS NULL;
 
@@ -371,6 +391,7 @@ BEGIN
       END IF;
     END LOOP;
     EXIT WHEN v_best_combo_id IS NULL;
+    v_app_no := v_app_no + 1;
 
     -- allocate v_best_gross over v_best_units (spec A.4 allocation rules)
     IF v_best_type = 'cheapest_free' THEN
@@ -421,7 +442,8 @@ BEGIN
       END IF;
     END IF;
     UPDATE _sale_units SET consumed = true, combo_promo_id = v_best_combo_id,
-      combo_rate = CASE WHEN v_best_type = 'percent' THEN v_best_value ELSE NULL END
+      combo_rate = CASE WHEN v_best_type = 'percent' THEN v_best_value ELSE NULL END,
+      app_no = v_app_no
     WHERE unit_no = ANY(v_best_units);
   END LOOP;
 
@@ -432,6 +454,36 @@ BEGIN
   -- entered _sale_units and are appended unchanged.
   IF EXISTS (SELECT 1 FROM _sale_units WHERE consumed) THEN
     v_before := v_derived_items; v_derived_items := '[]'::jsonb; v_subtotal := 0;
+
+    -- Review fix (round 1, Important #1 — product decision): the below-cost
+    -- floor guard for combo-consumed units is checked once per WHOLE
+    -- application (Σrevenue vs Σcost across every unit that ONE combo
+    -- application produced), not per resulting row. A per-row check (the
+    -- prior version of this migration) trips on essentially every
+    -- cheapest_free combo, since the freed unit's own row is priced 0 —
+    -- below any positive cost — even though the other units in the same
+    -- application cover the margin, which is the entire point of the
+    -- mechanic. `revenue`/`cost` here mirror the exact per-row formula this
+    -- replaces (unit_price + discount_amount - combo_discount vs
+    -- cost_price_snapshot, modifier_price_delta excluded, same as the
+    -- original per-line floor guard above), just summed per app_no instead
+    -- of applied per row.
+    FOR v_grp IN
+      SELECT u.app_no,
+        SUM((o.orig->>'unit_price')::numeric + (o.orig->>'discount_amount')::numeric - u.combo_discount) AS revenue,
+        SUM(COALESCE((o.orig->>'cost_price_snapshot')::numeric, 0)) AS cost
+      FROM _sale_units u
+      JOIN LATERAL (
+        SELECT elem FROM jsonb_array_elements(v_before) WITH ORDINALITY d(elem, i) WHERE d.i - 1 = u.item_idx
+      ) o(orig) ON true
+      WHERE u.consumed
+      GROUP BY u.app_no
+    LOOP
+      IF v_grp.revenue < v_grp.cost AND NOT p_manager_override THEN
+        RETURN jsonb_build_object('ok', false, 'code', 'BELOW_COST_REQUIRES_OVERRIDE', 'message', 'This combination of discounts would sell below cost');
+      END IF;
+    END LOOP;
+
     FOR v_grp IN
       SELECT u.item_idx, u.consumed, u.combo_promo_id, u.combo_rate, u.combo_discount, COUNT(*)::int AS qty,
              (SELECT elem FROM jsonb_array_elements(v_before) WITH ORDINALITY d(elem, i) WHERE d.i - 1 = u.item_idx) AS orig
@@ -440,11 +492,14 @@ BEGIN
       ORDER BY u.item_idx, u.consumed, u.combo_discount
     LOOP
       IF v_grp.consumed THEN
-        -- unit_price = catalog price (orig unit_price + orig discount) - combo discount, modifier delta stays separate
-        v_line_price := ROUND((v_grp.orig->>'unit_price')::numeric + (v_grp.orig->>'discount_amount')::numeric - v_grp.combo_discount, 2);
-        IF v_line_price < COALESCE((v_grp.orig->>'cost_price_snapshot')::numeric, 0) AND NOT p_manager_override THEN
-          RETURN jsonb_build_object('ok', false, 'code', 'BELOW_COST_REQUIRES_OVERRIDE', 'message', 'This combination of discounts would sell below cost');
-        END IF;
+        -- unit_price = catalog price (orig unit_price + orig discount) - combo
+        -- discount, modifier delta stays separate. The below-cost check
+        -- already ran once per application above; GREATEST(0, ...) here is
+        -- only a defensive backstop (never the below-cost decision itself)
+        -- so a unit whose modifier delta interacts with the combo discount
+        -- can never compute a small negative value that would otherwise trip
+        -- order_items' raw CHECK constraint with an unformatted DB error.
+        v_line_price := GREATEST(0, ROUND((v_grp.orig->>'unit_price')::numeric + (v_grp.orig->>'discount_amount')::numeric - v_grp.combo_discount, 2));
         v_derived_items := v_derived_items || (v_grp.orig || jsonb_build_object(
           'quantity', v_grp.qty, 'unit_price', v_line_price,
           'promotion_id', v_grp.combo_promo_id, 'discount_rate', v_grp.combo_rate, 'discount_amount', v_grp.combo_discount));
