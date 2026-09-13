@@ -12,7 +12,7 @@ import { ReceiptPreview } from '@features/process-payment/ui/ReceiptPreview';
 import { evaluateBestPromotion, usePromotions } from '@entities/promotion';
 import { useReceiptSettings, useSettings } from '@entities/settings';
 import { useStaffStore } from '@entities/staff/model/store';
-import { calcWeightedLineTotal, useCartStore } from '@entities/tab/model/cartStore';
+import { calcWeightedLineTotal } from '@entities/tab/model/cartStore';
 import type { Tab } from '@entities/tab/model/types';
 import {
   PAYMENT_METHODS,
@@ -176,6 +176,14 @@ export interface PaymentFormProps {
   onDone?: () => void;
   /** Storybook / tests */
   processors?: PaymentProcessors;
+  /**
+   * Live combo-promotion net savings from the direct-sale checkout cart —
+   * only ever meaningful in that context (CheckoutPanel computes and passes
+   * this from cartStore's own comboNetSavings()). Never inferred from an
+   * unrelated field: PaymentPane's reopened-tab flow simply omits this prop,
+   * defaulting to 0, regardless of what processors it happens to supply.
+   */
+  comboNetSavings?: number;
 }
 
 function calculateLineTotal(
@@ -191,6 +199,7 @@ export function PaymentForm({
   onClose,
   onDone,
   processors = defaultProcessors,
+  comboNetSavings: comboNetSavingsProp = 0,
 }: PaymentFormProps) {
   const { t } = useTranslation('wPanels');
   const { t: tCommon } = useTranslation('common');
@@ -389,17 +398,12 @@ export function PaymentForm({
   // whole-cart allocation, not a per-line price), so itemsSubtotal above
   // doesn't yet reflect them — subtracted here, at the same pre-tax stage as
   // the ad-hoc discount, so tax is always computed on the true post-combo
-  // base. cartStore's comboResult is GLOBAL state describing whatever is
-  // currently in the live direct-sale cart — it has no relationship to an
-  // arbitrary `tab` being paid/reopened via PaymentPane (no
-  // processBankTransferPayment), so it's only applied in that same
-  // checkout-time-only context this file already gates the "Apply
-  // Promotion"/Bank Transfer method on (D-16) — otherwise a combo sitting in
-  // an unrelated in-progress cart would silently discount someone else's
-  // payment.
-  const cartComboNetSavings = useCartStore(s => s.comboNetSavings());
-  const comboNetSavings = processors.processBankTransferPayment ? cartComboNetSavings : 0;
-  const afterDiscount = Math.round((baseSubtotal - discountAmount - comboNetSavings) * 100) / 100;
+  // base. Passed in explicitly by CheckoutPanel (from cartStore's own
+  // comboNetSavings()) rather than inferred here from an unrelated field —
+  // PaymentPane's reopened-tab flow simply never passes this prop, so it
+  // defaults to 0 regardless of what processors it happens to supply.
+  const afterDiscount =
+    Math.round((baseSubtotal - discountAmount - comboNetSavingsProp) * 100) / 100;
   const taxAmount = useMemo(() => {
     if (taxInclusive) {
       // Inclusive mode (TAX-02): afterDiscount already IS the total — decompose

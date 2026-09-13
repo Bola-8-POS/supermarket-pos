@@ -299,6 +299,7 @@ export function CheckoutPanel() {
             tab={syntheticTab}
             staffId={staffId}
             processors={processors}
+            comboNetSavings={comboNetSavings}
             onPaymentSuccess={() => undefined}
             onClose={() => {
               resetIdempotencyKey();

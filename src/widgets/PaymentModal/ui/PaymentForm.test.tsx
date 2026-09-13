@@ -296,13 +296,18 @@ function makeProcessors(overrides: Partial<PaymentProcessors> = {}): PaymentProc
   };
 }
 
-function renderForm(processors: PaymentProcessors = makeProcessors(), onPaymentSuccess = vi.fn()) {
+function renderForm(
+  processors: PaymentProcessors = makeProcessors(),
+  onPaymentSuccess = vi.fn(),
+  comboNetSavings?: number
+) {
   renderWithProviders(
     <PaymentForm
       tab={testTab}
       staffId={staffId}
       onPaymentSuccess={onPaymentSuccess}
       processors={processors}
+      {...(comboNetSavings !== undefined ? { comboNetSavings } : {})}
     />
   );
 }
@@ -1213,22 +1218,24 @@ function setMockComboResult(netSavings: number) {
 }
 
 describe('PaymentForm — combo savings (Task 5)', () => {
-  it('subtracts comboNetSavings from the subtotal before tax in the direct-sale checkout context (taxRate=0: total-row reflects it 1:1)', () => {
-    setMockComboResult(5);
-    // processBankTransferPayment present == the direct-sale checkout context
-    // (useCheckoutSale) — the only context cartStore's live comboResult is
-    // relevant to (D-16-style gate, same as the Apply Promotion section).
-    renderForm(makeCheckoutProcessors());
+  it('subtracts an explicit comboNetSavings prop from the subtotal before tax (taxRate=0: total-row reflects it 1:1)', () => {
+    // Fix (final-review item 1): comboNetSavings is an explicit prop —
+    // CheckoutPanel passes the live cart's value; asserted here directly
+    // rather than inferred from processors.processBankTransferPayment's
+    // presence, which has nothing to do with combos.
+    renderForm(makeCheckoutProcessors(), vi.fn(), 5);
 
     // testTab: itemsSubtotal=$20, taxRate=0 -> total-row = 20 - 5 = 15.
     expect(screen.getByTestId('total-row')).toHaveTextContent('15.00');
   });
 
-  it('ignores cartStore.comboResult on the reopened-tab payment path (no processBankTransferPayment) — an unrelated live cart never discounts this tab', () => {
+  it('ignores an unrelated live cart\'s combo savings when the prop is omitted (PaymentPane\'s reopened-tab path)', () => {
     setMockComboResult(5);
-    // Default processors (no processBankTransferPayment) == PaymentPane's
-    // reopened/arbitrary-tab path, not the live checkout cart.
-    renderForm();
+    // PaymentPane never passes comboNetSavings, regardless of what
+    // processors it supplies — even with processBankTransferPayment present
+    // and cartStore.comboResult populated (an unrelated in-progress cart),
+    // the omitted prop must default to 0.
+    renderForm(makeCheckoutProcessors());
 
     // testTab: itemsSubtotal=$20, taxRate=0 -> total-row stays $20, not $15.
     expect(screen.getByTestId('total-row')).toHaveTextContent('20.00');
