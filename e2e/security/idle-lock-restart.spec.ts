@@ -65,7 +65,14 @@ test.describe('Idle Screen Lock — persists across restart', () => {
     // Route content must not be reachable behind it.
     await relaunched.goto('/pos');
     await expect(relaunched.getByRole('alertdialog', { name: /screen locked|pantalla bloqueada/i })).toBeVisible();
-    await expect(relaunched.getByPlaceholder(/search products|buscar productos/i)).not.toBeVisible();
+    // toBeVisible() alone doesn't prove unreachability -- CheckoutPanel always
+    // renders the search input regardless of `locked`, and a pure CSS
+    // visibility check ignores the modal overlay stacked on top. Prove the
+    // input cannot actually receive a click: Playwright's actionability
+    // checks fail the click because the AlertDialog overlay intercepts
+    // pointer events.
+    const search = relaunched.getByPlaceholder(/search products|buscar productos/i);
+    await expect(search.click({ timeout: 1_500 })).rejects.toThrow();
 
     await enterPin(relaunched, process.env.E2E_ADMIN_PIN ?? '0000');
     await expect(
