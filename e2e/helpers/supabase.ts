@@ -142,9 +142,23 @@ export async function resetTestState(): Promise<void> {
   // rows broke refund.spec.ts, reopen-closed-ticket.spec.ts and
   // promotion-deleted-mid-cart.spec.ts with AMOUNT_MISMATCH/stale-price
   // failures). Sweep any row named by the "E2E " test-data convention on
-  // every reset; promotion_targets cascades on delete (verified via a select
-  // count after this ran locally — zero orphaned targets).
+  // every reset; promotion_targets AND promotion_combo_slots both reference
+  // promotions.id with ON DELETE CASCADE directly (20260904000001:35,
+  // 20260913000001:72), and promotion_targets.slot_id also cascades off a
+  // deleted slot (20260913000001:96) — a combo promotion's slots/targets are
+  // swept by this same delete, no separate cleanup needed.
   await admin.from('promotions').delete().like('name', 'E2E %');
+
+  // Task 8 (combo promotions): combo-eligibility.spec.ts toggles these two
+  // fixtures off mid-test to prove they disappear from the combo picker. A
+  // failed run before its own restore step would otherwise leave them
+  // ineligible for every later spec that relies on Snacks being a normal,
+  // fully-eligible combo category (combo-checkout.spec.ts's 3x2 fixture).
+  await admin
+    .from('products')
+    .update({ combo_eligible: true })
+    .eq('name', "Parle-G Biscuits 200g");
+  await admin.from('categories').update({ combo_eligible: true }).eq('name', 'Snacks');
 
   // Test-data isolation only: keeps refund.spec.ts's own ledger fixtures out
   // of every OTHER spec's Movements-tab assertions, same pattern as the
@@ -746,4 +760,155 @@ export async function deleteTestStaff(name: string): Promise<void> {
   if (orphan) {
     await admin.auth.admin.deleteUser(orphan.id);
   }
+}
+
+// ---------------------------------------------------------------------------
+// New helpers added for Task 8 (combo promotions E2E)
+// ---------------------------------------------------------------------------
+
+/** One `promotion_combo_slots` row for `seedComboPromotion`, resolved by name against `products`/`categories`. */
+export interface ComboSlotSeed {
+  quantity: number;
+  productNames?: string[];
+  categoryNames?: string[];
+}
+
+/**
+ * Seeds a combo-kind promotion directly via the service-role client:
+ * `promotions` (kind='combo'), one `promotion_combo_slots` row per slot
+ * (position = array index), and one `promotion_targets` row per
+ * product/category name in each slot (resolved by name, `slot_id` set).
+ * `name` must start with "E2E " so `resetTestState`'s own `'E2E %'` sweep
+ * removes the promotion (and, via ON DELETE CASCADE, its slots and targets)
+ * on the next reset. Returns the new promotion's id.
+ */
+export async function seedComboPromotion(opts: {
+  name: string;
+  type: 'bundle_price' | 'percent' | 'fixed' | 'cheapest_free';
+  value: number;
+  slots: ComboSlotSeed[];
+}): Promise<string> {
+  const admin = getServiceClient();
+  const createdBy = await findRoleStaffId(admin, 'admin');
+  const now = Date.now();
+
+  const { data: promo, error: promoErr } = await admin
+    .from('promotions')
+    .insert({
+      name: opts.name,
+      kind: 'combo',
+      discount_type: opts.type,
+      discount_value: opts.value,
+      starts_at: new Date(now - 60_000).toISOString(),
+      ends_at: new Date(now + 60 * 60_000).toISOString(),
+      active: true,
+      created_by: createdBy,
+    })
+    .select('id')
+    .single();
+  if (promoErr || !promo) {
+    throw new Error(`seedComboPromotion: promotion insert failed – ${promoErr?.message}`);
+  }
+  const promotionId = promo.id as string;
+
+  for (const [position, slot] of opts.slots.entries()) {
+    const { data: slotRow, error: slotErr } = await admin
+      .from('promotion_combo_slots')
+      .insert({ promotion_id: promotionId, position, quantity: slot.quantity })
+      .select('id')
+      .single();
+    if (slotErr || !slotRow) {
+      throw new Error(`seedComboPromotion: slot insert failed – ${slotErr?.message}`);
+    }
+    const slotId = slotRow.id as string;
+
+    const targetRows: {
+      promotion_id: string;
+      slot_id: string;
+      product_id: string | null;
+      category_id: string | null;
+    }[] = [];
+    for (const productName of slot.productNames ?? []) {
+      const { data: product, error: pErr } = await admin
+        .from('products')
+        .select('id')
+        .eq('name', productName)
+        .maybeSingle();
+      if (pErr || !product) throw new Error(`seedComboPromotion: product "${productName}" not found`);
+      targetRows.push({
+        promotion_id: promotionId,
+        slot_id: slotId,
+        product_id: product.id as string,
+        category_id: null,
+      });
+    }
+    for (const categoryName of slot.categoryNames ?? []) {
+      const { data: category, error: cErr } = await admin
+        .from('categories')
+        .select('id')
+        .eq('name', categoryName)
+        .maybeSingle();
+      if (cErr || !category) throw new Error(`seedComboPromotion: category "${categoryName}" not found`);
+      targetRows.push({
+        promotion_id: promotionId,
+        slot_id: slotId,
+        product_id: null,
+        category_id: category.id as string,
+      });
+    }
+    if (targetRows.length > 0) {
+      const { error: targetErr } = await admin.from('promotion_targets').insert(targetRows);
+      if (targetErr) throw new Error(`seedComboPromotion: target insert failed – ${targetErr.message}`);
+    }
+  }
+
+  return promotionId;
+}
+
+/**
+ * Push a product's `inventory.expiry_date` far into the future so the
+ * near-expiry auto-discount (PROMO-02, checkout's default 15%-off trigger)
+ * can never fire on it. Other specs (near-expiry alert fixtures) mutate a
+ * shared seeded product's expiry_date directly and resetTestState doesn't
+ * restore it, so a spec that needs a product's raw base_price un-discounted
+ * at checkout (e.g. a combo's "cheapest of N" pricing) must not assume the
+ * seed script's original expiry_date has survived — pin it explicitly.
+ */
+export async function setInventoryFarFromExpiry(productName: string): Promise<void> {
+  const admin = getServiceClient();
+  const { data: prod, error: pErr } = await admin
+    .from('products')
+    .select('id')
+    .eq('name', productName)
+    .maybeSingle();
+  if (pErr || !prod) throw new Error(`setInventoryFarFromExpiry: product "${productName}" not found`);
+  const expiryDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const { error } = await admin
+    .from('inventory')
+    .update({ expiry_date: expiryDate })
+    .eq('product_id', prod.id);
+  if (error) throw new Error(`setInventoryFarFromExpiry failed: ${error.message}`);
+}
+
+/** Set `products.combo_eligible` on a product by name. */
+export async function setProductComboEligible(productName: string, eligible: boolean): Promise<void> {
+  const admin = getServiceClient();
+  const { error } = await admin
+    .from('products')
+    .update({ combo_eligible: eligible })
+    .eq('name', productName);
+  if (error) throw new Error(`setProductComboEligible failed: ${error.message}`);
+}
+
+/** Set `categories.combo_eligible` on a category by name. */
+export async function setCategoryComboEligible(
+  categoryName: string,
+  eligible: boolean
+): Promise<void> {
+  const admin = getServiceClient();
+  const { error } = await admin
+    .from('categories')
+    .update({ combo_eligible: eligible })
+    .eq('name', categoryName);
+  if (error) throw new Error(`setCategoryComboEligible failed: ${error.message}`);
 }
