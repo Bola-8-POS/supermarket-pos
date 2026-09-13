@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { supabase } from '@shared/lib/supabase';
 import type { Tables } from '@shared/lib/supabase.types';
 import { createTestQueryClient } from '@shared/lib/test-utils';
-import { mapPromotionRow, useMutationUpdatePromotion } from './queries';
+import { mapPromotionRow, useMutationCreatePromotion, useMutationUpdatePromotion } from './queries';
 
 /** Row shape returned by the `*, promotion_targets(*), promotion_combo_slots(*)` nested-join select. */
 type PromotionRowWithTargets = Tables<'promotions'> & {
@@ -267,5 +267,104 @@ describe('useMutationUpdatePromotion', () => {
       }
     }
   );
+});
+
+// ============================================================================
+// saveComboSlots — mid-write failure safety net (final-review fix #3)
+// ============================================================================
+
+/**
+ * Like mockTrackedFrom, but promotion_combo_slots' slot-insert `.single()`
+ * fails with a Postgres-shaped error instead of returning a slot id — a
+ * failure landing squarely between the delete and the reinsert loop, the
+ * highest-risk mid-write point saveComboSlots can fail at. promotions'
+ * initial insert (create) still resolves with a real row so the mutation
+ * gets far enough to reach saveComboSlots at all.
+ */
+function mockTrackedFromWithSlotInsertFailure(): TrackedCall[] {
+  const calls: TrackedCall[] = [];
+  const chainMethods = ['select', 'insert', 'update', 'delete', 'eq', 'is', 'order', 'limit'];
+
+  vi.mocked(supabase).from.mockImplementation((table: string) => {
+    const resolved = { data: null, error: null };
+    const chain: Record<string, unknown> = {};
+    for (const op of chainMethods) {
+      chain[op] = vi.fn((...args: unknown[]) => {
+        calls.push({ table, op, args });
+        return chain;
+      });
+    }
+    chain.single = vi.fn(() => {
+      calls.push({ table, op: 'single', args: [] });
+      if (table === 'promotions') {
+        // useMutationCreatePromotion's initial insert().select('*').single().
+        return Promise.resolve({ data: baseRow({ kind: 'combo', discount_type: 'bundle_price' }), error: null });
+      }
+      if (table === 'promotion_combo_slots') {
+        return Promise.resolve({
+          data: null,
+          error: { message: 'combo slot insert failed', code: 'PGRST000', details: '', hint: '' },
+        });
+      }
+      return Promise.resolve({ data: { id: `${table}-slot-id` }, error: null });
+    });
+    chain.then = (resolve: (v: typeof resolved) => void) => {
+      resolve(resolved);
+    };
+    return chain as unknown as ReturnType<typeof supabase.from>;
+  });
+
+  return calls;
+}
+
+describe('saveComboSlots — mid-write failure safety net', () => {
+  it('deactivates the promotion (active: false) when a combo slot insert fails mid-write, without masking the original error', async () => {
+    const calls = mockTrackedFromWithSlotInsertFailure();
+    const qc = createTestQueryClient();
+    const { result } = renderHook(() => useMutationCreatePromotion(), {
+      wrapper: makeWrapper(qc),
+    });
+
+    const mutationResult = await result.current.mutateAsync({
+      name: 'Broken bundle',
+      kind: 'combo',
+      discountType: 'bundle_price',
+      discountValue: 199,
+      startsAt: new Date('2026-08-01T00:00:00.000Z'),
+      endsAt: new Date('2026-12-31T23:59:59.000Z'),
+      daysOfWeek: null,
+      startTime: null,
+      endTime: null,
+      active: true,
+      createdBy: null,
+      targets: [],
+      slots: [
+        {
+          quantity: 2,
+          label: 'Chips',
+          targets: [{ productId: null, categoryId: CATEGORY_A_ID, slotId: null }],
+        },
+      ],
+    });
+
+    // The original slot-insert failure is still what's returned — never
+    // masked by the deactivate's own (successful, in this mock) outcome.
+    // parseSupabaseError generic-codes an unrecognized PostgrestError code
+    // to "An unexpected error occurred." (not the raw message) — the real
+    // failure is asserted via the logged event above instead.
+    expect(mutationResult.ok).toBe(false);
+
+    const deactivateCall = calls.find(
+      c =>
+        c.table === 'promotions' &&
+        c.op === 'update' &&
+        (c.args[0] as { active?: boolean }).active === false
+    );
+    expect(deactivateCall).toBeDefined();
+    const deactivateEqCall = calls.find(
+      c => c.table === 'promotions' && c.op === 'eq' && c.args[0] === 'id' && c.args[1] === PROMOTION_ID
+    );
+    expect(deactivateEqCall).toBeDefined();
+  });
 });
 /* eslint-enable i18next/no-literal-string */

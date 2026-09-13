@@ -94,6 +94,27 @@ export function mapPromotionRow(row: PromotionRowWithTargets): Result<Promotion>
 }
 
 /**
+ * Best-effort safety net for a mid-write combo slot failure (final-review
+ * fix #3): a delete-then-reinsert that fails partway through can leave a
+ * promotion `active: true` with an incomplete slot/target set — e.g. a
+ * "$199 bundle over 3 slots" now only requiring 1 slot to fill, live at
+ * checkout. Deactivating never masks the original error — it's fired right
+ * before returning it, and its own failure is only logged, never returned
+ * in place of the real cause.
+ */
+async function deactivatePromotionAfterComboWriteFailure(promotionId: string): Promise<void> {
+  const res = await supabaseMutation(() =>
+    supabase.from('promotions').update({ active: false }).eq('id', promotionId)
+  );
+  if (!res.ok) {
+    logger.error('promotions.combo_slots_failure_deactivate_failed', {
+      promotionId,
+      message: res.error.message,
+    });
+  }
+}
+
+/**
  * Rewrites a combo promotion's slots (delete-all-then-reinsert, mirroring
  * the existing targets update strategy — simplest correct approach for a
  * handful of slot rows per promotion). Deleting a slot cascades its
@@ -109,6 +130,7 @@ async function saveComboSlots(
   );
   if (!delRes.ok) {
     logger.error('promotions.combo_slots_delete_failed', { message: delRes.error.message });
+    await deactivatePromotionAfterComboWriteFailure(promotionId);
     return delRes;
   }
 
@@ -127,6 +149,7 @@ async function saveComboSlots(
         message: slotRes.error.message,
         promotionId,
       });
+      await deactivatePromotionAfterComboWriteFailure(promotionId);
       return slotRes;
     }
     const slotId = (slotRes.data as unknown as { id: string }).id;
@@ -146,6 +169,7 @@ async function saveComboSlots(
         promotionId,
         slotId,
       });
+      await deactivatePromotionAfterComboWriteFailure(promotionId);
       return targetsRes;
     }
   }
