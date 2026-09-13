@@ -9,12 +9,14 @@
       "kitchenOption": "Cocina",
       "barOption": "Barra",
       "noneOption": "Ninguna",
-      "routingHelp": "Controla en qué pantalla KDS aparecen los artículos de esta categoría. Elige “Ninguna” para artículos que no se preparan (p. ej. mercancía)."
+      "routingHelp": "Controla en qué pantalla KDS aparecen los artículos de esta categoría. Elige “Ninguna” para artículos que no se preparan (p. ej. mercancía).",
+      "comboEligibleLabel": "Elegible para combos"
     },
     "tree": {
       "collapseAria": "Contraer {{name}}",
       "expandAria": "Expandir {{name}}",
       "notRouted": "Sin ruteo",
+      "noCombosTag": "Sin combos",
       "depthBadge": "N{{level}}",
       "editAria": "Editar {{name}}",
       "addSubcategoryAria": "Agregar subcategoría bajo {{name}}"
@@ -159,6 +161,8 @@
       "imageUrlLabel": "URL de imagen",
       "imageUrlPlaceholder": "https://…",
       "activeLabel": "Activo",
+      "comboEligibleLabel": "Elegible para combos",
+      "comboEligibleHelp": "Puede incluirse en una promoción de combo",
       "modifiersLabel": "Modificadores",
       "noModifiersDefined": "No hay modificadores definidos.",
       "suppliersLabel": "Proveedores",

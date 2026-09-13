@@ -28,6 +28,8 @@ export type ProductDetailsTabProps = {
   onBarcodeChange: (value: string) => void;
   isActive: boolean;
   onIsActiveChange: (value: boolean) => void;
+  comboEligible: boolean;
+  onComboEligibleChange: (value: boolean) => void;
   fieldErrors: Record<string, string>;
   submitting: boolean;
 };
@@ -58,6 +60,8 @@ export function ProductDetailsTab({
   onBarcodeChange,
   isActive,
   onIsActiveChange,
+  comboEligible,
+  onComboEligibleChange,
   fieldErrors,
   submitting,
 }: ProductDetailsTabProps) {
@@ -205,6 +209,23 @@ export function ProductDetailsTab({
         <label htmlFor="product-active" className="text-sm font-medium">
           {t('manageProducts.productForm.activeLabel')}
         </label>
+      </div>
+
+      <div className="flex items-center gap-2 lg:col-span-2">
+        <Checkbox
+          id="product-combo-eligible"
+          checked={comboEligible}
+          onCheckedChange={v => {
+            onComboEligibleChange(v === true);
+          }}
+          disabled={submitting}
+        />
+        <label htmlFor="product-combo-eligible" className="text-sm font-medium">
+          {t('manageProducts.productForm.comboEligibleLabel')}
+        </label>
+        <span className="text-xs text-muted-foreground">
+          {t('manageProducts.productForm.comboEligibleHelp')}
+        </span>
       </div>
     </div>
   );

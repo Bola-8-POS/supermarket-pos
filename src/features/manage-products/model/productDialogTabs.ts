@@ -72,6 +72,7 @@ export type ProductFormSnapshot = {
   unitsPerPackageInput: string;
   parentProductIdInput: string;
   isActive: boolean;
+  comboEligible: boolean;
   imageUrl: string;
   modifierIds: string[];
   selectedSupplierIds: string[];

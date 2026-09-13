@@ -104,6 +104,7 @@ export function ProductDetailDialog({
   // eslint-disable-next-line i18next/no-literal-string -- 'g' is a weight-unit enum value (data), not UI copy.
   const [weightUnit, setWeightUnit] = useState<string>(initialProduct?.weightUnit ?? 'g');
   const [isActive, setIsActive] = useState(initialProduct?.isActive ?? true);
+  const [comboEligible, setComboEligible] = useState(initialProduct?.comboEligible ?? true);
   const [imageUrl, setImageUrl] = useState(initialProduct?.imageUrl ?? '');
   const [modifierIds, setModifierIds] = useState<string[]>(
     () => initialProduct?.modifiers.map(m => m.id) ?? []
@@ -148,6 +149,7 @@ export function ProductDetailDialog({
     // eslint-disable-next-line i18next/no-literal-string -- 'g' is a weight-unit enum value (data), not UI copy.
     weightUnit: initialProduct?.weightUnit ?? 'g',
     isActive: initialProduct?.isActive ?? true,
+    comboEligible: initialProduct?.comboEligible ?? true,
     imageUrl: initialProduct?.imageUrl ?? '',
     modifierIds: initialProduct?.modifiers.map(m => m.id) ?? [],
     selectedSupplierIds: [...(supplierIds ?? [])],
@@ -166,6 +168,7 @@ export function ProductDetailDialog({
       weightAmountInput,
       weightUnit,
       isActive,
+      comboEligible,
       imageUrl,
       modifierIds,
       selectedSupplierIds,
@@ -330,6 +333,7 @@ export function ProductDetailDialog({
         happyHourPrice: null,
         sku: skuVal,
         isActive,
+        comboEligible,
         imageUrl: imageVal,
         barcode: barcodeVal,
         unitsPerPackage,
@@ -370,6 +374,7 @@ export function ProductDetailDialog({
       happyHourPrice: null,
       sku: skuVal,
       isActive,
+      comboEligible,
       imageUrl: imageVal,
       photoPath: null,
       barcode: barcodeVal,
@@ -537,6 +542,8 @@ export function ProductDetailDialog({
                   onBarcodeChange={setBarcode}
                   isActive={isActive}
                   onIsActiveChange={setIsActive}
+                  comboEligible={comboEligible}
+                  onComboEligibleChange={setComboEligible}
                   fieldErrors={fieldErrors}
                   submitting={submitting}
                 />

@@ -9,12 +9,14 @@
       "kitchenOption": "Kitchen",
       "barOption": "Bar",
       "noneOption": "None",
-      "routingHelp": "Controls which KDS board this category’s items appear on. Choose “None” for items that aren’t prepped (e.g. merch)."
+      "routingHelp": "Controls which KDS board this category’s items appear on. Choose “None” for items that aren’t prepped (e.g. merch).",
+      "comboEligibleLabel": "Combo eligible"
     },
     "tree": {
       "collapseAria": "Collapse {{name}}",
       "expandAria": "Expand {{name}}",
       "notRouted": "Not routed",
+      "noCombosTag": "No combos",
       "depthBadge": "L{{level}}",
       "editAria": "Edit {{name}}",
       "addSubcategoryAria": "Add subcategory under {{name}}"
@@ -159,6 +161,8 @@
       "imageUrlLabel": "Image URL",
       "imageUrlPlaceholder": "https://…",
       "activeLabel": "Active",
+      "comboEligibleLabel": "Combo eligible",
+      "comboEligibleHelp": "Can be included in a combo promotion",
       "modifiersLabel": "Modifiers",
       "noModifiersDefined": "No modifiers defined.",
       "suppliersLabel": "Suppliers",

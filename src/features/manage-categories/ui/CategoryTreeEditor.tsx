@@ -28,6 +28,7 @@ import { FormField } from '@shared/ui/FormField';
 import { POSButton } from '@shared/ui/POSButton';
 import { RoutingBadge } from '@shared/ui/RoutingBadge';
 import { Button } from '@shared/ui/button';
+import { Checkbox } from '@shared/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@shared/ui/dialog';
 import { Input } from '@shared/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@shared/ui/select';
@@ -40,6 +41,7 @@ interface CategoryFormData {
   name: string;
   color: string;
   routing: CategoryRouting;
+  comboEligible: boolean;
 }
 
 interface CategoryFormProps {
@@ -54,12 +56,13 @@ function CategoryForm({ initial, submitting, onCancel, onSubmit }: CategoryFormP
   const [name, setName] = useState(initial.name);
   const [color, setColor] = useState(initial.color);
   const [routing, setRouting] = useState<CategoryRouting>(initial.routing);
+  const [comboEligible, setComboEligible] = useState(initial.comboEligible);
 
   function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) return;
-    onSubmit({ name: trimmed, color, routing });
+    onSubmit({ name: trimmed, color, routing, comboEligible });
   }
 
   return (
@@ -116,6 +119,18 @@ function CategoryForm({ initial, submitting, onCancel, onSubmit }: CategoryFormP
           {t('manageCategories.form.routingHelp')}
         </p>
       </FormField>
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id="category-combo-eligible"
+          checked={comboEligible}
+          onCheckedChange={v => {
+            setComboEligible(v === true);
+          }}
+        />
+        <label htmlFor="category-combo-eligible" className="text-sm font-medium">
+          {t('manageCategories.form.comboEligibleLabel')}
+        </label>
+      </div>
       <div className="flex justify-end gap-2">
         <POSButton type="button" variant="outline" touchSize="default" onClick={onCancel}>
           {t('common:actions.cancel')}
@@ -207,6 +222,13 @@ function NodeRow({ item, allCategories, expandedIds, onToggle, onEdit, onAddChil
         ) : (
           <RoutingBadge routing={category.routing} />
         )}
+
+        {/* Combo eligibility */}
+        {!category.comboEligible ? (
+          <span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">
+            {t('manageCategories.tree.noCombosTag')}
+          </span>
+        ) : null}
 
         {/* Depth badge */}
         <span className="text-xs text-muted-foreground">
@@ -362,10 +384,7 @@ export function CategoryTreeEditor() {
       happyHourEnd: null,
       routing: data.routing,
       parentId: parentId ?? undefined,
-      // This editor has no combo-eligibility UI (that's a Catalog-side
-      // concern, not category tree management) — new categories default to
-      // combo-eligible, matching ProductSchema's own default.
-      comboEligible: true,
+      comboEligible: data.comboEligible,
     };
 
     const r = await createMutation.mutateAsync(createPayload);
@@ -383,6 +402,7 @@ export function CategoryTreeEditor() {
       name: data.name,
       color: data.color,
       routing: data.routing,
+      comboEligible: data.comboEligible,
     };
     const r = await updateMutation.mutateAsync(payload);
     if (!r.ok) {
@@ -475,12 +495,13 @@ export function CategoryTreeEditor() {
                       name: dialog.category.name,
                       color: dialog.category.color,
                       routing: dialog.category.routing,
+                      comboEligible: dialog.category.comboEligible,
                     }
                   : // TOKEN-01 exempt: category.color is arbitrary per-row USER DATA (each category
                     // picks its own color), not an app theme color. Do not map to a Tailwind CSS-variable
                     // token — see 31-CONTEXT.md D-08.
                     // eslint-disable-next-line no-restricted-syntax, i18next/no-literal-string -- 31-CONTEXT.md D-08: category.color is per-row user data, not a theme color / translatable copy
-                    { name: '', color: '#6366f1', routing: 'NONE' }
+                    { name: '', color: '#6366f1', routing: 'NONE', comboEligible: true }
               }
               submitting={createMutation.isPending || updateMutation.isPending}
               onCancel={() => {

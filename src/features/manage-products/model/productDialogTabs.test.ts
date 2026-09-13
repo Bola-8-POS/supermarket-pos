@@ -20,6 +20,7 @@ const BASE_SNAPSHOT: ProductFormSnapshot = {
   weightAmountInput: '',
   weightUnit: 'g',
   isActive: true,
+  comboEligible: true,
   imageUrl: '',
   modifierIds: [],
   selectedSupplierIds: [],

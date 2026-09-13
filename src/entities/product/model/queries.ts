@@ -77,6 +77,7 @@ export function mapProductRow(row: ProductRow): Result<Product> {
         sku: row.sku,
         isActive: row.is_active,
         soldByWeight: row.sold_by_weight,
+        comboEligible: row.combo_eligible,
         imageUrl: row.image_url,
         photoPath: row.photo_path ?? null,
         stock_threshold: row.stock_threshold ?? null,
@@ -388,11 +389,14 @@ async function syncProductModifiers(
   return ok(null);
 }
 
-function productUpdateToRow(patch: Partial<Omit<ProductUpdate, 'id'>>): TablesUpdate<'products'> {
+export function productUpdateToRow(
+  patch: Partial<Omit<ProductUpdate, 'id'>>
+): TablesUpdate<'products'> {
   const row: TablesUpdate<'products'> = {};
   if (patch.name !== undefined) row.name = patch.name;
   if (patch.categoryId !== undefined) row.category_id = patch.categoryId;
   if (patch.basePrice !== undefined) row.base_price = patch.basePrice;
+  if (patch.comboEligible !== undefined) row.combo_eligible = patch.comboEligible;
   // Legacy HH price column no longer written (Phase 20, D-01) — happy-hour pricing
   // is now managed in Settings → Promotions.
   if (patch.sku !== undefined) row.sku = patch.sku;
@@ -445,6 +449,7 @@ export function useMutationCreateProduct() {
         sku: product.sku,
         is_active: product.isActive,
         image_url: product.imageUrl,
+        combo_eligible: product.comboEligible,
       };
       if (product.barcode !== undefined && product.barcode !== null) {
         (insertRow as Record<string, unknown>).barcode = product.barcode;
