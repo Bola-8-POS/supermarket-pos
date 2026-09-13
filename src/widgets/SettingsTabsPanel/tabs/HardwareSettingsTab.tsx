@@ -74,11 +74,11 @@ export function HardwareSettingsTab({ currentRole }: Props) {
   const [terminalIdInput, setTerminalIdInput] = useState(savedTerminalId);
   const [terminalIdError, setTerminalIdError] = useState<string | null>(null);
 
-  function saveTerminalId() {
+  function saveTerminalId(): boolean {
     const result = setTerminalId(terminalIdInput);
     if (!result.ok) {
       setTerminalIdError(tSettings('hardware.terminal.invalid'));
-      return;
+      return false;
     }
     const persisted = getTerminalId();
     setTerminalIdError(null);
@@ -86,12 +86,10 @@ export function HardwareSettingsTab({ currentRole }: Props) {
     setTerminalIdInput(persisted);
     void queryClient.invalidateQueries({ queryKey: cajaKeys.all });
     toast.success(tSettings('hardware.terminal.saved'));
+    return true;
   }
 
-  useRegisterUnsavedChanges(terminalIdInput !== savedTerminalId, () => {
-    saveTerminalId();
-    return Promise.resolve(true);
-  });
+  useRegisterUnsavedChanges(terminalIdInput !== savedTerminalId, () => Promise.resolve(saveTerminalId()));
 
   // Optimistic local state — mirrors server value, updated immediately on change.
   // Lazy initializer captures the first available server value; afterwards

@@ -175,4 +175,29 @@ describe('HardwareSettingsTab — Terminal ID field', () => {
     expect(saveResult).toBe(true);
     expect(localStorage.getItem('pos.terminal_id')).toBe('POS-2');
   });
+
+  it('resolves the registered save to false when the terminal ID fails validation, and does not persist', async () => {
+    const report = vi.fn();
+    const clear = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <UnsavedChangesContext.Provider value={{ report, clear }}>
+        <HardwareSettingsTab currentRole="admin" />
+      </UnsavedChangesContext.Provider>
+    );
+
+    const input = screen.getByTestId('terminal-id-input');
+    await user.clear(input);
+    await user.type(input, 'bad id');
+
+    expect(report).toHaveBeenLastCalledWith(true, expect.any(Function));
+
+    const lastCall = report.mock.lastCall as [boolean, () => Promise<boolean>];
+    let saveResult: boolean | undefined;
+    await act(async () => {
+      saveResult = await lastCall[1]();
+    });
+    expect(saveResult).toBe(false);
+    expect(localStorage.getItem('pos.terminal_id')).toBeNull();
+  });
 });
