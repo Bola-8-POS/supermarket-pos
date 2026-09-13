@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { useMutationUpdateSetting, useSettings } from '@entities/settings';
 import type { UserRole } from '@shared/lib/domain';
 import { Input, Label, POSButton, ProtectedAction } from '@shared/ui';
+import { useRegisterUnsavedChanges } from '../model/unsaved-changes';
 
 type Props = { currentRole: UserRole | null };
 
@@ -22,19 +23,24 @@ export function NearExpirySettingsTab({ currentRole }: Props) {
     }
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [data, dirty]);
-  const save = async () => {
+  const save = useCallback(async (): Promise<boolean> => {
     const value = Number(thresholdDays);
-    if (!Number.isInteger(value) || value < 1 || value > 365) return;
+    if (!Number.isInteger(value) || value < 1 || value > 365) return false;
     const discountValue = Number(discountPercent);
-    if (Number.isNaN(discountValue) || discountValue < 0 || discountValue > 100) return;
+    if (Number.isNaN(discountValue) || discountValue < 0 || discountValue > 100) return false;
     const result = await updateSetting.mutateAsync({
       key: 'near_expiry',
       value: { thresholdDays: value, discountPercent: discountValue },
     });
-    if (!result.ok) return toast.error(result.error.message);
+    if (!result.ok) {
+      toast.error(result.error.message);
+      return false;
+    }
     setDirty(false);
     toast.success(t('nearExpirySettingsTab.saved'));
-  };
+    return true;
+  }, [thresholdDays, discountPercent, updateSetting, t]);
+  useRegisterUnsavedChanges(dirty, save);
   return (
     <ProtectedAction action="manage_settings" currentRole={currentRole} disabled={updateSetting.isPending}>
       <div className="space-y-4">

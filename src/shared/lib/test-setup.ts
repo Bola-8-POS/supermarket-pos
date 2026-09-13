@@ -28,9 +28,12 @@ afterEach(async () => {
   await i18n.changeLanguage('en-US');
 });
 
-// Mock Tauri IPC in tests (not available in jsdom)
+// Mock Tauri IPC in tests (not available in jsdom). isTauri() defaults to
+// false — jsdom is never a real Tauri runtime; a test that needs the Tauri
+// branch of isTauri()-gated code overrides this mock locally.
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockResolvedValue(undefined),
+  isTauri: () => false,
 }));
 
 // Global Supabase mock — prevents real WebSocket connections that hang forks.

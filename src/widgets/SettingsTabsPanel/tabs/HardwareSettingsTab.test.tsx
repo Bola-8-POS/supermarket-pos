@@ -10,7 +10,7 @@
  * (no-success-toast rule, PRN-04/UX).
  */
 
-import { screen } from '@testing-library/react';
+import { act, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { toast } from 'sonner';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -20,6 +20,7 @@ import { openCashDrawer, testPrint } from '@shared/lib/pos-printer';
 import { err, ok } from '@shared/lib/result';
 import { renderWithProviders } from '@shared/lib/test-utils';
 
+import { UnsavedChangesContext } from '../model/unsaved-changes';
 import { HardwareSettingsTab } from './HardwareSettingsTab';
 
 // ---------------------------------------------------------------------------
@@ -148,5 +149,30 @@ describe('HardwareSettingsTab — Terminal ID field', () => {
 
     expect(screen.getByRole('alert')).toBeInTheDocument();
     expect(localStorage.getItem('pos.terminal_id')).toBeNull();
+  });
+
+  it('reports dirty to the unsaved-changes registry after an edit, and the registered save persists it', async () => {
+    const report = vi.fn();
+    const clear = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <UnsavedChangesContext.Provider value={{ report, clear }}>
+        <HardwareSettingsTab currentRole="admin" />
+      </UnsavedChangesContext.Provider>
+    );
+
+    const input = screen.getByTestId('terminal-id-input');
+    await user.clear(input);
+    await user.type(input, 'POS-2');
+
+    expect(report).toHaveBeenLastCalledWith(true, expect.any(Function));
+
+    const lastCall = report.mock.lastCall as [boolean, () => Promise<boolean>];
+    let saveResult: boolean | undefined;
+    await act(async () => {
+      saveResult = await lastCall[1]();
+    });
+    expect(saveResult).toBe(true);
+    expect(localStorage.getItem('pos.terminal_id')).toBe('POS-2');
   });
 });

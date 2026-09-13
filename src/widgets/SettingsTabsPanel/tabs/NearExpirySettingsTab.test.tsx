@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { UnsavedChangesContext } from '../model/unsaved-changes';
 
 const { mutateAsyncMock, toastErrorMock, toastSuccessMock, mockSettingsData } = vi.hoisted(() => ({
   mutateAsyncMock: vi.fn(),
@@ -68,5 +69,33 @@ describe('NearExpirySettingsTab', () => {
     await user.click(screen.getByRole('button', { name: 'Save alert window' }));
 
     expect(mutateAsyncMock).not.toHaveBeenCalled();
+  });
+
+  it('reports dirty to the unsaved-changes registry after an edit, and the registered save persists', async () => {
+    const report = vi.fn();
+    const clear = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <UnsavedChangesContext.Provider value={{ report, clear }}>
+        <NearExpirySettingsTab currentRole="admin" />
+      </UnsavedChangesContext.Provider>
+    );
+
+    const discountInput = screen.getByLabelText('Near-expiry discount (%)');
+    await user.clear(discountInput);
+    await user.type(discountInput, '20');
+
+    expect(report).toHaveBeenLastCalledWith(true, expect.any(Function));
+
+    const lastCall = report.mock.lastCall as [boolean, () => Promise<boolean>];
+    let saveResult: boolean | undefined;
+    await act(async () => {
+      saveResult = await lastCall[1]();
+    });
+    expect(saveResult).toBe(true);
+    expect(mutateAsyncMock).toHaveBeenCalledWith({
+      key: 'near_expiry',
+      value: { thresholdDays: 14, discountPercent: 20 },
+    });
   });
 });

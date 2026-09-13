@@ -18,6 +18,7 @@ import { Checkbox } from '@shared/ui/checkbox';
 import { Input } from '@shared/ui/input';
 import { Label } from '@shared/ui/label';
 import { Textarea } from '@shared/ui/textarea';
+import { useRegisterUnsavedChanges } from '../model/unsaved-changes';
 
 type Props = {
   currentRole: UserRole | null;
@@ -86,6 +87,11 @@ export function HardwareSettingsTab({ currentRole }: Props) {
     void queryClient.invalidateQueries({ queryKey: cajaKeys.all });
     toast.success(tSettings('hardware.terminal.saved'));
   }
+
+  useRegisterUnsavedChanges(terminalIdInput !== savedTerminalId, () => {
+    saveTerminalId();
+    return Promise.resolve(true);
+  });
 
   // Optimistic local state — mirrors server value, updated immediately on change.
   // Lazy initializer captures the first available server value; afterwards

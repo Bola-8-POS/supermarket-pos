@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { useMutationUpdateSetting, useSettings } from '@entities/settings';
@@ -6,6 +6,7 @@ import type { PaymentMethodLabels } from '@entities/settings';
 import { PAYMENT_METHODS, PaymentMethodLabelsSchema, type PaymentMethod } from '@shared/lib/domain';
 import type { UserRole } from '@shared/lib/domain';
 import { ConfirmDialog, Input, Label, POSButton, ProtectedAction } from '@shared/ui';
+import { useRegisterUnsavedChanges } from '../model/unsaved-changes';
 
 type Props = {
   currentRole: UserRole | null;
@@ -66,11 +67,11 @@ export function BillingSettingsTab({ currentRole }: Props) {
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [data, dirty, labelsDirty]);
 
-  const save = async () => {
+  const save = useCallback(async (): Promise<boolean> => {
     const taxRatePercent = Number(form.taxRatePercent);
     if (!Number.isFinite(taxRatePercent) || taxRatePercent < 0 || taxRatePercent > 100) {
       toast.error(t('billingSettingsTab.taxRateInvalid'));
-      return;
+      return false;
     }
 
     const result = await updateSetting.mutateAsync({
@@ -83,11 +84,41 @@ export function BillingSettingsTab({ currentRole }: Props) {
     });
     if (!result.ok) {
       toast.error(result.error.message);
-      return;
+      return false;
     }
     setDirty(false);
     toast.success(t('billingSettingsTab.billingSaved'));
-  };
+    return true;
+  }, [form, updateSetting, t]);
+
+  // Separate from the "Save Labels" button's own onClick (which keeps its
+  // existing mutate(...)-with-onSuccess call style unchanged) — this is the
+  // mutateAsync-based equivalent the unsaved-changes registry can await and
+  // get a boolean back from, per the "wrap mutate(...) into mutateAsync"
+  // rule without altering what the button itself does or persists.
+  const saveLabels = useCallback(async (): Promise<boolean> => {
+    const result = await updateSetting.mutateAsync({ key: 'payment_labels', value: labels });
+    if (!result.ok) {
+      toast.error(result.error.message);
+      return false;
+    }
+    setLabelsDirty(false);
+    toast.success(t('billingSettingsTab.paymentLabelsSaved'));
+    return true;
+  }, [labels, updateSetting, t]);
+
+  // Registered save runs whichever of the two independent forms is dirty,
+  // sequentially, bailing out false on the first failure. The tax-inclusive
+  // ConfirmDialog stays exclusively on the button's own onClick below — this
+  // registered save calls `save` directly, same as the confirm dialog's
+  // onConfirm does.
+  const registeredSave = useCallback(async (): Promise<boolean> => {
+    if (dirty && !(await save())) return false;
+    if (labelsDirty && !(await saveLabels())) return false;
+    return true;
+  }, [dirty, labelsDirty, save, saveLabels]);
+
+  useRegisterUnsavedChanges(dirty || labelsDirty, registeredSave);
 
   return (
     <ProtectedAction

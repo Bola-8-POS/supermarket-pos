@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { UnsavedChangesContext } from '../model/unsaved-changes';
 
 const { mutateAsyncMock, toastErrorMock, toastSuccessMock, mockSettingsData } = vi.hoisted(() => ({
   mutateAsyncMock: vi.fn(),
@@ -188,5 +189,33 @@ describe('BillingSettingsTab', () => {
         expect.anything()
       );
     });
+  });
+
+  it('reports dirty to the unsaved-changes registry after an edit, and the registered save persists', async () => {
+    mutateAsyncMock.mockResolvedValueOnce({ ok: true });
+    const report = vi.fn();
+    const clear = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <UnsavedChangesContext.Provider value={{ report, clear }}>
+        <BillingSettingsTab currentRole="manager" />
+      </UnsavedChangesContext.Provider>
+    );
+
+    const taxInput = screen.getByLabelText('Tax rate (IVA %)');
+    await user.clear(taxInput);
+    await user.type(taxInput, '20');
+
+    expect(report).toHaveBeenLastCalledWith(true, expect.any(Function));
+
+    const lastCall = report.mock.lastCall as [boolean, () => Promise<boolean>];
+    let saveResult: boolean | undefined;
+    await act(async () => {
+      saveResult = await lastCall[1]();
+    });
+    expect(saveResult).toBe(true);
+    expect(mutateAsyncMock).toHaveBeenCalledWith(
+      expect.objectContaining({ key: 'billing', value: expect.objectContaining({ taxRatePercent: 20 }) })
+    );
   });
 });

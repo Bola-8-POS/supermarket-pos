@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { UnsavedChangesContext } from '../model/unsaved-changes';
 
 // ---------------------------------------------------------------------------
 // jsdom polyfills — Radix Select uses pointer-capture APIs not implemented
@@ -105,5 +106,30 @@ describe('LanguageSettingsTab', () => {
     // Form stays dirty and the selection is NOT reverted — Save is still enabled.
     expect(screen.getByRole('button', { name: 'language.save' })).not.toBeDisabled();
     expect(screen.getByRole('combobox')).toHaveTextContent('language.option.enUS');
+  });
+
+  it('reports dirty to the unsaved-changes registry after an edit, and the registered save persists', async () => {
+    mutateAsyncMock.mockResolvedValueOnce({ ok: true });
+    const report = vi.fn();
+    const clear = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <UnsavedChangesContext.Provider value={{ report, clear }}>
+        <LanguageSettingsTab />
+      </UnsavedChangesContext.Provider>
+    );
+
+    await user.click(screen.getByRole('combobox'));
+    await user.click(screen.getByRole('option', { name: 'language.option.enUS' }));
+
+    expect(report).toHaveBeenLastCalledWith(true, expect.any(Function));
+
+    const lastCall = report.mock.lastCall as [boolean, () => Promise<boolean>];
+    let saveResult: boolean | undefined;
+    await act(async () => {
+      saveResult = await lastCall[1]();
+    });
+    expect(saveResult).toBe(true);
+    expect(mutateAsyncMock).toHaveBeenCalledWith({ locale: 'en-US' });
   });
 });

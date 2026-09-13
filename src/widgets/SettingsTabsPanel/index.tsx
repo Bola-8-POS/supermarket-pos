@@ -18,6 +18,7 @@ import { useNavigationGuardStore } from '@shared/lib/navigation-guard';
 import { Tabs, TabsContent } from '@shared/ui/tabs';
 import { VerticalTabsGroupLabel, VerticalTabsList, VerticalTabsTrigger } from '@shared/ui/vertical-tabs';
 import { UnsavedChangesContext, useUnsavedChangesController } from './model/unsaved-changes';
+import { useCloseGuard } from './model/useCloseGuard';
 import { BackupSettingsTab } from './tabs/BackupSettingsTab';
 import { BillingSettingsTab } from './tabs/BillingSettingsTab';
 import { EmailReceiptsSettingsTab } from './tabs/EmailReceiptsSettingsTab';
@@ -163,6 +164,11 @@ export function SettingsTabsPanel() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only requestLeave's identity matters; controller itself is a fresh object every render
   }, [controller.requestLeave]);
+
+  // Guards the app window's own close button/Alt+F4 the same way — a dirty
+  // tab shouldn't be silently discarded just because the user closed the
+  // window instead of navigating away inside it.
+  useCloseGuard(controller.isDirty, controller.requestLeave);
 
   const handleTabChange = (next: string) => {
     if (next === activeTab) return;

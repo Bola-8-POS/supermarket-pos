@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { useMutationUpdateTerminalLockSettings, useTerminalLockSettings } from '@entities/settings';
 import type { UserRole } from '@shared/lib/domain';
 import { Input, Label, POSButton, ProtectedAction } from '@shared/ui';
+import { useRegisterUnsavedChanges } from '../model/unsaved-changes';
 
 type Props = { currentRole: UserRole | null };
 
@@ -18,14 +19,19 @@ export function LockSettingsTab({ currentRole }: Props) {
     if (data && !dirty) setSeconds(String(data.lockTimeoutSeconds));
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [data, dirty]);
-  const save = async () => {
+  const save = useCallback(async (): Promise<boolean> => {
     const value = Number(seconds);
-    if (!Number.isInteger(value) || value < 15 || value > 600) return;
+    if (!Number.isInteger(value) || value < 15 || value > 600) return false;
     const result = await updateSetting.mutateAsync(value);
-    if (!result.ok) return toast.error(result.error.message);
+    if (!result.ok) {
+      toast.error(result.error.message);
+      return false;
+    }
     setDirty(false);
     toast.success(t('lockSettingsTab.saved'));
-  };
+    return true;
+  }, [seconds, updateSetting, t]);
+  useRegisterUnsavedChanges(dirty, save);
   return (
     <ProtectedAction action="manage_settings" currentRole={currentRole} disabled={updateSetting.isPending}>
       <div className="space-y-4">

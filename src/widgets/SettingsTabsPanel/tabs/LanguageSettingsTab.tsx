@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { useMutationSetOwnLocale } from '@entities/staff/model/queries';
@@ -15,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@shared/ui';
+import { useRegisterUnsavedChanges } from '../model/unsaved-changes';
 
 const LOCALE_OPTIONS = LocaleSchema.options;
 
@@ -33,18 +34,21 @@ export function LanguageSettingsTab() {
   const [locale, setLocale] = useState<Locale>(currentStaff?.locale ?? 'es-MX');
   const [dirty, setDirty] = useState(false);
 
-  const save = async () => {
+  const save = useCallback(async (): Promise<boolean> => {
     const result = await mutation.mutateAsync({ locale });
     if (!result.ok) {
       toast.error(t('language.saveError'));
-      return;
+      return false;
     }
     // Switch on success only — avoids a half-saved state if the write fails
     // (UI-SPEC.md Interaction Contract step 2).
     void i18n.changeLanguage(locale);
     toast.success(t('language.saveSuccess'));
     setDirty(false);
-  };
+    return true;
+  }, [locale, mutation, t]);
+
+  useRegisterUnsavedChanges(dirty, save);
 
   return (
     <div className="space-y-4">

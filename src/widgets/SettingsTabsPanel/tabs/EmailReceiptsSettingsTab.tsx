@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
@@ -9,6 +9,7 @@ import {
 } from '@entities/settings';
 import type { UserRole } from '@shared/lib/domain';
 import { Input, Label, POSButton, ProtectedAction } from '@shared/ui';
+import { useRegisterUnsavedChanges } from '../model/unsaved-changes';
 
 type Props = {
   currentRole: UserRole | null;
@@ -34,7 +35,7 @@ export function EmailReceiptsSettingsTab({ currentRole }: Props) {
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [data, dirty, testRecipient.length]);
 
-  const save = async () => {
+  const save = useCallback(async (): Promise<boolean> => {
     const result = await updateSetting.mutateAsync({
       key: 'email_receipts',
       value: {
@@ -43,11 +44,14 @@ export function EmailReceiptsSettingsTab({ currentRole }: Props) {
     });
     if (!result.ok) {
       toast.error(result.error.message);
-      return;
+      return false;
     }
     setDirty(false);
     toast.success(t('emailReceiptsSettingsTab.saved'));
-  };
+    return true;
+  }, [fromEmail, updateSetting, t]);
+
+  useRegisterUnsavedChanges(dirty, save);
 
   const sendTestEmail = async () => {
     const result = await sendTest.mutateAsync({ email: testRecipient.trim() });

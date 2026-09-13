@@ -1,5 +1,5 @@
 import { ImageOff, ImagePlus, Trash2, Upload } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
@@ -14,6 +14,7 @@ import type { UserRole } from '@shared/lib/domain';
 import type { AppError } from '@shared/lib/result';
 import { cn } from '@shared/lib/utils';
 import { ConfirmDialog, Input, Label, LoadingSpinner, POSButton, ProtectedAction, Skeleton } from '@shared/ui';
+import { useRegisterUnsavedChanges } from '../model/unsaved-changes';
 
 type Props = {
   currentRole: UserRole | null;
@@ -91,7 +92,7 @@ export function GeneralSettingsTab({ currentRole }: Props) {
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [data, dirty]);
 
-  const save = async () => {
+  const save = useCallback(async (): Promise<boolean> => {
     const result = await updateSetting.mutateAsync({
       key: 'general',
       value: {
@@ -105,11 +106,14 @@ export function GeneralSettingsTab({ currentRole }: Props) {
     });
     if (!result.ok) {
       toast.error(result.error.message);
-      return;
+      return false;
     }
     setDirty(false);
     toast.success(t('generalSettingsTab.saved'));
-  };
+    return true;
+  }, [form, updateSetting, t]);
+
+  useRegisterUnsavedChanges(dirty, save);
 
   function logoErrorCopyFor(error: AppError): string {
     switch (error.code) {
