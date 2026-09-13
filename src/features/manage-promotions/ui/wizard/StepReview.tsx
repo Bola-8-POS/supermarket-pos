@@ -4,6 +4,8 @@ import { useProducts } from '@entities/product';
 import {
   evaluateBestPromotion,
   evaluateCombos,
+  getCategoryChain,
+  isProductComboEligible,
   type ComboCartLine,
   type ComboCategoryLookup,
   type Promotion,
@@ -63,18 +65,31 @@ function endOfDay(str: string): Date {
  * The worked example's per-slot example product (Task 7 ambiguity
  * resolution): the first eligible product referenced by the slot's OWN
  * targets — if the slot targets specific products, the first of those; if
- * it targets a category, the first product in the catalog directly in that
- * category. Null when the slot has no targets yet (e.g. a freshly-added,
- * still-empty slot) — the caller skips the whole worked example in that case.
+ * it targets a category, the first eligible product whose own ancestor
+ * chain includes that category (same chain-walk `evaluateCombos`'s
+ * `matchesSlot` uses at checkout — a slot targeting a PARENT category must
+ * still resolve an example from a product filed under a child category).
+ * Only searches `eligibleProducts` (never the full catalog) so the example
+ * never suggests a product that couldn't actually fill this slot. Null when
+ * the slot has no targets yet (e.g. a freshly-added, still-empty slot) — the
+ * caller skips the whole worked example in that case.
  */
-function resolveExampleProduct(slot: SlotDraft, products: Product[]): Product | null {
+function resolveExampleProduct(
+  slot: SlotDraft,
+  eligibleProducts: Product[],
+  categoriesById: Map<string, ComboCategoryLookup>
+): Product | null {
   if (slot.productIds.length > 0) {
     const id = slot.productIds[0];
-    return products.find(p => p.id === id) ?? null;
+    return eligibleProducts.find(p => p.id === id) ?? null;
   }
   if (slot.categoryIds.length > 0) {
     const categoryId = slot.categoryIds[0];
-    return products.find(p => p.categoryId === categoryId) ?? null;
+    if (categoryId === undefined) return null;
+    return (
+      eligibleProducts.find(p => getCategoryChain(p.categoryId, categoriesById).includes(categoryId)) ??
+      null
+    );
   }
   return null;
 }
@@ -177,14 +192,20 @@ export function StepReview({
   }
 
   // Task 7 combo worked example: resolve one example product per slot from
-  // the slot's OWN targets. Any slot with no resolvable example product
-  // (e.g. still empty) silently skips the whole worked example — no crash,
-  // just no "Example: …" line.
+  // the slot's OWN targets, searching only combo-eligible products/matching
+  // the same ancestor-chain rule evaluateCombos uses at checkout. Any slot
+  // with no resolvable example product (e.g. still empty) silently skips
+  // the whole worked example — no crash, just no "Example: …" line.
+  const categoriesById = new Map<string, ComboCategoryLookup>(
+    (categories ?? []).map(c => [c.id, { comboEligible: c.comboEligible, parentId: c.parentId ?? null }])
+  );
+  const eligibleProducts = (products ?? []).filter(p => isProductComboEligible(p, categoriesById));
+
   let comboPreview: { originalTotal: number; discountedTotal: number } | null = null;
   if (isCombo && slots.length > 0) {
     const resolved = slots.map(slot => ({
       slot,
-      product: resolveExampleProduct(slot, products ?? []),
+      product: resolveExampleProduct(slot, eligibleProducts, categoriesById),
     }));
     const numericPricingValue = Number(comboPricing.value);
     if (resolved.every(hasResolvedProduct) && Number.isFinite(numericPricingValue)) {
@@ -235,11 +256,8 @@ export function StepReview({
         unitPrice: product.basePrice,
         lineDiscountPerUnit: 0,
         soldByWeight: false,
-        comboEligible: true,
+        comboEligible: product.comboEligible,
       }));
-      const categoriesById = new Map<string, ComboCategoryLookup>(
-        (categories ?? []).map(c => [c.id, { comboEligible: c.comboEligible, parentId: c.parentId ?? null }])
-      );
       const evaluation = evaluateCombos(
         lines,
         [previewCombo],
@@ -248,11 +266,20 @@ export function StepReview({
         appSettings?.general.timezone ?? 'UTC',
         categoriesById
       );
-      const originalTotal = lines.reduce((sum, l) => sum + l.unitPrice * l.quantity, 0);
-      comboPreview = {
-        originalTotal,
-        discountedTotal: originalTotal - evaluation.netSavings,
-      };
+      // A combo that isn't currently live (future-dated, or its
+      // day/time-window recurrence doesn't match right now) produces zero
+      // applications — evaluation.netSavings is then 0, which would
+      // otherwise render a misleading "$X → $X" (no discount) line instead
+      // of the discount-branch's own "no preview available" treatment.
+      // Match that: only show a worked example once the combo actually
+      // fired at least one application.
+      if (evaluation.applications.length > 0) {
+        const originalTotal = lines.reduce((sum, l) => sum + l.unitPrice * l.quantity, 0);
+        comboPreview = {
+          originalTotal,
+          discountedTotal: originalTotal - evaluation.netSavings,
+        };
+      }
     }
   }
 

@@ -63,9 +63,12 @@ const MAX_APPLICATIONS = 50;
 /**
  * A product's own category plus up to its two ancestors (self, parent,
  * grandparent — matching the DB's max-depth-3 constraint), stopping early if
- * a lookup is missing. Order: nearest-to-farthest.
+ * a lookup is missing. Order: nearest-to-farthest. Exported so callers
+ * outside this module (e.g. StepReview's worked-example resolver) can match
+ * a category-scoped slot target the same ancestor-chain way `matchesSlot`
+ * does here, instead of re-deriving their own (potentially divergent) rule.
  */
-function getCategoryChain(
+export function getCategoryChain(
   categoryId: string,
   categoriesById: Map<string, ComboCategoryLookup>
 ): string[] {
