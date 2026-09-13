@@ -1193,28 +1193,45 @@ describe('PaymentForm — Apply Promotion selector', () => {
 // job, not this ad-hoc picker's).
 // ---------------------------------------------------------------------------
 
+function setMockComboResult(netSavings: number) {
+  useCartStore.setState({
+    comboResult: {
+      applications: [
+        {
+          promotionId: 'combo-1',
+          promotionName: '3x2 Combo',
+          discountType: 'cheapest_free',
+          discountRate: null,
+          units: [{ tempId: 'temp-1', discountAmount: netSavings }],
+          gross: netSavings,
+          net: netSavings,
+        },
+      ],
+      netSavings,
+    },
+  });
+}
+
 describe('PaymentForm — combo savings (Task 5)', () => {
-  it('subtracts comboNetSavings from the subtotal before tax (taxRate=0: total-row reflects it 1:1)', () => {
-    useCartStore.setState({
-      comboResult: {
-        applications: [
-          {
-            promotionId: 'combo-1',
-            promotionName: '3x2 Combo',
-            discountType: 'cheapest_free',
-            discountRate: null,
-            units: [{ tempId: 'temp-1', discountAmount: 5 }],
-            gross: 5,
-            net: 5,
-          },
-        ],
-        netSavings: 5,
-      },
-    });
-    renderForm();
+  it('subtracts comboNetSavings from the subtotal before tax in the direct-sale checkout context (taxRate=0: total-row reflects it 1:1)', () => {
+    setMockComboResult(5);
+    // processBankTransferPayment present == the direct-sale checkout context
+    // (useCheckoutSale) — the only context cartStore's live comboResult is
+    // relevant to (D-16-style gate, same as the Apply Promotion section).
+    renderForm(makeCheckoutProcessors());
 
     // testTab: itemsSubtotal=$20, taxRate=0 -> total-row = 20 - 5 = 15.
     expect(screen.getByTestId('total-row')).toHaveTextContent('15.00');
+  });
+
+  it('ignores cartStore.comboResult on the reopened-tab payment path (no processBankTransferPayment) — an unrelated live cart never discounts this tab', () => {
+    setMockComboResult(5);
+    // Default processors (no processBankTransferPayment) == PaymentPane's
+    // reopened/arbitrary-tab path, not the live checkout cart.
+    renderForm();
+
+    // testTab: itemsSubtotal=$20, taxRate=0 -> total-row stays $20, not $15.
+    expect(screen.getByTestId('total-row')).toHaveTextContent('20.00');
   });
 
   it('a combo (kind="combo") promotion never appears in the "Apply Promotion" select — only kind="discount" ones do', async () => {

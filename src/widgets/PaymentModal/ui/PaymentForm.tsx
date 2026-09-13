@@ -384,12 +384,21 @@ export function PaymentForm({
     () => calculateDiscountAmount(discountBase, discountType, discountValue),
     [discountBase, discountType, discountValue]
   );
-  // Task 5: combo-promotion savings from the live cart. Combo discounts never
-  // touch a cart line's own unitPrice/lineTotal (they're a whole-cart
-  // allocation, not a per-line price), so itemsSubtotal above doesn't yet
-  // reflect them — subtracted here, at the same pre-tax stage as the ad-hoc
-  // discount, so tax is always computed on the true post-combo base.
-  const comboNetSavings = useCartStore(s => s.comboNetSavings());
+  // Task 5: combo-promotion savings from the live checkout cart. Combo
+  // discounts never touch a cart line's own unitPrice/lineTotal (they're a
+  // whole-cart allocation, not a per-line price), so itemsSubtotal above
+  // doesn't yet reflect them — subtracted here, at the same pre-tax stage as
+  // the ad-hoc discount, so tax is always computed on the true post-combo
+  // base. cartStore's comboResult is GLOBAL state describing whatever is
+  // currently in the live direct-sale cart — it has no relationship to an
+  // arbitrary `tab` being paid/reopened via PaymentPane (no
+  // processBankTransferPayment), so it's only applied in that same
+  // checkout-time-only context this file already gates the "Apply
+  // Promotion"/Bank Transfer method on (D-16) — otherwise a combo sitting in
+  // an unrelated in-progress cart would silently discount someone else's
+  // payment.
+  const cartComboNetSavings = useCartStore(s => s.comboNetSavings());
+  const comboNetSavings = processors.processBankTransferPayment ? cartComboNetSavings : 0;
   const afterDiscount = Math.round((baseSubtotal - discountAmount - comboNetSavings) * 100) / 100;
   const taxAmount = useMemo(() => {
     if (taxInclusive) {
