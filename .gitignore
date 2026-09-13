@@ -52,6 +52,7 @@ artifacts/
 e2e-results/
 e2e-results-visual/
 e2e-results-remote-smoke/
+e2e-results-training/
 e2e-blob-reports/
 playwright-report/
 playwright-report-visual/

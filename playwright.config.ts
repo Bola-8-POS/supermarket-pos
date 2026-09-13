@@ -54,7 +54,9 @@ export default defineConfig({
   // /remote-smoke\// — this suite runs separately via playwright.remote.config.ts
   // (npm run test:e2e:remote-smoke) against the real remote Supabase project;
   // it must never run as a side effect of the default local-backend suite.
-  testIgnore: [/visual\//, /\.test\.ts$/, /remote-smoke\//],
+  // /training\// — captioned screen-recording specs for the user manual, run
+  // separately via playwright.training.config.ts (npm run test:e2e:training).
+  testIgnore: [/visual\//, /\.test\.ts$/, /remote-smoke\//, /training\//],
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,
