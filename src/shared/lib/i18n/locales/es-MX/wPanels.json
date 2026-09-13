@@ -289,7 +289,18 @@
     "clearCartConfirm": "Vaciar",
     "subtotal": "Subtotal",
     "scanReady": "Escáner listo",
-    "comboSavings": "Ahorro por combo"
+    "comboSavings": "Ahorro por combo",
+    "keypad": {
+      "title": "Teclado",
+      "toggle": "Mostrar u ocultar teclado",
+      "qty": "× Cant.",
+      "add": "Agregar (PLU)",
+      "clear": "Borrar",
+      "backspace": "Retroceso",
+      "armed": "×{{count}} para el siguiente artículo",
+      "qtyRange": "La cantidad debe estar entre 1 y 99",
+      "notFound": "No hay producto con código {{code}}; mostrando resultados de búsqueda"
+    }
   },
   "holdSale": {
     "badge": "Venta en espera",
