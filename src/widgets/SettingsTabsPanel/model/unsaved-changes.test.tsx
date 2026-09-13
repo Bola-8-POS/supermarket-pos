@@ -113,6 +113,35 @@ describe('useUnsavedChangesController', () => {
     expect(settled).toBe(false);
   });
 
+  it('dirty, save rejects: dialog stays open, saving resets to false, promise stays pending, no unhandled rejection', async () => {
+    const { result } = renderHook(() => useUnsavedChangesController());
+
+    act(() => {
+      result.current.registry.report(true, () => Promise.reject(new Error('save failed')));
+    });
+
+    let promise!: Promise<boolean>;
+    act(() => {
+      promise = result.current.requestLeave();
+    });
+
+    let settled = false;
+    void promise.then(() => {
+      settled = true;
+    });
+
+    await act(async () => {
+      result.current.dialogProps.onSave();
+      // Flush the microtask queue so save()'s rejection is processed.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.dialogProps.open).toBe(true);
+    expect(result.current.dialogProps.saving).toBe(false);
+    expect(settled).toBe(false);
+  });
+
   it('a second requestLeave while the dialog is already open resolves false immediately', async () => {
     const { result } = renderHook(() => useUnsavedChangesController());
 

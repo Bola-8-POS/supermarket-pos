@@ -102,13 +102,21 @@ export function useUnsavedChangesController(): {
 
   const onSave = useCallback(() => {
     setSaving(true);
-    void saveRef.current().then(ok => {
-      if (ok) {
-        settle(true);
-      } else {
+    void saveRef
+      .current()
+      .then(ok => {
+        if (ok) {
+          settle(true);
+        } else {
+          setSaving(false);
+        }
+      })
+      // A rejected save (thrown error, not merely a `false` result) must be
+      // treated the same as `false` — stay open, reset `saving` — instead of
+      // becoming an unhandled rejection that leaves every button disabled.
+      .catch(() => {
         setSaving(false);
-      }
-    });
+      });
   }, [settle]);
 
   const onDiscard = useCallback(() => {

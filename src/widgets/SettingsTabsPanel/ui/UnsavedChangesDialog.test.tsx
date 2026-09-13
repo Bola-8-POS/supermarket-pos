@@ -60,6 +60,16 @@ describe('UnsavedChangesDialog', () => {
     expect(props.onCancel).toHaveBeenCalledOnce();
   });
 
+  it('does not call onCancel on Escape while saving', async () => {
+    const user = userEvent.setup();
+    const props = renderDialog({ saving: true });
+
+    await user.keyboard('{Escape}');
+
+    expect(props.onCancel).not.toHaveBeenCalled();
+    expect(screen.getByText('Save changes?')).toBeInTheDocument();
+  });
+
   it('disables all three buttons while saving', () => {
     renderDialog({ saving: true });
 

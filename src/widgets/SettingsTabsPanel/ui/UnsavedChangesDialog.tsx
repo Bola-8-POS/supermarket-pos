@@ -40,7 +40,10 @@ export function UnsavedChangesDialog({ open, saving, onSave, onDiscard, onCancel
     <AlertDialog
       open={open}
       onOpenChange={isOpen => {
-        if (!isOpen) onCancel();
+        // Ignore Escape / outside-click while a save is in flight — the
+        // dialog stays open until the save settles instead of resolving the
+        // leave promise `false` out from under a still-running save.
+        if (!isOpen && !saving) onCancel();
       }}
     >
       <AlertDialogContent>
