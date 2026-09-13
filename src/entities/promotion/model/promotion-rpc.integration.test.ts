@@ -1115,12 +1115,20 @@ describe('process_direct_sale_atomic — combo pricing (integration, Task 4)', (
   itPlain(
     'floor guard is scoped to the whole application: an application that IS below cost in aggregate still requires manager override',
     async () => {
-      // Aggregate cost (100+100+100=300) vastly exceeds aggregate post-combo
-      // revenue (0+20+30=50) — confirms the application-level check isn't
-      // simply removed, only re-scoped.
-      const p1 = await seedComboProduct('floor-bad-A', 10, 100);
-      const p2 = await seedComboProduct('floor-bad-B', 20, 100);
-      const p3 = await seedComboProduct('floor-bad-C', 30, 100);
+      // Costs 9/19/29 vs prices 10/20/30: EVERY individual item clears the
+      // pre-existing per-line floor guard on its own (10>=9, 20>=19, 30>=29
+      // — that guard runs before the combo pass even starts, so it would
+      // have silently swallowed this test if left at any cost >= its own
+      // price, as an earlier fixture (100/100/100) mistakenly did — that
+      // fixture tripped the OLD per-line guard on the very first item
+      // (10<100) and returned BELOW_COST_REQUIRES_OVERRIDE regardless of
+      // whether the NEW application-level guard being tested here worked at
+      // all. Only the aggregate is short: application revenue
+      // (10-10)+(20-0)+(30-0)=50 vs application cost 9+19+29=57 — 50 < 57 —
+      // so ONLY the new per-app_no guard can catch this.
+      const p1 = await seedComboProduct('floor-bad-A', 10, 9);
+      const p2 = await seedComboProduct('floor-bad-B', 20, 19);
+      const p3 = await seedComboProduct('floor-bad-C', 30, 29);
       await testDb.from('products').update({ category_id: p1.categoryId }).eq('id', p2.productId);
       await testDb.from('products').update({ category_id: p1.categoryId }).eq('id', p3.productId);
       const promotionId = await seedComboPromotion('cheapest_free', 1, [
