@@ -609,4 +609,120 @@ describe.skipIf(skip)('edit_paid_tab RPC (integration)', () => {
     expect(movementRows[0]?.reason).toBe('correction');
     expect(movementRows[0]?.quantity_delta).toBe(5);
   });
+
+  // ── Final-review fix #2: terminal-anchored caja lookup ─────────────────────
+  // (20260913000003_fix_reopen_edit_caja_terminal_scope.sql). edit_paid_tab
+  // must derive its offsetting caja_entries session from the TAB's own
+  // terminal (tabs.caja_session_id -> caja_sessions.terminal_id), not from
+  // "whichever caja happens to be open".
+
+  describe('terminal-anchored caja lookup', () => {
+    async function openTerminalCaja(label: string): Promise<string> {
+      const terminalId = `T${label}${String(Date.now())}${Math.random().toString(36).slice(2, 5)}`.slice(0, 32);
+      const { data, error } = await db
+        .from('caja_sessions')
+        .insert({ opened_by: managerId, opening_cash: 0, terminal_id: terminalId })
+        .select('id')
+        .single();
+      if (error || !data) throw new Error(`openTerminalCaja(${label}): ${error?.message ?? 'no row'}`);
+      return data.id as string;
+    }
+
+    // caja_sessions carries the same bump_version_on_update trigger as tabs
+    // (STALE_VERSION unless new.version = old.version + 1) — read the
+    // current version first so a close actually lands, rather than silently
+    // no-opping via safe()'s swallowed error.
+    async function closeCaja(id: string): Promise<void> {
+      const { data } = await db.from('caja_sessions').select('version').eq('id', id).single();
+      const version = ((data as { version?: number } | null)?.version ?? 0) + 1;
+      await safe(
+        db
+          .from('caja_sessions')
+          .update({
+            status: 'closed',
+            closed_at: new Date().toISOString(),
+            closed_by: managerId,
+            closing_cash: 0,
+            version,
+          })
+          .eq('id', id)
+      );
+    }
+
+    async function anchorTabToCaja(tabId: string, currentVersion: number, cajaSessionId: string): Promise<number> {
+      const newVersion = currentVersion + 1;
+      const { error } = await db
+        .from('tabs')
+        .update({ caja_session_id: cajaSessionId, version: newVersion })
+        .eq('id', tabId);
+      if (error) throw new Error(`anchorTabToCaja: ${error.message}`);
+      return newVersion;
+    }
+
+    it("positive: a tab anchored to terminal A has its total-changing edit recorded against terminal A's own open caja, even while terminal B is also open", async () => {
+      const cajaA = await openTerminalCaja('A');
+      const cajaB = await openTerminalCaja('B');
+      try {
+        const seed = await seedPaidTab(20.0, 1);
+        const version = await anchorTabToCaja(seed.tabId, seed.version, cajaA);
+
+        const { data, error } = await managerClient.rpc('edit_paid_tab', {
+          p_tab_id: seed.tabId,
+          p_expected_version: version,
+          p_order_item_patches: [{ id: seed.orderItemId, op: 'update', unit_price: 15.0 }],
+          p_notes: null,
+          p_reason: 'Integration test: terminal-anchored edit',
+          p_manager_pin: managerPin,
+        });
+
+        expect(error).toBeNull();
+        expect(data.ok).toBe(true);
+        expect(data.cajaAdjustmentRecorded).toBe(true);
+
+        const { data: entriesA } = await db
+          .from('caja_entries')
+          .select('id, concept')
+          .eq('caja_session_id', cajaA)
+          .ilike('concept', '%terminal-anchored edit%');
+        const rowsA = (entriesA ?? []) as { id: string; concept: string }[];
+        expect(rowsA).toHaveLength(1);
+        if (rowsA[0]) cleanupCajaEntryConcepts.push(rowsA[0].concept);
+
+        const { data: entriesB } = await db
+          .from('caja_entries')
+          .select('id')
+          .eq('caja_session_id', cajaB)
+          .ilike('concept', '%terminal-anchored edit%');
+        expect(entriesB ?? []).toHaveLength(0);
+      } finally {
+        await closeCaja(cajaA);
+        await closeCaja(cajaB);
+      }
+    });
+
+    it("negative: NO_OPEN_CAJA (P0A02) is returned when the tab's own terminal caja is closed, even though another terminal's caja is open", async () => {
+      const cajaC = await openTerminalCaja('C');
+      const cajaD = await openTerminalCaja('D');
+      try {
+        const seed = await seedPaidTab(20.0, 1);
+        const version = await anchorTabToCaja(seed.tabId, seed.version, cajaC);
+        await closeCaja(cajaC); // terminal C (the tab's own terminal) is now closed; D stays open
+
+        const { error } = await managerClient.rpc('edit_paid_tab', {
+          p_tab_id: seed.tabId,
+          p_expected_version: version,
+          p_order_item_patches: [{ id: seed.orderItemId, op: 'update', unit_price: 15.0 }],
+          p_notes: null,
+          p_reason: 'Integration test: terminal-anchored edit no open caja',
+          p_manager_pin: managerPin,
+        });
+
+        expect(error).not.toBeNull();
+        expect(error.message as string).toContain('NO_OPEN_CAJA');
+        expect(error.code).toBe('P0A02');
+      } finally {
+        await closeCaja(cajaD);
+      }
+    });
+  });
 });
