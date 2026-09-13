@@ -9,6 +9,13 @@ export interface ComboPricingSectionProps {
   onChange: (patch: Partial<ComboPricingDraft>) => void;
   /** True once the admin tried to submit while the pricing value was invalid. */
   showValidationError: boolean;
+  /**
+   * Sum of every slot's quantity (wizard.totalSlotQuantity()) — needed here
+   * only to distinguish a `cheapest_free` composition problem (too few total
+   * slot units to ever satisfy "N free, at least 1 not free") from a plain
+   * invalid-value error (final-review fix #7).
+   */
+  totalSlotQuantity: number;
   disabled?: boolean;
 }
 
@@ -29,11 +36,19 @@ export function ComboPricingSection({
   comboPricing,
   onChange,
   showValidationError,
+  totalSlotQuantity,
   disabled = false,
 }: ComboPricingSectionProps) {
   const { t } = useTranslation('wAdmin');
   const isMoneyType = MONEY_TYPES.has(comboPricing.type);
   const numericValue = Number(comboPricing.value);
+  // Final-review fix #7: cheapest_free needs `value < totalSlotQuantity`, so
+  // a total of 1 (or 0) unit across every slot makes it mathematically
+  // unsatisfiable for any value >= 1 — that's a COMPOSITION problem (not
+  // enough slot quantity), not a bad pricing value, so it gets its own
+  // message rather than the generic "enter a valid value" one.
+  const isCheapestFreeUnsatisfiable =
+    comboPricing.type === 'cheapest_free' && totalSlotQuantity <= 1;
 
   return (
     <div className="space-y-4">
@@ -92,7 +107,9 @@ export function ComboPricingSection({
 
       {showValidationError && (
         <p className="text-sm text-destructive" role="alert">
-          {t('promotionDialog.pricing.validationError')}
+          {isCheapestFreeUnsatisfiable
+            ? t('promotionDialog.pricing.cheapestFreeNeedsMoreSlots')
+            : t('promotionDialog.pricing.validationError')}
         </p>
       )}
     </div>

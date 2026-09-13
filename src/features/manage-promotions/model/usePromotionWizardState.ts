@@ -237,9 +237,26 @@ export function usePromotionWizardState(promotion: Promotion | null | undefined)
     setSlots(prev => prev.map(s => (s.key === key ? { ...s, ...patch } : s)));
   }
 
-  /** Merges `patch` into the in-progress combo pricing draft. */
+  /**
+   * Merges `patch` into the in-progress combo pricing draft. Final-review
+   * fix #9: switching the pricing TYPE alone (no `value` in the same patch —
+   * i.e. the Select's onValueChange, which only ever sends `{ type }`)
+   * resets `value` to '' — mirrors handleDiscountTypeChange's own
+   * reset-on-type-change behavior on the discount-kind side of this same
+   * dialog. Without this, a numeric value typed for one mode (e.g.
+   * cheapest_free "2") silently carries over as a
+   * technically-valid-but-almost-certainly-wrong value for the new mode
+   * (bundle_price "$2"). A patch that sets `type` and `value` together
+   * (e.g. test fixtures seeding both at once) is left as an explicit,
+   * intentional value and is never reset.
+   */
   function setComboPricing(patch: Partial<ComboPricingDraft>) {
-    setComboPricingState(prev => ({ ...prev, ...patch }));
+    setComboPricingState(prev => {
+      if (patch.type !== undefined && patch.type !== prev.type && patch.value === undefined) {
+        return { ...prev, ...patch, value: '' };
+      }
+      return { ...prev, ...patch };
+    });
   }
 
   /** Sum of every slot's quantity — the ceiling `cheapest_free` must stay strictly under. */
@@ -522,6 +539,7 @@ export function usePromotionWizardState(promotion: Promotion | null | undefined)
     setComboPricing,
     isCompositionValid,
     isComboPricingValid,
+    totalSlotQuantity,
     discountType,
     handleDiscountTypeChange,
     discountValue,

@@ -86,6 +86,7 @@ export function ComboSlotsEditor({
                 <Input
                   value={slot.label}
                   disabled={disabled}
+                  maxLength={60}
                   onChange={e => {
                     onUpdate(slot.key, { label: e.target.value });
                   }}

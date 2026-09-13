@@ -30,7 +30,6 @@ import { Button } from '@shared/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@shared/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@shared/ui/tooltip';
 
-
 // wPanels namespace keys for each method's fallback label — mirrors
 // PaymentPane's DEFAULT_PAYMENT_LABEL_KEY (paymentForm.* keys are shared
 // across every payment-method-label surface, not just the payment form).
@@ -109,9 +108,7 @@ export function CajaDashboard() {
   // A method is shown when enabled OR it collected money this session even
   // if since disabled (an admin can toggle methods off mid-day; historical
   // collections must not silently disappear from the summary).
-  const visibleMethods = PAYMENT_METHODS.filter(
-    m => isMethodEnabled(m) || methodAmount(m) > 0
-  );
+  const visibleMethods = PAYMENT_METHODS.filter(m => isMethodEnabled(m) || methodAmount(m) > 0);
 
   // Caja entries
   const entriesResult = useCajaEntries(currentCaja?.id ?? null);
@@ -601,7 +598,11 @@ export function CajaDashboard() {
                   }
                 >
                   {closeSummary.variance != null ? (
-                    formatMoney(closeSummary.variance, { showSign: true })
+                    // Final-review fix #6: showSign only for an actual
+                    // positive/negative variance — formatMoney(0, {showSign:
+                    // true}) would otherwise render "+$0.00" on a perfectly
+                    // reconciled close.
+                    formatMoney(closeSummary.variance, { showSign: closeSummary.variance !== 0 })
                   ) : (
                     <span>—</span>
                   )}

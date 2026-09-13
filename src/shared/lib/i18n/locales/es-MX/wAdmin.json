@@ -766,7 +766,8 @@
         "fixed": "Este monto fijo se descuenta del precio combinado de cada unidad del combo.",
         "cheapest_free": "Las N unidades más baratas del combo son gratis; el resto se cobra a precio completo."
       },
-      "validationError": "Ingresa un valor válido para este tipo de precio."
+      "validationError": "Ingresa un valor válido para este tipo de precio.",
+      "cheapestFreeNeedsMoreSlots": "\"El más barato gratis\" requiere espacios que sumen al menos 2 unidades — agrega otro espacio o aumenta la cantidad de alguno."
     }
   }
 }

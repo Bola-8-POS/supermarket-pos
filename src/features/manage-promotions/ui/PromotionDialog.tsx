@@ -326,6 +326,7 @@ function PromotionDialogForm({
                 comboPricing={wizard.comboPricing}
                 onChange={wizard.setComboPricing}
                 showValidationError={attempted && !wizard.isComboPricingValid()}
+                totalSlotQuantity={wizard.totalSlotQuantity()}
                 disabled={wizard.isPending}
               />
             </section>

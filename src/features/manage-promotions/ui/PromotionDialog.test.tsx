@@ -2,8 +2,17 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import '@shared/lib/i18n';
+
+// jsdom polyfills — Radix Select uses pointer-capture APIs not implemented
+// by jsdom; safe no-ops keep the combo-pricing-type Select's open/select
+// interactions (final-review fix #7/#9 tests) deterministic. Mirrors the
+// same polyfill in EditLocaleDialog.test.tsx / LanguageSettingsTab.test.tsx.
+beforeAll(() => {
+  Element.prototype.hasPointerCapture = vi.fn(() => false);
+  Element.prototype.releasePointerCapture = vi.fn();
+});
 
 const createMutateAsync = vi.fn();
 const updateMutateAsync = vi.fn();
@@ -168,5 +177,58 @@ describe('PromotionDialog', () => {
     await waitFor(() => {
       expect(onOpenChange).toHaveBeenCalledWith(false);
     });
+  });
+
+  // Final-review fix #7: cheapest_free is mathematically unsatisfiable when
+  // the combo's slots sum to only 1 unit total (value must be < total, so
+  // < 1, impossible for value >= 1) — that's a COMPOSITION problem, not a
+  // bad pricing value, so it must get its own message rather than the
+  // generic "enter a valid value" one.
+  it('combo mode: cheapest_free with total slot quantity 1 shows the composition-specific message, not the generic one', async () => {
+    render(<PromotionDialog open onOpenChange={vi.fn()} promotion={null} />, { wrapper: Wrapper });
+    await userEvent.type(screen.getByLabelText(/^name|^nombre/i), 'Broken Bundle');
+    await userEvent.click(screen.getByTestId('promotion-kind-combo'));
+    // Single slot, default quantity 1 (never raised) -> total slot quantity 1.
+    await userEvent.click(
+      screen.getByRole('button', { name: /select products or categories|selecciona productos o categorías/i })
+    );
+    await userEvent.click(await screen.findByText('Parle-G'));
+
+    await userEvent.click(screen.getByTestId('combo-pricing-type'));
+    await userEvent.click(await screen.findByRole('option', { name: /cheapest free|el más barato gratis/i }));
+    const pricingValue = screen.getByTestId('combo-pricing-value');
+    await userEvent.clear(pricingValue);
+    await userEvent.type(pricingValue, '1');
+
+    await userEvent.click(screen.getByRole('button', { name: /create promotion|crear promoción/i }));
+
+    expect(
+      await screen.findByText(/requires slots totaling at least 2 units|requiere espacios que sumen al menos 2 unidades/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/enter a valid value for this pricing type|ingresa un valor válido para este tipo de precio/i)
+    ).not.toBeInTheDocument();
+    expect(createMutateAsync).not.toHaveBeenCalled();
+  });
+
+  // Final-review fix #9: switching the pricing TYPE must reset the raw
+  // value — mirrors handleDiscountTypeChange's own reset-on-type-change
+  // behavior on the discount-kind side of this same dialog. Otherwise a
+  // value typed for one mode (e.g. cheapest_free "2") silently carries over
+  // as a technically-valid-but-wrong value for the new mode (bundle_price "$2").
+  it('combo mode: switching pricing type resets the pricing value field', async () => {
+    render(<PromotionDialog open onOpenChange={vi.fn()} promotion={null} />, { wrapper: Wrapper });
+    await userEvent.click(screen.getByTestId('promotion-kind-combo'));
+
+    const pricingValue = screen.getByTestId('combo-pricing-value');
+    await userEvent.clear(pricingValue);
+    await userEvent.type(pricingValue, '2');
+    // Default pricing type is bundle_price -> MoneyInput, a type="text" input.
+    expect(pricingValue).toHaveValue('2');
+
+    await userEvent.click(screen.getByTestId('combo-pricing-type'));
+    await userEvent.click(await screen.findByRole('option', { name: /cheapest free|el más barato gratis/i }));
+
+    expect(screen.getByTestId('combo-pricing-value')).toHaveValue(null);
   });
 });

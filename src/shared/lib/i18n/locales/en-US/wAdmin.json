@@ -766,7 +766,8 @@
         "fixed": "This fixed amount comes off the combined price of every unit in the combo.",
         "cheapest_free": "The N cheapest units across the combo are free; the rest are charged at full price."
       },
-      "validationError": "Enter a valid value for this pricing type."
+      "validationError": "Enter a valid value for this pricing type.",
+      "cheapestFreeNeedsMoreSlots": "cheapest_free requires slots totaling at least 2 units — add another slot or increase a slot's quantity."
     }
   }
 }

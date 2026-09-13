@@ -514,4 +514,37 @@ describe('CajaDashboard', () => {
     const summary = screen.getByTestId('caja-close-summary');
     expect(within(summary).getByTestId('caja-close-variance')).toHaveTextContent('-$10.00');
   });
+
+  // Final-review fix #6: a perfectly reconciled close (variance exactly 0)
+  // must render "$0.00", not "+$0.00" — formatMoney's showSign option adds a
+  // '+' to any non-negative amount, zero included, unless the call site
+  // withholds it for a zero variance specifically.
+  it('shows "$0.00" (no plus sign) for a perfectly reconciled close (variance = 0)', () => {
+    const reconciliation = {
+      openingCash: 100,
+      cashSales: 50,
+      expectedCash: 150,
+      closingCash: 150,
+      variance: 0,
+    };
+    mockUseMutationCloseCaja.mockReturnValue({
+      mutate: (
+        _variables: unknown,
+        opts?: { onSuccess?: (result: { ok: true; data: typeof reconciliation }) => void }
+      ) => {
+        opts?.onSuccess?.({ ok: true, data: reconciliation });
+      },
+      isPending: false,
+    });
+
+    renderDashboard();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close Caja' }));
+    const closeDialog = screen.getByRole('dialog');
+    fireEvent.click(within(closeDialog).getByRole('button', { name: 'Close Caja' }));
+
+    const summary = screen.getByTestId('caja-close-summary');
+    expect(within(summary).getByTestId('caja-close-variance')).toHaveTextContent('$0.00');
+    expect(within(summary).getByTestId('caja-close-variance')).not.toHaveTextContent('+$0.00');
+  });
 });
