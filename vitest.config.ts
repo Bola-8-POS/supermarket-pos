@@ -94,6 +94,14 @@ export default defineConfig(async () => {
             exclude: ['e2e/**', 'node_modules/**'],
             testTimeout: 30000,
             hookTimeout: 30000,
+            // Integration files share ad hoc fixtures (e.g. "find-or-create the
+            // one open caja session") against ONE live local Supabase instance.
+            // Running files concurrently races those fixtures against each
+            // other; caja-per-terminal (which permits >1 open session at once)
+            // surfaced this as intermittent NO_OPEN_CAJA failures. Serial file
+            // execution is the correct default for tests hitting shared
+            // external state, not a workaround.
+            fileParallelism: false,
           },
         },
         ...storybookProjects,

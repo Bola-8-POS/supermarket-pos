@@ -25,8 +25,16 @@ const itPlain = hasEnv ? it : it.skip;
 // Fixed fixture staff id (Jamie Chen, manager) from scripts/setup-test-fixtures.ts.
 const MANAGER_ID = 'cb969ea6-7443-4c03-ac99-bbe8aba0bb8e';
 
+// ponytail: scoped to this test's own terminal ids only — a DB-wide sweep
+// would close open caja sessions other integration test files (reopen-tab,
+// edit-paid-tab) are relying on, since Vitest runs test files concurrently
+// against the same shared local Supabase instance.
 async function closeAllOpen(): Promise<void> {
-  const { data } = await db.from('caja_sessions').select('id, version').eq('status', 'open');
+  const { data } = await db
+    .from('caja_sessions')
+    .select('id, version')
+    .eq('status', 'open')
+    .in('terminal_id', ['POS-1', 'POS-2']);
   for (const row of data ?? []) {
     await db
       .from('caja_sessions')
