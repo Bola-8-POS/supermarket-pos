@@ -89,5 +89,12 @@
       "saved": "ID de terminal guardado",
       "invalid": "Usa de 1 a 32 caracteres: letras, dígitos, - o _"
     }
+  },
+  "unsavedChanges": {
+    "title": "¿Guardar cambios?",
+    "description": "Tienes cambios sin guardar en esta pestaña. ¿Guardarlos antes de salir?",
+    "save": "Guardar",
+    "discard": "Descartar",
+    "cancel": "Cancelar"
   }
 }

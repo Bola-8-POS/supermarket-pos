@@ -10,12 +10,14 @@ import {
   Store,
   type LucideIcon,
 } from 'lucide-react';
-import { Fragment, useMemo, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStaffStore } from '@entities/staff/model/store';
 import { usePermissions } from '@entities/staff/model/usePermissions';
+import { useNavigationGuardStore } from '@shared/lib/navigation-guard';
 import { Tabs, TabsContent } from '@shared/ui/tabs';
 import { VerticalTabsGroupLabel, VerticalTabsList, VerticalTabsTrigger } from '@shared/ui/vertical-tabs';
+import { UnsavedChangesContext, useUnsavedChangesController } from './model/unsaved-changes';
 import { BackupSettingsTab } from './tabs/BackupSettingsTab';
 import { BillingSettingsTab } from './tabs/BillingSettingsTab';
 import { EmailReceiptsSettingsTab } from './tabs/EmailReceiptsSettingsTab';
@@ -25,6 +27,7 @@ import { LanguageSettingsTab } from './tabs/LanguageSettingsTab';
 import { LicenseSettingsTab } from './tabs/LicenseSettingsTab';
 import { LockSettingsTab } from './tabs/LockSettingsTab';
 import { NearExpirySettingsTab } from './tabs/NearExpirySettingsTab';
+import { UnsavedChangesDialog } from './ui/UnsavedChangesDialog';
 
 type TabItem = {
   key: string;
@@ -140,6 +143,34 @@ export function SettingsTabsPanel() {
   }, [canManageProducts, canManageSettings, currentRole, t]);
 
   const allTabs = groups.flatMap(group => group.tabs);
+  const initialKey = allTabs[0]?.key ?? '';
+
+  // All hooks must run unconditionally above the `!firstTab` early return
+  // below (hook-order rule) — allTabs[0]?.key is used instead of the
+  // non-null firstTab so this useState call never depends on that branch.
+  const controller = useUnsavedChangesController();
+  const [activeTab, setActiveTab] = useState(initialKey);
+
+  // Installs the panel's unsaved-changes prompt as the app-wide navigation
+  // guard (see @shared/lib/navigation-guard) while Settings is mounted —
+  // e.g. clicking a Sidebar link away from a dirty tab now also prompts.
+  // `controller.requestLeave` is referentially stable (useCallback over
+  // refs), so this effect installs/uninstalls the guard exactly once.
+  useEffect(() => {
+    useNavigationGuardStore.getState().setGuard(() => controller.requestLeave());
+    return () => {
+      useNavigationGuardStore.getState().setGuard(null);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only requestLeave's identity matters; controller itself is a fresh object every render
+  }, [controller.requestLeave]);
+
+  const handleTabChange = (next: string) => {
+    if (next === activeTab) return;
+    void controller.requestLeave().then(ok => {
+      if (ok) setActiveTab(next);
+    });
+  };
+
   const firstTab = allTabs[0];
   if (!firstTab) {
     return (
@@ -150,38 +181,42 @@ export function SettingsTabsPanel() {
   }
 
   return (
-    <Tabs
-      defaultValue={firstTab.key}
-      orientation="vertical"
-      className="grid w-full gap-6 lg:grid-cols-[15rem_minmax(0,1fr)]"
-    >
-      <VerticalTabsList aria-label={t('navLabel')} className="self-start lg:sticky lg:top-0">
-        {groups.map(group => (
-          <Fragment key={group.key}>
-            <VerticalTabsGroupLabel>{t(`groups.${group.key}`)}</VerticalTabsGroupLabel>
-            {group.tabs.map(tab => (
-              <VerticalTabsTrigger
-                key={tab.key}
-                value={tab.key}
-                icon={tab.icon}
-                label={tab.label}
-                description={tab.description}
-              />
-            ))}
-          </Fragment>
-        ))}
-      </VerticalTabsList>
-      <div className="min-w-0">
-        {allTabs.map(tab => (
-          <TabsContent
-            key={tab.key}
-            value={tab.key}
-            className="min-h-[24rem] rounded-2xl border border-border bg-card p-6 shadow-xs"
-          >
-            {tab.render()}
-          </TabsContent>
-        ))}
-      </div>
-    </Tabs>
+    <UnsavedChangesContext.Provider value={controller.registry}>
+      <Tabs
+        value={activeTab}
+        onValueChange={handleTabChange}
+        orientation="vertical"
+        className="grid w-full gap-6 lg:grid-cols-[15rem_minmax(0,1fr)]"
+      >
+        <VerticalTabsList aria-label={t('navLabel')} className="self-start lg:sticky lg:top-0">
+          {groups.map(group => (
+            <Fragment key={group.key}>
+              <VerticalTabsGroupLabel>{t(`groups.${group.key}`)}</VerticalTabsGroupLabel>
+              {group.tabs.map(tab => (
+                <VerticalTabsTrigger
+                  key={tab.key}
+                  value={tab.key}
+                  icon={tab.icon}
+                  label={tab.label}
+                  description={tab.description}
+                />
+              ))}
+            </Fragment>
+          ))}
+        </VerticalTabsList>
+        <div className="min-w-0">
+          {allTabs.map(tab => (
+            <TabsContent
+              key={tab.key}
+              value={tab.key}
+              className="min-h-[24rem] rounded-2xl border border-border bg-card p-6 shadow-xs"
+            >
+              {tab.render()}
+            </TabsContent>
+          ))}
+        </div>
+      </Tabs>
+      <UnsavedChangesDialog {...controller.dialogProps} />
+    </UnsavedChangesContext.Provider>
   );
 }

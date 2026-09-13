@@ -89,5 +89,12 @@
       "saved": "Terminal ID saved",
       "invalid": "Use 1-32 characters: letters, digits, - or _"
     }
+  },
+  "unsavedChanges": {
+    "title": "Save changes?",
+    "description": "You have unsaved changes on this tab. Save them before leaving?",
+    "save": "Save",
+    "discard": "Discard",
+    "cancel": "Cancel"
   }
 }
