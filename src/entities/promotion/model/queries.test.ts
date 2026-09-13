@@ -317,6 +317,80 @@ function mockTrackedFromWithSlotInsertFailure(): TrackedCall[] {
   return calls;
 }
 
+/**
+ * Like mockTrackedFrom, but the top-level `promotion_targets` insert (the
+ * reinsert half of useMutationUpdatePromotion's delete-then-reinsert) fails
+ * with a Postgres-shaped error — the delete succeeds, leaving zero targets,
+ * then the reinsert fails. This is the exact bug described in the
+ * final-review finding: an empty-targets promotion is store-wide by design
+ * (evaluateBestPromotion/evaluateCombos), so a targeted discount would
+ * silently become a live, store-wide discount if left `active: true`.
+ */
+function mockTrackedFromWithTopLevelTargetsInsertFailure(): TrackedCall[] {
+  const calls: TrackedCall[] = [];
+  const chainMethods = ['select', 'insert', 'update', 'delete', 'eq', 'is', 'order', 'limit'];
+
+  vi.mocked(supabase).from.mockImplementation((table: string) => {
+    let sawInsert = false;
+    const chain: Record<string, unknown> = {};
+    for (const op of chainMethods) {
+      chain[op] = vi.fn((...args: unknown[]) => {
+        calls.push({ table, op, args });
+        if (op === 'insert') sawInsert = true;
+        return chain;
+      });
+    }
+    chain.single = vi.fn(() => {
+      calls.push({ table, op: 'single', args: [] });
+      return Promise.resolve({ data: { id: `${table}-slot-id` }, error: null });
+    });
+    chain.then = (resolve: (v: { data: unknown; error: unknown }) => void) => {
+      if (table === 'promotion_targets' && sawInsert) {
+        resolve({
+          data: null,
+          error: { message: 'top-level targets insert failed', code: 'PGRST000', details: '', hint: '' },
+        });
+      } else {
+        resolve({ data: null, error: null });
+      }
+    };
+    return chain as unknown as ReturnType<typeof supabase.from>;
+  });
+
+  return calls;
+}
+
+describe('useMutationUpdatePromotion — top-level targets partial-write safety net', () => {
+  it('deactivates the promotion (active: false) when the top-level targets insert fails mid-write, without masking the original error', async () => {
+    const calls = mockTrackedFromWithTopLevelTargetsInsertFailure();
+    const qc = createTestQueryClient();
+    const { result } = renderHook(() => useMutationUpdatePromotion(), {
+      wrapper: makeWrapper(qc),
+    });
+
+    const mutationResult = await result.current.mutateAsync({
+      id: PROMOTION_ID,
+      targets: [{ productId: PRODUCT_TOP_ID, categoryId: null, slotId: null }],
+    });
+
+    // The original insert failure is still what's returned — never masked
+    // by the deactivate's own (successful, in this mock) outcome.
+    expect(mutationResult.ok).toBe(false);
+
+    const deactivateCall = calls.find(
+      c =>
+        c.table === 'promotions' &&
+        c.op === 'update' &&
+        (c.args[0] as { active?: boolean }).active === false
+    );
+    expect(deactivateCall).toBeDefined();
+    const deactivateEqCall = calls.find(
+      c => c.table === 'promotions' && c.op === 'eq' && c.args[0] === 'id' && c.args[1] === PROMOTION_ID
+    );
+    expect(deactivateEqCall).toBeDefined();
+  });
+});
+
 describe('saveComboSlots — mid-write failure safety net', () => {
   it('deactivates the promotion (active: false) when a combo slot insert fails mid-write, without masking the original error', async () => {
     const calls = mockTrackedFromWithSlotInsertFailure();

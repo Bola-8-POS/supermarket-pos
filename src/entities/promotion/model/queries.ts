@@ -94,20 +94,23 @@ export function mapPromotionRow(row: PromotionRowWithTargets): Result<Promotion>
 }
 
 /**
- * Best-effort safety net for a mid-write combo slot failure (final-review
- * fix #3): a delete-then-reinsert that fails partway through can leave a
- * promotion `active: true` with an incomplete slot/target set — e.g. a
- * "$199 bundle over 3 slots" now only requiring 1 slot to fill, live at
- * checkout. Deactivating never masks the original error — it's fired right
- * before returning it, and its own failure is only logged, never returned
- * in place of the real cause.
+ * Best-effort safety net for a mid-write failure in any delete-then-reinsert
+ * target/slot rewrite (final-review fix #3, extended to the top-level
+ * `promotion_targets` rewrite in useMutationUpdatePromotion): a delete that
+ * succeeds followed by an insert that fails can leave a promotion
+ * `active: true` with zero targets — and zero targets means "store-wide" by
+ * design (see evaluateBestPromotion/evaluateCombos), so a targeted discount
+ * would silently become a live, store-wide discount on every product.
+ * Deactivating never masks the original error — it's fired right before
+ * returning it, and its own failure is only logged, never returned in place
+ * of the real cause.
  */
-async function deactivatePromotionAfterComboWriteFailure(promotionId: string): Promise<void> {
+async function deactivatePromotionAfterPartialWrite(promotionId: string): Promise<void> {
   const res = await supabaseMutation(() =>
     supabase.from('promotions').update({ active: false }).eq('id', promotionId)
   );
   if (!res.ok) {
-    logger.error('promotions.combo_slots_failure_deactivate_failed', {
+    logger.error('promotions.partial_write_deactivate_failed', {
       promotionId,
       message: res.error.message,
     });
@@ -130,7 +133,7 @@ async function saveComboSlots(
   );
   if (!delRes.ok) {
     logger.error('promotions.combo_slots_delete_failed', { message: delRes.error.message });
-    await deactivatePromotionAfterComboWriteFailure(promotionId);
+    await deactivatePromotionAfterPartialWrite(promotionId);
     return delRes;
   }
 
@@ -149,7 +152,7 @@ async function saveComboSlots(
         message: slotRes.error.message,
         promotionId,
       });
-      await deactivatePromotionAfterComboWriteFailure(promotionId);
+      await deactivatePromotionAfterPartialWrite(promotionId);
       return slotRes;
     }
     const slotId = (slotRes.data as unknown as { id: string }).id;
@@ -169,7 +172,7 @@ async function saveComboSlots(
         promotionId,
         slotId,
       });
-      await deactivatePromotionAfterComboWriteFailure(promotionId);
+      await deactivatePromotionAfterPartialWrite(promotionId);
       return targetsRes;
     }
   }
@@ -398,6 +401,7 @@ export function useMutationUpdatePromotion() {
           logger.error('promotions.update_targets_delete_failed', {
             message: delRes.error.message,
           });
+          await deactivatePromotionAfterPartialWrite(id);
           return delRes;
         }
         if (!isCombo && targets !== undefined && targets.length > 0) {
@@ -413,6 +417,7 @@ export function useMutationUpdatePromotion() {
             logger.error('promotions.update_targets_insert_failed', {
               message: insRes.error.message,
             });
+            await deactivatePromotionAfterPartialWrite(id);
             return insRes;
           }
         }
