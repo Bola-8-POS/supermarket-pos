@@ -1,7 +1,13 @@
 import { expect, test, type Page } from '../fixtures';
 import { gotoAuthed, loginAs } from '../helpers/auth';
 import { requireIntegrationEnv } from '../helpers/requireEnv';
-import { openCaja, resetTestState } from '../helpers/supabase';
+import {
+  getInventoryQty,
+  openCaja,
+  resetTestState,
+  setInventoryQty,
+  setStockToZero,
+} from '../helpers/supabase';
 
 /**
  * Task 7 (settings-guard-keypad-lockfix) — the on-screen checkout keypad
@@ -78,6 +84,46 @@ test.describe('Checkout keypad', () => {
     const cartLine = page.getByTestId('cart-line').filter({ hasText: PRODUCT_NAME });
     await expect(cartLine).toBeVisible();
     await expect(cartLine).toContainText(/×\s*1\b/);
+  });
+
+  test('PLU: a zero-stock hit shows the same risky-add confirm as a tile tap, and the multiplier still applies once confirmed', async ({
+    page,
+  }) => {
+    const quantityBefore = await getInventoryQty(PRODUCT_NAME);
+    try {
+      await setStockToZero(PRODUCT_NAME);
+      // The client already cached the products query (from beforeEach's
+      // gotoAuthed) with the pre-zero quantityOnHand — reload so the
+      // keypad's risk-flag check sees the fresh stock level, mirroring how
+      // e2e/errors/error-scenarios-and-validation.spec.ts's ER6 does a fresh
+      // navigation after the same setStockToZero call.
+      await page.reload();
+      await expect(
+        page.getByRole('button', { name: new RegExp(`select ${PRODUCT_NAME}`, 'i') })
+      ).toBeVisible();
+
+      const keypad = keypadLocator(page);
+      await keypad.getByRole('button', { name: '2', exact: true }).click();
+      await keypad.getByRole('button', { name: /qty/i }).click();
+      await expect(page.getByTestId('keypad-multiplier')).toHaveText('×2');
+
+      await pressDigits(page, PRODUCT_BARCODE);
+      await keypad.getByRole('button', { name: /plu/i }).click();
+
+      // Same toast ProductGrid's own tile-tap risky-add gate shows
+      // (getProductRiskFlag/useConfirmRiskyAdd) — not added yet.
+      const riskToast = page.getByText(/only 0 left of haldiram's aloo bhujia 200g/i);
+      await expect(riskToast).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId('cart-line')).toHaveCount(0);
+
+      await page.getByRole('button', { name: /^add anyway$/i }).click();
+
+      const cartLine = page.getByTestId('cart-line').filter({ hasText: PRODUCT_NAME });
+      await expect(cartLine).toBeVisible();
+      await expect(cartLine).toContainText(/×\s*2\b/);
+    } finally {
+      await setInventoryQty(PRODUCT_NAME, quantityBefore);
+    }
   });
 
   test('PLU: an unrecognized code falls back to search instead of adding to the cart', async ({

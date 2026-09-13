@@ -26,6 +26,8 @@ import {
 import type { AddToCartPayload } from '@features/open-product-peek-window/model/useProductPeekWindow';
 import { useNearExpiryAlerts } from '@entities/inventory';
 import { useCategories, useProducts } from '@entities/product';
+import { getProductRiskFlag } from '@entities/product/model/productRiskFlag';
+import { useConfirmRiskyAdd } from '@entities/product/model/useConfirmRiskyAdd';
 import {
   evaluateBestPromotion,
   evaluateCombos,
@@ -84,6 +86,13 @@ export function CheckoutPanel() {
   const keypad = useKeypadBuffer();
   const [keypadVisible, setKeypadVisible] = useKeypadVisible();
   const keypadDisabled = !scannerEnabled;
+  // Same shared gate ProductGrid's tile-tap and ProductPeekWindow's "Add to
+  // Cart" already use (entities/product/model/useConfirmRiskyAdd's own doc
+  // comment: "so multiple widgets can import the same guard rather than each
+  // reimplementing it") — the keypad's PLU-hit path is a third independent
+  // add site and must not silently skip the zero-price/low-stock confirm a
+  // tile tap would show for the same product.
+  const confirmRiskyAdd = useConfirmRiskyAdd();
   // A weighted product is never routed through ProductGrid's onSelect prop
   // (ProductGrid.selectProduct calls weightEntry.openFor(product) directly
   // for soldByWeight products instead) — so this is the one place, shared by
@@ -437,10 +446,20 @@ export function CheckoutPanel() {
                   p => p.barcode?.trim() === code && p.isActive
                 );
                 if (hit) {
-                  if (hit.soldByWeight) {
-                    weightEntry.openFor(hit);
+                  // Captured now, not inside commitHit — the multiplier must
+                  // still apply after a risky-add confirm toast is accepted,
+                  // however much later that tap lands, and takeMultiplier()
+                  // itself already resets the armed state as a side effect.
+                  const times = keypad.takeMultiplier();
+                  const commitHit = () => {
+                    if (hit.soldByWeight) weightEntry.openFor(hit);
+                    else addProductTimes(hit, times);
+                  };
+                  const flag = getProductRiskFlag(hit);
+                  if (flag) {
+                    confirmRiskyAdd(flag, hit, commitHit);
                   } else {
-                    addProductTimes(hit, keypad.takeMultiplier());
+                    commitHit();
                   }
                 } else {
                   setSearch(code);
