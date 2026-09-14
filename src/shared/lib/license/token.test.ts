@@ -141,11 +141,26 @@ describe('evaluateLicense', () => {
     expect(
       evaluateLicense(payload({ plan: 'demo', period_end: iso(-1), grace_days: 7 }), NOW)
     ).toEqual({ state: 'locked', reason: 'demo_expired' });
+    expect(
+      evaluateLicense(
+        payload({ plan: 'demo', period_end: new Date(NOW - 3_600_000).toISOString() }),
+        NOW
+      )
+    ).toEqual({ state: 'locked', reason: 'demo_expired' });
   });
 
   it('demo plan inside its period is active with no subscription warning', () => {
     expect(evaluateLicense(payload({ plan: 'demo', period_end: iso(2), grace_days: 0 }), NOW))
       .toEqual({ state: 'active' });
+    expect(evaluateLicense(payload({ plan: 'demo', period_end: iso(0) }), NOW)).toEqual({
+      state: 'active',
+    });
+    expect(
+      evaluateLicense(
+        payload({ plan: 'demo', period_end: new Date(NOW + 3_600_000).toISOString() }),
+        NOW
+      )
+    ).toEqual({ state: 'active' });
   });
 
   it('decodeToken accepts a payload carrying a features allow-list', () => {

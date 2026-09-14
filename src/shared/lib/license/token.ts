@@ -98,17 +98,24 @@ export function evaluateLicense(payload: LicensePayload | null, now: number): Li
   if (leaseDays < 0) return { state: 'locked', reason: 'lease_expired' };
 
   if (payload.period_end !== null) {
-    const periodDays = daysUntil(payload.period_end, now);
-    if (periodDays < 0 && payload.plan === 'demo') {
-      return { state: 'locked', reason: 'demo_expired' };
-    }
-    if (periodDays < 0) {
-      const graceLeft = payload.grace_days + periodDays;
-      if (graceLeft < 0) return { state: 'locked', reason: 'subscription_expired' };
-      return { state: 'grace', daysLeft: graceLeft };
-    }
-    if (periodDays <= SUBSCRIPTION_WARN_DAYS[payload.plan]) {
-      return { state: 'warning', kind: 'subscription', daysLeft: periodDays };
+    if (payload.plan === 'demo') {
+      // Demos have no grace and no "days left" warning banner — check the exact instant
+      // rather than the day-ceiling `daysUntil` used for paid-plan grace/warning math below,
+      // so an expiry a few hours into "today" locks immediately instead of waiting for
+      // daysUntil's Math.ceil to roll over to a whole negative day.
+      if (new Date(payload.period_end).getTime() < now) {
+        return { state: 'locked', reason: 'demo_expired' };
+      }
+    } else {
+      const periodDays = daysUntil(payload.period_end, now);
+      if (periodDays < 0) {
+        const graceLeft = payload.grace_days + periodDays;
+        if (graceLeft < 0) return { state: 'locked', reason: 'subscription_expired' };
+        return { state: 'grace', daysLeft: graceLeft };
+      }
+      if (periodDays <= SUBSCRIPTION_WARN_DAYS[payload.plan]) {
+        return { state: 'warning', kind: 'subscription', daysLeft: periodDays };
+      }
     }
   }
 
