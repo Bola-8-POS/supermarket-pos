@@ -59,3 +59,17 @@ export function useFeature(key: FeatureKey): {
   }, [openFor, key]);
   return { enabled, locked: !enabled, requestUpgrade };
 }
+
+/** For nav manifests: locked only when the item declares a feature that the license lacks. */
+export function useNavFeatureLocked(feature: FeatureKey | undefined): {
+  locked: boolean;
+  requestUpgrade: () => void;
+} {
+  const payload = useLicenseStore(s => s.payload);
+  const openFor = useUpgradeDialogStore(s => s.openFor);
+  const locked = feature !== undefined && !isFeatureEnabled(feature, payload, isLicenseEnforced());
+  const requestUpgrade = useCallback(() => {
+    if (feature) openFor(feature);
+  }, [feature, openFor]);
+  return { locked, requestUpgrade };
+}

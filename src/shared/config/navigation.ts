@@ -23,6 +23,7 @@ import {
   Users,
   type LucideIcon,
 } from 'lucide-react';
+import type { FeatureKey } from '@shared/lib/license/features';
 import type { StaffAction } from '@shared/lib/rbac';
 
 export type NavGroup = 'sell' | 'stock' | 'manage';
@@ -36,6 +37,8 @@ export type NavItem = {
   requiredAction?: StaffAction;
   /** i18n key (wPanels) for the "Manager"/"Admin" chip shown on gated tiles */
   managerLabelKey?: string;
+  /** License entitlement gating this destination, if any. */
+  feature?: FeatureKey;
 };
 
 export const NAV_ITEMS: readonly NavItem[] = [
@@ -105,6 +108,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     group: 'manage',
     requiredAction: 'view_audit_log',
     managerLabelKey: 'homeDashboard.managerLabels.manager',
+    feature: 'audit_log',
   },
   {
     path: '/edit-history',
@@ -113,6 +117,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     group: 'manage',
     requiredAction: 'view_audit_log',
     managerLabelKey: 'homeDashboard.managerLabels.manager',
+    feature: 'edit_history',
   },
 ];
 

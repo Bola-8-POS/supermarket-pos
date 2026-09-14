@@ -19,6 +19,7 @@ import { useStaffStore } from '@entities/staff/model/store';
 import { usePermissions } from '@entities/staff/model/usePermissions';
 import { NAV_GROUPS, NAV_ITEMS, type NavItem } from '@shared/config/navigation';
 import { useOnlineStatus } from '@shared/lib/connectivity';
+import { useNavFeatureLocked } from '@shared/lib/license/features';
 import { confirmNavigation, useNavigationGuardStore } from '@shared/lib/navigation-guard';
 import type { StaffAction } from '@shared/lib/rbac';
 import { getTerminalId } from '@shared/lib/terminal';
@@ -86,11 +87,17 @@ function NavEntry({
   const label = t(item.labelKey);
   const hasGuard = useNavigationGuardStore(s => s.guard !== null);
   const guardedNavigate = useGuardedNavigate();
+  const { locked: featureLocked, requestUpgrade } = useNavFeatureLocked(item.feature);
 
   const link = (
     <NavLink
       to={item.path}
       onClick={event => {
+        if (featureLocked) {
+          event.preventDefault();
+          requestUpgrade();
+          return;
+        }
         if (gated && item.requiredAction) {
           event.preventDefault();
           onGated({ action: item.requiredAction, path: item.path });
@@ -134,7 +141,7 @@ function NavEntry({
               {badge}
             </span>
           )}
-          {gated && (
+          {(featureLocked || gated) && (
             <Lock
               className={cn(
                 'size-3.5 shrink-0 text-sidebar-muted/70',
@@ -142,7 +149,7 @@ function NavEntry({
                 !compact && badge !== undefined && badge > 0 && 'ml-2'
               )}
               aria-hidden="true"
-              data-testid="nav-lock-icon"
+              data-testid={featureLocked ? 'nav-feature-lock-icon' : 'nav-lock-icon'}
             />
           )}
         </>

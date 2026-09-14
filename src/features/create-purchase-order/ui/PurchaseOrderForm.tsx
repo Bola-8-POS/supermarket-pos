@@ -15,6 +15,7 @@ import type { Result } from '@shared/lib/result';
 import { cn } from '@shared/lib/utils';
 import { EmptyState } from '@shared/ui/EmptyState';
 import { FormField } from '@shared/ui/FormField';
+import { LockedFeature } from '@shared/ui/LockedFeature';
 import { MoneyDisplay } from '@shared/ui/MoneyDisplay';
 import { MoneyInput } from '@shared/ui/MoneyInput';
 import { POSButton } from '@shared/ui/POSButton';
@@ -291,15 +292,17 @@ export function PurchaseOrderForm({
           <POSButton type="button" variant="ghost" disabled={submitting} onClick={onCancel}>
             {t('common:actions.cancel')}
           </POSButton>
-          <POSButton
-            type="button"
-            variant="brand"
-            focusEmphasis="high"
-            onClick={() => void submit()}
-            disabled={invalid}
-          >
-            {submitting ? t('common:actions.saving') : t('purchaseOrderForm.save')}
-          </POSButton>
+          <LockedFeature feature="purchase_orders">
+            <POSButton
+              type="button"
+              variant="brand"
+              focusEmphasis="high"
+              onClick={() => void submit()}
+              disabled={invalid}
+            >
+              {submitting ? t('common:actions.saving') : t('purchaseOrderForm.save')}
+            </POSButton>
+          </LockedFeature>
         </div>
       </DialogFooter>
     </div>

@@ -13,6 +13,7 @@ import { useSuppliers } from '@entities/supplier';
 import { cn } from '@shared/lib/utils';
 import { EmptyState } from '@shared/ui/EmptyState';
 import { FormField } from '@shared/ui/FormField';
+import { LockedFeature } from '@shared/ui/LockedFeature';
 import { MoneyDisplay } from '@shared/ui/MoneyDisplay';
 import { MoneyInput } from '@shared/ui/MoneyInput';
 import { POSButton } from '@shared/ui/POSButton';
@@ -444,15 +445,17 @@ function ReceiveShipmentBody({
           <POSButton type="button" variant="ghost" disabled={receive.isPending} onClick={onClose}>
             {t('common:actions.cancel')}
           </POSButton>
-          <POSButton
-            type="button"
-            variant="brand"
-            focusEmphasis="high"
-            onClick={() => void submit()}
-            disabled={invalid}
-          >
-            {receive.isPending ? t('common:actions.saving') : t('receiveShipment.confirm')}
-          </POSButton>
+          <LockedFeature feature="purchase_orders">
+            <POSButton
+              type="button"
+              variant="brand"
+              focusEmphasis="high"
+              onClick={() => void submit()}
+              disabled={invalid}
+            >
+              {receive.isPending ? t('common:actions.saving') : t('receiveShipment.confirm')}
+            </POSButton>
+          </LockedFeature>
         </div>
       </DialogFooter>
     </div>

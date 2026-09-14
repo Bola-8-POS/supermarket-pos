@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { PinSchema, UserRoleSchema, LocaleSchema, type Locale, type UserRole } from '@shared/lib/domain';
 import { logger } from '@shared/lib/logger-instance';
+import { LockedFeature } from '@shared/ui/LockedFeature';
 import { POSButton } from '@shared/ui/POSButton';
 import {
   Dialog,
@@ -204,16 +205,18 @@ export function CreateStaffDialog({ open, onOpenChange }: CreateStaffDialogProps
           >
             {t('common:actions.cancel')}
           </POSButton>
-          <POSButton
-            type="button"
-            touchSize="default"
-            onClick={() => {
-              void handleSubmit();
-            }}
-            disabled={!canSubmit}
-          >
-            {mutation.isPending ? t('addStaff.creating') : t('addStaff.create')}
-          </POSButton>
+          <LockedFeature feature="staff_management">
+            <POSButton
+              type="button"
+              touchSize="default"
+              onClick={() => {
+                void handleSubmit();
+              }}
+              disabled={!canSubmit}
+            >
+              {mutation.isPending ? t('addStaff.creating') : t('addStaff.create')}
+            </POSButton>
+          </LockedFeature>
         </DialogFooter>
       </DialogContent>
     </Dialog>

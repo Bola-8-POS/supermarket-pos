@@ -7,6 +7,7 @@ import { useNearExpiryAlerts } from '@entities/inventory';
 import { useStaffStore } from '@entities/staff/model/store';
 import { usePermissions } from '@entities/staff/model/usePermissions';
 import { NAV_GROUPS, NAV_ITEMS, type NavItem } from '@shared/config/navigation';
+import { useNavFeatureLocked } from '@shared/lib/license/features';
 import type { StaffAction } from '@shared/lib/rbac';
 import { cn } from '@shared/lib/utils';
 import { Badge, Button } from '@shared/ui';
@@ -17,6 +18,91 @@ type GatedTarget = { action: StaffAction; path: string };
 /** Typographic separator between meta segments (decorative, not copy). */
 function Dot() {
   return <span aria-hidden="true" className="size-1 rounded-full bg-muted-foreground/50" />;
+}
+
+/**
+ * One nav tile. A real component (not a plain render helper) so
+ * `useNavFeatureLocked` is called once per item with a stable hook count.
+ */
+function Tile({
+  item,
+  index,
+  isGated,
+  badge,
+  onClick,
+}: {
+  item: NavItem;
+  index: number;
+  isGated: boolean;
+  badge: number | undefined;
+  onClick: (item: NavItem) => void;
+}) {
+  const { t } = useTranslation('wPanels');
+  const { locked: featureLocked, requestUpgrade } = useNavFeatureLocked(item.feature);
+  const Icon = item.icon;
+  const itemLabel = t(item.labelKey);
+  const showLock = isGated || featureLocked;
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      onClick={() => {
+        if (featureLocked) {
+          requestUpgrade();
+          return;
+        }
+        onClick(item);
+      }}
+      style={{ animationDelay: `${String(40 + index * 30)}ms` }}
+      className={cn(
+        'group/tile relative flex h-auto min-h-[8.5rem] flex-col items-start justify-between gap-4 rounded-2xl border border-border bg-card p-4 text-left shadow-xs animate-fade-up',
+        'transition-[transform,box-shadow,border-color,background-color] duration-200 ease-out-quart',
+        'hover:-translate-y-0.5 hover:border-border-strong hover:bg-card hover:shadow-md',
+        'focus-visible:ring-3 focus-visible:ring-ring/40 focus-visible:outline-none'
+      )}
+      aria-label={itemLabel}
+      data-testid={item.path === '/audit' ? 'home-tile-audit' : undefined}
+    >
+      <div className="flex w-full items-start justify-between">
+        <div className="flex size-11 items-center justify-center rounded-xl bg-muted text-foreground transition-colors duration-200 group-hover/tile:bg-brand-soft group-hover/tile:text-brand-strong">
+          <Icon className="size-5" strokeWidth={2} aria-hidden="true" />
+        </div>
+        <div className="flex items-center gap-1.5">
+          {badge !== undefined && badge > 0 ? (
+            <Badge variant="warning" data-testid="home-near-expiry-badge">
+              {badge}
+            </Badge>
+          ) : null}
+          {showLock && (
+            <span className="flex size-6 items-center justify-center rounded-md bg-muted text-muted-foreground">
+              <Lock
+                className="size-3.5"
+                aria-hidden="true"
+                data-testid={featureLocked ? 'home-tile-feature-lock-icon' : 'lock-icon'}
+              />
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="flex w-full items-end justify-between gap-2">
+        <div className="min-w-0 space-y-1">
+          <span className="block truncate text-[0.9375rem] font-semibold tracking-tight">
+            {itemLabel}
+          </span>
+          {isGated && item.managerLabelKey && (
+            <Badge variant="muted" className="h-5 px-1.5 text-[0.6563rem] tracking-wide uppercase">
+              {t(item.managerLabelKey)}
+            </Badge>
+          )}
+        </div>
+        <ArrowRight
+          className="size-4 shrink-0 text-muted-foreground opacity-0 transition-[opacity,transform] duration-200 group-hover/tile:translate-x-0.5 group-hover/tile:opacity-100"
+          aria-hidden="true"
+        />
+      </div>
+    </Button>
+  );
 }
 
 export function HomeDashboard() {
@@ -53,63 +139,17 @@ export function HomeDashboard() {
 
   function renderTile(item: NavItem, index: number) {
     const isGated = !!item.requiredAction && !can(item.requiredAction);
-    const Icon = item.icon;
-    const itemLabel = t(item.labelKey);
+    const badge =
+      item.path === '/inventory' && nearExpiryAlerts?.length ? nearExpiryAlerts.length : undefined;
     return (
-      <Button
+      <Tile
         key={item.path}
-        type="button"
-        variant="ghost"
-        onClick={() => {
-          handleItemClick(item);
-        }}
-        style={{ animationDelay: `${String(40 + index * 30)}ms` }}
-        className={cn(
-          'group/tile relative flex h-auto min-h-[8.5rem] flex-col items-start justify-between gap-4 rounded-2xl border border-border bg-card p-4 text-left shadow-xs animate-fade-up',
-          'transition-[transform,box-shadow,border-color,background-color] duration-200 ease-out-quart',
-          'hover:-translate-y-0.5 hover:border-border-strong hover:bg-card hover:shadow-md',
-          'focus-visible:ring-3 focus-visible:ring-ring/40 focus-visible:outline-none'
-        )}
-        aria-label={itemLabel}
-        data-testid={item.path === '/audit' ? 'home-tile-audit' : undefined}
-      >
-        <div className="flex w-full items-start justify-between">
-          <div className="flex size-11 items-center justify-center rounded-xl bg-muted text-foreground transition-colors duration-200 group-hover/tile:bg-brand-soft group-hover/tile:text-brand-strong">
-            <Icon className="size-5" strokeWidth={2} aria-hidden="true" />
-          </div>
-          <div className="flex items-center gap-1.5">
-            {item.path === '/inventory' && nearExpiryAlerts?.length ? (
-              <Badge variant="warning" data-testid="home-near-expiry-badge">
-                {nearExpiryAlerts.length}
-              </Badge>
-            ) : null}
-            {isGated && (
-              <span className="flex size-6 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                <Lock className="size-3.5" aria-hidden="true" data-testid="lock-icon" />
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="flex w-full items-end justify-between gap-2">
-          <div className="min-w-0 space-y-1">
-            <span className="block truncate text-[0.9375rem] font-semibold tracking-tight">
-              {itemLabel}
-            </span>
-            {isGated && item.managerLabelKey && (
-              <Badge
-                variant="muted"
-                className="h-5 px-1.5 text-[0.6563rem] tracking-wide uppercase"
-              >
-                {t(item.managerLabelKey)}
-              </Badge>
-            )}
-          </div>
-          <ArrowRight
-            className="size-4 shrink-0 text-muted-foreground opacity-0 transition-[opacity,transform] duration-200 group-hover/tile:translate-x-0.5 group-hover/tile:opacity-100"
-            aria-hidden="true"
-          />
-        </div>
-      </Button>
+        item={item}
+        index={index}
+        isGated={isGated}
+        badge={badge}
+        onClick={handleItemClick}
+      />
     );
   }
 

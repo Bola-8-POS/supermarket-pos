@@ -5,6 +5,7 @@ import { useMutationUpdateStaffLocale } from '@entities/staff/model/queries';
 import type { Staff } from '@shared/lib/domain';
 import { LocaleSchema, type Locale } from '@shared/lib/domain';
 import { logger } from '@shared/lib/logger-instance';
+import { LockedFeature } from '@shared/ui/LockedFeature';
 import { POSButton } from '@shared/ui/POSButton';
 import {
   Dialog,
@@ -120,16 +121,18 @@ export function EditLocaleDialog({ open, onOpenChange, staff }: EditLocaleDialog
           >
             {t('common:actions.cancel')}
           </POSButton>
-          <POSButton
-            type="button"
-            touchSize="default"
-            onClick={() => {
-              void handleSubmit();
-            }}
-            disabled={!canSubmit}
-          >
-            {mutation.isPending ? t('common:actions.saving') : t('common:actions.save')}
-          </POSButton>
+          <LockedFeature feature="staff_management">
+            <POSButton
+              type="button"
+              touchSize="default"
+              onClick={() => {
+                void handleSubmit();
+              }}
+              disabled={!canSubmit}
+            >
+              {mutation.isPending ? t('common:actions.saving') : t('common:actions.save')}
+            </POSButton>
+          </LockedFeature>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -20,6 +20,7 @@ import {
   ConfirmDialog,
   DataTable,
   EmptyState,
+  LockedFeature,
   MoneyDisplay,
   PageContainer,
   POSButton,
@@ -221,18 +222,20 @@ export default function PromotionsPage() {
                 void updateMutation.mutateAsync({ id: p.id, active: checked });
               }}
             />
-            <POSButton
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label={tAdmin('promotionsListPanel.edit')}
-              onClick={e => {
-                e.stopPropagation();
-                setDialog({ open: true, promotion: p });
-              }}
-            >
-              <Pencil className="size-4" />
-            </POSButton>
+            <LockedFeature feature="promotions">
+              <POSButton
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={tAdmin('promotionsListPanel.edit')}
+                onClick={e => {
+                  e.stopPropagation();
+                  setDialog({ open: true, promotion: p });
+                }}
+              >
+                <Pencil className="size-4" />
+              </POSButton>
+            </LockedFeature>
             <POSButton
               type="button"
               variant="ghost"
@@ -255,9 +258,11 @@ export default function PromotionsPage() {
     <PageContainer
       title={t('promotions.title')}
       actions={
-        <POSButton type="button" onClick={openCreateDialog}>
-          {t('promotions.newPromotion')}
-        </POSButton>
+        <LockedFeature feature="promotions">
+          <POSButton type="button" onClick={openCreateDialog}>
+            {t('promotions.newPromotion')}
+          </POSButton>
+        </LockedFeature>
       }
     >
       <p className="text-sm text-muted-foreground">{tAdmin('promotionsListPanel.hint')}</p>

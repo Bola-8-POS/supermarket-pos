@@ -7,7 +7,7 @@ import { useStaffStore } from '@entities/staff/model/store';
 import { logger } from '@shared/lib/logger-instance';
 import { STAFF_ACTIONS, STAFF_ROLES } from '@shared/lib/rbac';
 import type { StaffAction, StaffRole } from '@shared/lib/rbac';
-import { Switch } from '@shared/ui';
+import { LockedFeature, Switch } from '@shared/ui';
 
 const ROLE_LABELS: Record<StaffRole, string> = {
   cashier: 'Cashier',
@@ -80,14 +80,16 @@ export function PermissionMatrix() {
                 const checked = permMap.get(role)?.has(action) ?? false;
                 return (
                   <td key={role} className="px-3 py-2 text-center">
-                    <Switch
-                      checked={checked}
-                      disabled={!isAdmin || mutation.isPending}
-                      onCheckedChange={newChecked => {
-                        void handleToggle(role, action, newChecked);
-                      }}
-                      aria-label={`${ROLE_LABELS[role]} can ${action}`}
-                    />
+                    <LockedFeature feature="rbac_editing">
+                      <Switch
+                        checked={checked}
+                        disabled={!isAdmin || mutation.isPending}
+                        onCheckedChange={newChecked => {
+                          void handleToggle(role, action, newChecked);
+                        }}
+                        aria-label={`${ROLE_LABELS[role]} can ${action}`}
+                      />
+                    </LockedFeature>
                   </td>
                 );
               })}

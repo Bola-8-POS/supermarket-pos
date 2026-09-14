@@ -1,6 +1,15 @@
-import { describe, expect, it } from 'vitest';
-import { FEATURE_KEYS, isFeatureEnabled } from './features';
+import { renderHook } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type * as ConfigModule from './config';
+import { FEATURE_KEYS, isFeatureEnabled, useNavFeatureLocked } from './features';
+import { useLicenseStore } from './store';
 import type { LicensePayload } from './types';
+
+const configState = { enforced: false };
+vi.mock('./config', async importOriginal => {
+  const actual = await importOriginal<typeof ConfigModule>();
+  return { ...actual, isLicenseEnforced: () => configState.enforced };
+});
 
 const base: LicensePayload = {
   v: 1, tenant_id: 't', tenant_slug: 's', tenant_name: 'n', terminal_id: 'x', plan: 'monthly',
@@ -27,5 +36,34 @@ describe('isFeatureEnabled', () => {
     expect(isFeatureEnabled('promotions', demo, true)).toBe(true);
     expect(isFeatureEnabled('report_export', demo, true)).toBe(false);
     expect(isFeatureEnabled('purchase_orders', demo, true)).toBe(false);
+  });
+});
+
+describe('useNavFeatureLocked', () => {
+  afterEach(() => {
+    configState.enforced = false;
+    useLicenseStore.getState().clearLicense(null);
+  });
+
+  it('is never locked for a nav item with no declared feature', () => {
+    configState.enforced = true;
+    useLicenseStore
+      .getState()
+      .setLicense('t', { ...base, plan: 'demo', features: ['promotions'] }, null);
+
+    const { result } = renderHook(() => useNavFeatureLocked(undefined));
+
+    expect(result.current.locked).toBe(false);
+  });
+
+  it('locks a nav item whose feature is missing from an enforced demo allow-list', () => {
+    configState.enforced = true;
+    useLicenseStore
+      .getState()
+      .setLicense('t', { ...base, plan: 'demo', features: ['promotions'] }, null);
+
+    const { result } = renderHook(() => useNavFeatureLocked('audit_log'));
+
+    expect(result.current.locked).toBe(true);
   });
 });

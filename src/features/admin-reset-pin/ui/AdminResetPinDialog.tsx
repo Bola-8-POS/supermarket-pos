@@ -5,6 +5,7 @@ import { ManagerPinDialog } from '@features/manager-pin-gate';
 import { useStaffList } from '@entities/staff/model/queries';
 import { PinSchema, type Staff } from '@shared/lib/domain';
 import { logger } from '@shared/lib/logger-instance';
+import { LockedFeature } from '@shared/ui/LockedFeature';
 import { POSButton } from '@shared/ui/POSButton';
 import {
   Dialog,
@@ -143,14 +144,16 @@ export function AdminResetPinDialog({ staff, open, onOpenChange }: AdminResetPin
             >
               {t('common:actions.cancel')}
             </POSButton>
-            <POSButton
-              type="button"
-              touchSize="default"
-              onClick={handleSubmitClick}
-              disabled={!canSubmit}
-            >
-              {mutation.isPending ? t('resetPin.submitting') : t('resetPin.submit')}
-            </POSButton>
+            <LockedFeature feature="staff_management">
+              <POSButton
+                type="button"
+                touchSize="default"
+                onClick={handleSubmitClick}
+                disabled={!canSubmit}
+              >
+                {mutation.isPending ? t('resetPin.submitting') : t('resetPin.submit')}
+              </POSButton>
+            </LockedFeature>
           </DialogFooter>
         </DialogContent>
       </Dialog>
