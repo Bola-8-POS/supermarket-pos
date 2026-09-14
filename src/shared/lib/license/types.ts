@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /** Mirrors license-server/supabase/functions/_shared/license.ts `LicensePayload`. */
-export const LicensePlanSchema = z.enum(['monthly', 'yearly', 'lifetime']);
+export const LicensePlanSchema = z.enum(['monthly', 'yearly', 'lifetime', 'demo']);
 export type LicensePlan = z.infer<typeof LicensePlanSchema>;
 
 export const LicensePayloadSchema = z.object({
@@ -18,6 +18,8 @@ export const LicensePayloadSchema = z.object({
   max_terminals: z.number().int().min(1),
   issued_at: z.string(),
   lease_until: z.string(),
+  /** Entitlement allow-list. null/absent = every feature enabled (paid plans). */
+  features: z.array(z.string()).nullable().optional(),
 });
 export type LicensePayload = z.infer<typeof LicensePayloadSchema>;
 
@@ -26,7 +28,8 @@ export type LicenseLockReason =
   | 'invalid' // stored token failed signature/schema verification
   | 'suspended' // vendor suspended the tenant
   | 'lease_expired' // token not refreshed within lease_days (offline > 2 months by default)
-  | 'subscription_expired'; // period_end + grace_days passed
+  | 'subscription_expired' // period_end + grace_days passed
+  | 'demo_expired'; // plan === 'demo' and period_end passed (grace is 0 for demos)
 
 export type LicenseEvaluation =
   | { state: 'disabled' } // enforcement off (dev / e2e)

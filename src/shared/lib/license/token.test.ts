@@ -133,6 +133,27 @@ describe('evaluateLicense', () => {
       reason: 'lease_expired',
     });
   });
+
+  it('demo plan past period_end locks with demo_expired regardless of grace', () => {
+    expect(
+      evaluateLicense(payload({ plan: 'demo', period_end: iso(-1), grace_days: 0 }), NOW)
+    ).toEqual({ state: 'locked', reason: 'demo_expired' });
+    expect(
+      evaluateLicense(payload({ plan: 'demo', period_end: iso(-1), grace_days: 7 }), NOW)
+    ).toEqual({ state: 'locked', reason: 'demo_expired' });
+  });
+
+  it('demo plan inside its period is active with no subscription warning', () => {
+    expect(evaluateLicense(payload({ plan: 'demo', period_end: iso(2), grace_days: 0 }), NOW))
+      .toEqual({ state: 'active' });
+  });
+
+  it('decodeToken accepts a payload carrying a features allow-list', () => {
+    const p = { ...payload(), features: ['promotions'] };
+    const token = `${b64url(Buffer.from(JSON.stringify(p)))}.${b64url(Buffer.from('sig'))}`;
+    const res = decodeToken(token);
+    expect(res.ok && res.data.features).toEqual(['promotions']);
+  });
 });
 
 describe('verifyToken / decodeToken', () => {

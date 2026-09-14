@@ -14,6 +14,7 @@ export const SUBSCRIPTION_WARN_DAYS: Record<LicensePlan, number> = {
   monthly: 7,
   yearly: 30,
   lifetime: 0,
+  demo: 0,
 };
 /** Days before lease_until at which an offline terminal is warned to reconnect / re-license. */
 export const LEASE_WARN_DAYS = 7;
@@ -98,6 +99,9 @@ export function evaluateLicense(payload: LicensePayload | null, now: number): Li
 
   if (payload.period_end !== null) {
     const periodDays = daysUntil(payload.period_end, now);
+    if (periodDays < 0 && payload.plan === 'demo') {
+      return { state: 'locked', reason: 'demo_expired' };
+    }
     if (periodDays < 0) {
       const graceLeft = payload.grace_days + periodDays;
       if (graceLeft < 0) return { state: 'locked', reason: 'subscription_expired' };
