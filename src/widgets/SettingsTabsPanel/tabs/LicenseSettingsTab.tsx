@@ -132,6 +132,7 @@ export function LicenseSettingsTab() {
       {showForm && (
         <div className="rounded-xl border border-border p-4">
           <LicenseActivationForm
+            showDemo={false}
             onDone={() => {
               setShowForm(false);
             }}

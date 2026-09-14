@@ -485,6 +485,16 @@
     "tokenLabel": "Token fuera de línea",
     "tokenPlaceholder": "Pega aquí el token generado en el portal",
     "import": "Importar token",
-    "imported": "Token importado — válido hasta {{date}}"
+    "imported": "Token importado — válido hasta {{date}}",
+    "demoHeading": "¿Quieres probarlo primero?",
+    "demoBody": "Usa la versión demo 14 días. Algunas funciones avanzadas están bloqueadas.",
+    "startDemo": "Probar gratis 14 días",
+    "startingDemo": "Creando tu demo…",
+    "demoStarted": "Demo lista — vence el {{date}}",
+    "demoError": {
+      "DEMO_ALREADY_USED": "Este equipo ya usó su demo. Obtén una licencia para continuar.",
+      "RATE_LIMITED": "Demasiadas demos desde esta red hoy. Intenta más tarde.",
+      "NETWORK_OFFLINE": "Sin conexión — se necesita internet para crear la demo."
+    }
   }
 }

@@ -485,6 +485,16 @@
     "tokenLabel": "Offline token",
     "tokenPlaceholder": "Paste the token generated in the portal",
     "import": "Import token",
-    "imported": "Token imported — valid until {{date}}"
+    "imported": "Token imported — valid until {{date}}",
+    "demoHeading": "Want to try it first?",
+    "demoBody": "Use the demo version for 14 days. Some advanced features are locked.",
+    "startDemo": "Try it free for 14 days",
+    "startingDemo": "Creating your demo…",
+    "demoStarted": "Demo ready — ends on {{date}}",
+    "demoError": {
+      "DEMO_ALREADY_USED": "This computer already used its demo. Get a license to continue.",
+      "RATE_LIMITED": "Too many demos from this network today. Try again later.",
+      "NETWORK_OFFLINE": "Offline — an internet connection is needed to create the demo."
+    }
   }
 }

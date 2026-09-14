@@ -1,26 +1,53 @@
 import { useState, type SyntheticEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { activateWithKey, importOfflineToken } from '@shared/lib/license/actions';
+import {
+  activateWithKey,
+  importOfflineToken,
+  startDemoTrial,
+} from '@shared/lib/license/actions';
 import { Input, Label, POSButton } from '@shared/ui';
 import { Button } from '@shared/ui/button';
 import { Textarea } from '@shared/ui/textarea';
 
 interface Props {
   onDone?: (() => void) | undefined;
+  /** Show the "try it free" demo section (hidden in Settings → License). Default true. */
+  showDemo?: boolean | undefined;
 }
 
 /**
  * Two paths to a licensed terminal: type the tenant's license key (online activation)
  * or paste a portal-issued offline token. Shared by the boot gate and Settings → License.
  */
-export function LicenseActivationForm({ onDone }: Props) {
+export function LicenseActivationForm({ onDone, showDemo = true }: Props) {
   const { t } = useTranslation('featMgmt');
   const [key, setKey] = useState('');
   const [token, setToken] = useState('');
   const [showOffline, setShowOffline] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const startDemoClick = async () => {
+    setBusy(true);
+    setError(null);
+    const res = await startDemoTrial();
+    setBusy(false);
+    if (!res.ok) {
+      const code =
+        'serverCode' in res.error && typeof res.error.serverCode === 'string'
+          ? res.error.serverCode
+          : res.error.code;
+      setError(t(`activateLicense.demoError.${code}`, { defaultValue: res.error.message }));
+      return;
+    }
+    toast.success(
+      t('activateLicense.demoStarted', {
+        date: new Date(res.data.period_end ?? '').toLocaleDateString(),
+      })
+    );
+    onDone?.();
+  };
 
   const activate = async (e: SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -121,6 +148,26 @@ export function LicenseActivationForm({ onDone }: Props) {
             {t('activateLicense.import')}
           </POSButton>
         </div>
+      )}
+
+      {showDemo && (
+        <section
+          className="space-y-2 rounded-xl border border-dashed border-border p-4"
+          data-testid="start-demo-section"
+        >
+          <p className="text-sm font-medium">{t('activateLicense.demoHeading')}</p>
+          <p className="text-xs text-muted-foreground">{t('activateLicense.demoBody')}</p>
+          <POSButton
+            type="button"
+            variant="secondary"
+            touchSize="large"
+            disabled={busy}
+            data-testid="start-demo-button"
+            onClick={() => void startDemoClick()}
+          >
+            {busy ? t('activateLicense.startingDemo') : t('activateLicense.startDemo')}
+          </POSButton>
+        </section>
       )}
     </div>
   );

@@ -175,10 +175,12 @@
         "invalid": "La licencia guardada no es válida. Ingresa la clave de nuevo.",
         "suspended": "La licencia de esta tienda está suspendida. Contacta a tu proveedor.",
         "lease_expired": "Este equipo lleva más de {{days}} días sin verificar su licencia. Conéctate a internet o pega un token fuera de línea.",
-        "subscription_expired": "La suscripción venció. Registra tu pago con el proveedor y vuelve a activar."
+        "subscription_expired": "La suscripción venció. Registra tu pago con el proveedor y vuelve a activar.",
+        "demo_expired": "Tu demo de 14 días terminó. Obtén una licencia para conservar tus datos y desbloquear todo."
       },
       "terminalId": "ID de terminal",
-      "support": "Envía este ID a tu proveedor para obtener un token fuera de línea."
+      "support": "Envía este ID a tu proveedor para obtener un token fuera de línea.",
+      "preparingDemo": "Preparando tu demo…"
     },
     "features": {
       "report_export": "Exportar reportes (CSV/PDF)",
