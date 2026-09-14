@@ -95,6 +95,15 @@
     "brand": "Supermarket POS",
     "terminal": "Terminal {{id}}",
     "tagline": "Sign in with your PIN to open the register. Every sale, refund and stock movement is recorded under your name.",
-    "logoAlt": "Logo of {{name}}"
+    "logoAlt": "Logo of {{name}}",
+    "demoHint": {
+      "title": "Demo accounts",
+      "pin": "PIN {{pin}}",
+      "role": {
+        "admin": "Admin",
+        "manager": "Manager",
+        "cashier": "Cashier"
+      }
+    }
   }
 }

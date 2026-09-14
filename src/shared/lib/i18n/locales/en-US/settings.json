@@ -57,8 +57,11 @@
     "planName": {
       "monthly": "Monthly",
       "yearly": "Yearly",
-      "lifetime": "Lifetime"
+      "lifetime": "Lifetime",
+      "demo": "Demo (14 days)"
     },
+    "getFull": "Get the full version",
+    "demoEnds": "Demo ends",
     "periodEnd": "Valid through",
     "lifetimeNoExpiry": "Never expires",
     "updatesUntil": "Updates until",

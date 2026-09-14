@@ -10,6 +10,7 @@ import { useStaffStore } from '@entities/staff/model/store';
 import { getTerminalId } from '@shared/lib/terminal';
 import { ErrorBoundary } from '@shared/ui';
 import { LiveTimeDisplay } from '@shared/ui/LiveTimeDisplay';
+import { DemoLoginHint } from './DemoLoginHint';
 
 export default function LoginPage() {
   const { t, i18n } = useTranslation('pages');
@@ -110,6 +111,7 @@ export default function LoginPage() {
         </div>
         <div className="w-full max-w-md animate-fade-up">
           <ErrorBoundary>{!selectedStaff ? <EmployeeSelector /> : <PINLoginForm />}</ErrorBoundary>
+          <DemoLoginHint />
         </div>
       </main>
     </div>

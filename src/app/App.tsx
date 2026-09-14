@@ -1,5 +1,8 @@
 import { Toaster } from 'sonner';
+import { LicenseActivationForm } from '@features/activate-license';
 import { IdleLockProvider } from '@features/idle-screen-lock';
+import { UpgradeDialog } from '@features/upgrade-license';
+import { useUpgradeDialogStore } from '@shared/lib/license/upgrade-dialog-store';
 import { ClockDriftBanner } from '@shared/ui/ClockDriftBanner';
 import { ErrorBoundary } from '@shared/ui/ErrorBoundary';
 import { OfflineBanner } from '@shared/ui/OfflineBanner';
@@ -29,6 +32,16 @@ export function App() {
         <Providers>
           <ClockDriftBanner />
           <LicenseBanner />
+          <UpgradeDialog
+            activationForm={
+              <LicenseActivationForm
+                showDemo={false}
+                onDone={() => {
+                  useUpgradeDialogStore.getState().close();
+                }}
+              />
+            }
+          />
           <LicenseGate>
             <IdleLockProvider>
               <Router />

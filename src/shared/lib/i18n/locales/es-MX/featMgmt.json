@@ -496,5 +496,19 @@
       "RATE_LIMITED": "Demasiadas demos desde esta red hoy. Intenta más tarde.",
       "NETWORK_OFFLINE": "Sin conexión — se necesita internet para crear la demo."
     }
+  },
+  "upgradeLicense": {
+    "title": "Desbloquea la versión completa",
+    "featureLine": "«{{feature}}» está disponible en la versión completa.",
+    "intro": "Todo lo que ya usas en la demo, sin límites, con tus datos y actualizaciones incluidas.",
+    "plans": {
+      "monthly": "Mensual — $500 MXN",
+      "yearly": "Anual — $5,000 MXN",
+      "lifetime": "De por vida — $15,000 MXN (4 años de actualizaciones)"
+    },
+    "includes": "Incluye",
+    "contact": "Contactar ventas",
+    "haveKey": "Ya tengo una clave",
+    "close": "Seguir con la demo"
   }
 }

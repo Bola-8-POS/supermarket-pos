@@ -57,8 +57,11 @@
     "planName": {
       "monthly": "Mensual",
       "yearly": "Anual",
-      "lifetime": "De por vida"
+      "lifetime": "De por vida",
+      "demo": "Demo (14 días)"
     },
+    "getFull": "Obtener la versión completa",
+    "demoEnds": "La demo termina",
     "periodEnd": "Vigencia hasta",
     "lifetimeNoExpiry": "Sin vencimiento",
     "updatesUntil": "Actualizaciones hasta",

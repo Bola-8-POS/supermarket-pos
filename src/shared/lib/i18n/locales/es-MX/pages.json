@@ -95,6 +95,15 @@
     "brand": "Supermarket POS",
     "terminal": "Terminal {{id}}",
     "tagline": "Ingresa tu PIN para abrir la caja. Cada venta, reembolso y movimiento de inventario queda registrado a tu nombre.",
-    "logoAlt": "Logotipo de {{name}}"
+    "logoAlt": "Logotipo de {{name}}",
+    "demoHint": {
+      "title": "Cuentas de prueba",
+      "pin": "PIN {{pin}}",
+      "role": {
+        "admin": "Administrador",
+        "manager": "Gerente",
+        "cashier": "Cajero"
+      }
+    }
   }
 }

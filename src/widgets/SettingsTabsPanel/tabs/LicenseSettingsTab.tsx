@@ -6,6 +6,7 @@ import { runHeartbeat } from '@shared/lib/license/actions';
 import { getEffectiveNow, useLicenseEvaluation, useLicenseStore } from '@shared/lib/license/store';
 import { getTerminalId } from '@shared/lib/license/terminal-id';
 import { updatesExpired } from '@shared/lib/license/token';
+import { useUpgradeDialogStore } from '@shared/lib/license/upgrade-dialog-store';
 import { useUpdaterStore } from '@shared/lib/useAppUpdater';
 import { POSButton } from '@shared/ui';
 
@@ -21,6 +22,7 @@ export function LicenseSettingsTab() {
   const [refreshing, setRefreshing] = useState(false);
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const checkForUpdates = useUpdaterStore(s => s.checkForUpdates);
+  const openFor = useUpgradeDialogStore(s => s.openFor);
   const [showForm, setShowForm] = useState(false);
 
   const refresh = async () => {
@@ -46,7 +48,7 @@ export function LicenseSettingsTab() {
         [t('license.tenant'), payload.tenant_name],
         [t('license.plan'), t(`license.planName.${payload.plan}`)],
         [
-          t('license.periodEnd'),
+          payload.plan === 'demo' ? t('license.demoEnds') : t('license.periodEnd'),
           payload.period_end ? fmt(payload.period_end) : t('license.lifetimeNoExpiry'),
         ],
         ...(payload.plan === 'lifetime'
@@ -99,6 +101,18 @@ export function LicenseSettingsTab() {
       <p className="text-xs text-muted-foreground">{t('license.leaseHint')}</p>
 
       <div className="flex flex-wrap gap-2">
+        {payload?.plan === 'demo' && (
+          <POSButton
+            type="button"
+            touchSize="large"
+            data-testid="license-get-full"
+            onClick={() => {
+              openFor();
+            }}
+          >
+            {t('license.getFull')}
+          </POSButton>
+        )}
         <POSButton
           type="button"
           touchSize="large"

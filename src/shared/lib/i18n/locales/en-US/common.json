@@ -161,7 +161,13 @@
     "plan": {
       "monthly": "Monthly",
       "yearly": "Yearly",
-      "lifetime": "Lifetime"
+      "lifetime": "Lifetime",
+      "demo": "Demo"
+    },
+    "demo": {
+      "bar_one": "DEMO · {{count}} day left",
+      "bar_other": "DEMO · {{count}} days left",
+      "cta": "Get the full version"
     },
     "banner": {
       "subscriptionWarning": "Your subscription ends in {{days}} days — renew to avoid interruption",

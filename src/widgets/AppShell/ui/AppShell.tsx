@@ -1,5 +1,6 @@
 import { Outlet, useLocation } from 'react-router-dom';
 import { usePersistedBool } from '@shared/lib/usePersistedBool';
+import { DemoBar } from './DemoBar';
 import { Sidebar } from './Sidebar';
 
 /**
@@ -24,6 +25,7 @@ export function AppShell() {
         }}
       />
       <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden" id="main-content">
+        <DemoBar />
         <Outlet />
       </main>
     </div>

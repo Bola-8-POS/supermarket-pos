@@ -161,7 +161,13 @@
     "plan": {
       "monthly": "Mensual",
       "yearly": "Anual",
-      "lifetime": "De por vida"
+      "lifetime": "De por vida",
+      "demo": "Demo"
+    },
+    "demo": {
+      "bar_one": "DEMO · {{count}} día restante",
+      "bar_other": "DEMO · {{count}} días restantes",
+      "cta": "Obtener la versión completa"
     },
     "banner": {
       "subscriptionWarning": "Tu suscripción vence en {{days}} días — renueva para evitar interrupciones",
