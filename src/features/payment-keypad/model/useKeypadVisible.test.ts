@@ -2,7 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { useKeypadVisible } from './useKeypadVisible';
 
-const STORAGE_KEY = 'pos.keypad_visible';
+const STORAGE_KEY = 'pos.payment_keypad_visible';
 
 describe('useKeypadVisible', () => {
   beforeEach(() => {

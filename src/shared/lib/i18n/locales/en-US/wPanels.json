@@ -72,6 +72,12 @@
     "paymentNumber": "Payment {{number}}",
     "amount": "Amount",
     "amountTendered": "Amount tendered",
+    "amountKeypad": {
+      "title": "Amount keypad",
+      "toggle": "Toggle amount keypad",
+      "clear": "Clear",
+      "backspace": "Backspace"
+    },
     "changeDue": "Change due",
     "quickTenderExact": "Exact",
     "quickTender": "Tender {{amount}}",
@@ -289,18 +295,7 @@
     "clearCartConfirm": "Clear",
     "subtotal": "Subtotal",
     "scanReady": "Scanner ready",
-    "comboSavings": "Combo savings",
-    "keypad": {
-      "title": "Keypad",
-      "toggle": "Toggle keypad",
-      "qty": "× Qty",
-      "add": "Add (PLU)",
-      "clear": "Clear",
-      "backspace": "Backspace",
-      "armed": "×{{count}} armed for next item",
-      "qtyRange": "Quantity must be between 1 and 99",
-      "notFound": "No product with code {{code}} — showing search results"
-    }
+    "comboSavings": "Combo savings"
   },
   "holdSale": {
     "badge": "Sale held",

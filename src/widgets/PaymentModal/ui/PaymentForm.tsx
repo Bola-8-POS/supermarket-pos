@@ -3,11 +3,12 @@
  * Can be embedded inline (PaymentPane) or wrapped in a Dialog (PaymentModal).
  */
 
-import { AlertCircle, Copy, Loader2, Trash2 } from 'lucide-react';
+import { AlertCircle, Calculator, Copy, Loader2, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { ManagerPinDialog } from '@features/manager-pin-gate';
+import { AmountKeypad, useKeypadVisible } from '@features/payment-keypad';
 import { ReceiptPreview } from '@features/process-payment/ui/ReceiptPreview';
 import { evaluateBestPromotion, usePromotions } from '@entities/promotion';
 import { useReceiptSettings, useSettings } from '@entities/settings';
@@ -48,6 +49,7 @@ import {
   ScrollArea,
   Switch,
 } from '@shared/ui';
+import { Button } from '@shared/ui/button';
 import { Input } from '@shared/ui/input';
 import { Label } from '@shared/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@shared/ui/select';
@@ -226,6 +228,7 @@ export function PaymentForm({
   const [step, setStep] = useState<'pay' | 'receipt'>('pay');
   const [method, setMethod] = useState<PayMethod>('cash');
   const [tenderedAmount, setTenderedAmount] = useState(0);
+  const [amountKeypadVisible, setAmountKeypadVisible] = useKeypadVisible();
   const [cardReference, setCardReference] = useState('');
   const [cardChargeOverride, setCardChargeOverride] = useState<number | null>(null);
   const [customerName, setCustomerName] = useState('');
@@ -1214,12 +1217,36 @@ export function PaymentForm({
 
             {!isSplitMode && method === 'cash' && (
               <section className="space-y-3">
-                <MoneyInput
-                  label={t('paymentForm.amountTendered')}
-                  value={tenderedAmount}
-                  onChange={setTenderedAmount}
-                  disabled={isProcessing}
-                />
+                <div className="flex items-end gap-2">
+                  <MoneyInput
+                    label={t('paymentForm.amountTendered')}
+                    value={tenderedAmount}
+                    onChange={setTenderedAmount}
+                    disabled={isProcessing}
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant={amountKeypadVisible ? 'secondary' : 'ghost'}
+                    size="icon"
+                    aria-pressed={amountKeypadVisible}
+                    aria-label={t('paymentForm.amountKeypad.toggle')}
+                    data-testid="amount-keypad-toggle"
+                    disabled={isProcessing}
+                    onClick={() => {
+                      setAmountKeypadVisible(!amountKeypadVisible);
+                    }}
+                  >
+                    <Calculator className="size-5" />
+                  </Button>
+                </div>
+                {amountKeypadVisible && (
+                  <AmountKeypad
+                    value={tenderedAmount}
+                    onChange={setTenderedAmount}
+                    disabled={isProcessing}
+                  />
+                )}
                 <div
                   className="grid grid-cols-5 gap-2"
                   role="group"

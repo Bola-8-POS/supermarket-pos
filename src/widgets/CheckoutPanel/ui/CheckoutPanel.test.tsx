@@ -1,5 +1,4 @@
 import { act, screen, waitFor } from '@testing-library/react';
-import { toast } from 'sonner';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useCategories } from '@entities/product';
 import type * as PromotionModule from '@entities/promotion';
@@ -274,16 +273,6 @@ describe('CheckoutPanel', () => {
     });
   });
 
-  it('keypad: tapping × Qty with an empty buffer is a silent no-op (no toast, nothing armed)', async () => {
-    renderWithProviders(<CheckoutPanel />);
-
-    await act(async () => {
-      screen.getByRole('button', { name: /qty/i }).click();
-    });
-
-    expect(toast.error).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('keypad-multiplier')).not.toBeInTheDocument();
-  });
 });
 
 // ---------------------------------------------------------------------------

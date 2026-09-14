@@ -72,6 +72,12 @@
     "paymentNumber": "Pago {{number}}",
     "amount": "Monto",
     "amountTendered": "Monto entregado",
+    "amountKeypad": {
+      "title": "Teclado de monto",
+      "toggle": "Mostrar u ocultar teclado de monto",
+      "clear": "Borrar",
+      "backspace": "Retroceso"
+    },
     "changeDue": "Cambio a entregar",
     "quickTenderExact": "Exacto",
     "quickTender": "Recibir {{amount}}",
@@ -289,18 +295,7 @@
     "clearCartConfirm": "Vaciar",
     "subtotal": "Subtotal",
     "scanReady": "Escáner listo",
-    "comboSavings": "Ahorro por combo",
-    "keypad": {
-      "title": "Teclado",
-      "toggle": "Mostrar u ocultar teclado",
-      "qty": "× Cant.",
-      "add": "Agregar (PLU)",
-      "clear": "Borrar",
-      "backspace": "Retroceso",
-      "armed": "×{{count}} para el siguiente artículo",
-      "qtyRange": "La cantidad debe estar entre 1 y 99",
-      "notFound": "No hay producto con código {{code}}; mostrando resultados de búsqueda"
-    }
+    "comboSavings": "Ahorro por combo"
   },
   "holdSale": {
     "badge": "Venta en espera",
