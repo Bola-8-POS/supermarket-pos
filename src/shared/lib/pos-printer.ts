@@ -7,6 +7,9 @@ import type { ReceiptSettings } from '@shared/lib/domain';
 import type { ReceiptData } from '@shared/lib/edge-function-contracts';
 import i18n from '@shared/lib/i18n';
 import { getCurrentLocale } from '@shared/lib/i18n';
+import { isLicenseEnforced } from '@shared/lib/license/config';
+import { isDemoPlan } from '@shared/lib/license/features';
+import { useLicenseStore } from '@shared/lib/license/store';
 import { logger } from '@shared/lib/logger-instance';
 import { buildThermalReceiptText } from '@shared/lib/receipt-format';
 import type { AppError, AppErrorCode, Result } from '@shared/lib/result';
@@ -73,17 +76,26 @@ export function printJobErrorCopyKey(code: AppErrorCode): string {
   }
 }
 
+/** Demo-plan license: whether the printed/previewed receipt should carry the "not a valid receipt" watermark. */
+function demoWatermarkNow(): boolean {
+  return isLicenseEnforced() && isDemoPlan(useLicenseStore.getState().payload);
+}
+
 /**
  * Builds fully-translated (acting staff's locale) receipt lines for Rust
  * `print_receipt`, which only ESC/POS-encodes them (no label strings in Rust).
  */
 export function receiptDataToPrinterLines(data: ReceiptData, settings: ReceiptSettings): string[] {
   const locale = getCurrentLocale();
-  return buildThermalReceiptText(data, locale, settings).split('\n');
+  return buildThermalReceiptText(data, locale, settings, {
+    demoWatermark: demoWatermarkNow(),
+  }).split('\n');
 }
 
 function printReceiptWebFallback(data: ReceiptData, settings: ReceiptSettings): void {
-  const text = buildThermalReceiptText(data, getCurrentLocale(), settings);
+  const text = buildThermalReceiptText(data, getCurrentLocale(), settings, {
+    demoWatermark: demoWatermarkNow(),
+  });
   const w = window.open('', '_blank', 'noopener,noreferrer,width=400,height=600');
   if (!w) {
     logger.warn('printer.web.fallback', { reason: 'popup_blocked' });

@@ -12,6 +12,7 @@
     "tendered": "Tendered",
     "change": "Change",
     "ref": "Ref",
+    "demoWatermark": "*** DEMO — NOT A VALID RECEIPT ***",
     "method": {
       "cash": "Cash",
       "card": "Card (BBVA Terminal)",

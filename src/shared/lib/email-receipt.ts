@@ -3,6 +3,9 @@ import { callSendReceiptEmail, type ReceiptData } from '@shared/lib/edge-functio
 import { ReceiptEmailSchema } from '@shared/lib/email-schema';
 import { receiptToPdfBytes, uint8ArrayToBase64 } from '@shared/lib/exporters/receipt-pdf';
 import { getCurrentLocale } from '@shared/lib/i18n';
+import { isLicenseEnforced } from '@shared/lib/license/config';
+import { isDemoPlan } from '@shared/lib/license/features';
+import { useLicenseStore } from '@shared/lib/license/store';
 import { buildThermalReceiptText } from '@shared/lib/receipt-format';
 import type { Result } from '@shared/lib/result';
 import { err, ok } from '@shared/lib/result';
@@ -25,16 +28,20 @@ export async function sendReceiptByEmail(
     return err({ code: 'VALIDATION_ERROR', message: msg });
   }
 
+  const demoWatermark = isLicenseEnforced() && isDemoPlan(useLicenseStore.getState().payload);
+
   let pdfBase64: string | undefined;
   try {
-    pdfBase64 = uint8ArrayToBase64(await receiptToPdfBytes(data, settings));
+    pdfBase64 = uint8ArrayToBase64(await receiptToPdfBytes(data, settings, { demoWatermark }));
   } catch {
     pdfBase64 = undefined;
   }
 
   const result = await callSendReceiptEmail({
     email: parsed.data,
-    receiptPlainText: buildThermalReceiptText(data, getCurrentLocale(), settings),
+    receiptPlainText: buildThermalReceiptText(data, getCurrentLocale(), settings, {
+      demoWatermark,
+    }),
     ...(pdfBase64 !== undefined ? { pdfBase64 } : {}),
   });
 

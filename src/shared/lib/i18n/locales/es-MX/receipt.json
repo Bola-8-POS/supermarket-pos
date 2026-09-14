@@ -12,6 +12,7 @@
     "tendered": "Entregado",
     "change": "Cambio",
     "ref": "Ref",
+    "demoWatermark": "*** DEMO — NO VÁLIDO COMO COMPROBANTE ***",
     "method": {
       "cash": "Efectivo",
       "card": "Tarjeta (Terminal BBVA)",

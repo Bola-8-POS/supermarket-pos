@@ -6,6 +6,9 @@ import { ReceiptSettingsSchema } from '@shared/lib/domain';
 import type { ReceiptData } from '@shared/lib/edge-function-contracts';
 import { downloadReceiptPdf } from '@shared/lib/exporters/receipt-pdf.tsx';
 import { getCurrentLocale } from '@shared/lib/i18n';
+import { isLicenseEnforced } from '@shared/lib/license/config';
+import { isDemoPlan } from '@shared/lib/license/features';
+import { useLicenseStore } from '@shared/lib/license/store';
 import { printJobErrorCopyKey, printReceipt } from '@shared/lib/pos-printer';
 import { buildThermalReceiptText } from '@shared/lib/receipt-format';
 import { POSButton } from '@shared/ui';
@@ -23,7 +26,8 @@ export function ReceiptPreview({ receipt, onDone }: ReceiptPreviewProps) {
   const [pdfBusy, setPdfBusy] = useState(false);
   const { data: receiptSettings } = useReceiptSettings();
   const settings = receiptSettings ?? ReceiptSettingsSchema.parse({});
-  const text = buildThermalReceiptText(receipt, getCurrentLocale(), settings);
+  const demoWatermark = isLicenseEnforced() && isDemoPlan(useLicenseStore.getState().payload);
+  const text = buildThermalReceiptText(receipt, getCurrentLocale(), settings, { demoWatermark });
 
   return (
     <div className="space-y-4">
@@ -76,7 +80,7 @@ export function ReceiptPreview({ receipt, onDone }: ReceiptPreviewProps) {
           disabled={pdfBusy}
           onClick={() => {
             setPdfBusy(true);
-            void downloadReceiptPdf(receipt, settings)
+            void downloadReceiptPdf(receipt, settings, { demoWatermark })
               .then(result => {
                 if (!result.ok && result.error.code !== 'EXPORT_CANCELLED') {
                   toast.error(t('processPayment.pdfGenerationFailed'));

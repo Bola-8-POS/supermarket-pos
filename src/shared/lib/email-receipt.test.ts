@@ -53,7 +53,12 @@ describe('sendReceiptByEmail', () => {
     if (result.ok) {
       expect(result.data).toEqual({ pdfAttached: true });
     }
-    expect(buildSpy).toHaveBeenCalledWith(receipt, expect.any(String), expect.any(Object));
+    expect(buildSpy).toHaveBeenCalledWith(
+      receipt,
+      expect.any(String),
+      expect.any(Object),
+      expect.any(Object)
+    );
     expect(spy).toHaveBeenCalledWith({
       email: 'a@b.co',
       receiptPlainText: 'PLAIN\n',

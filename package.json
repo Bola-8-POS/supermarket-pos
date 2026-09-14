@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "cargo build --release --manifest-path broker/Cargo.toml && tsc && vite build",
+    "build:web": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
     "typecheck": "tsc --noEmit",
@@ -25,6 +26,7 @@
     "setup:dev-users": "npx tsx scripts/setup-dev-users.ts",
     "setup:test-fixtures": "npx tsx scripts/setup-test-fixtures.ts",
     "seed:dev": "npx tsx scripts/seed-dev-data.ts",
+    "seed:demo": "npx tsx scripts/seed-demo.ts",
     "setup:dev": "npm run setup:dev-users && npm run setup:test-fixtures && npm run seed:dev",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
@@ -32,6 +34,7 @@
     "test:e2e:visual": "playwright test --config=playwright.visual.config.ts",
     "test:e2e:remote-smoke": "playwright test --config=playwright.remote.config.ts",
     "test:e2e:training": "playwright test --config=playwright.training.config.ts",
+    "test:e2e:license": "playwright test --config=playwright.license.config.ts",
     "index-codebase": "tsx scripts/indexCodebase.ts",
     "docs:tokens": "npx tsx scripts/generate-design-tokens.ts",
     "audit:tech-debt": "bash scripts/run-tech-debt-audit.sh"

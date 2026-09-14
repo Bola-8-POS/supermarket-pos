@@ -6,6 +6,7 @@ import React from 'react';
 import type { ReceiptSettings } from '@shared/lib/domain';
 import type { ReceiptData } from '@shared/lib/edge-function-contracts';
 import { getCurrentLocale } from '@shared/lib/i18n';
+import type { BuildThermalReceiptTextOptions } from '@shared/lib/receipt-format';
 import { buildThermalReceiptText } from '@shared/lib/receipt-format';
 import { ok, err, exportCancelledError, exportFailedError, type Result } from '@shared/lib/result';
 
@@ -36,9 +37,10 @@ async function docToBytes(doc: React.ReactElement): Promise<Uint8Array> {
 /** Wraps `buildThermalReceiptText`'s exact output in one monospace PDF `<Text>` node (D-05). */
 export async function receiptToPdfBytes(
   receipt: ReceiptData,
-  settings: ReceiptSettings
+  settings: ReceiptSettings,
+  opts: BuildThermalReceiptTextOptions = { demoWatermark: false }
 ): Promise<Uint8Array> {
-  const text = buildThermalReceiptText(receipt, getCurrentLocale(), settings);
+  const text = buildThermalReceiptText(receipt, getCurrentLocale(), settings, opts);
   return docToBytes(React.createElement(ReceiptDoc, { text }));
 }
 
@@ -61,10 +63,11 @@ export function uint8ArrayToBase64(bytes: Uint8Array): string {
 /** Downloads a completed sale's receipt as a PDF via the native Tauri save dialog (mirrors useExportReport.ts's save/writeFile sequence). */
 export async function downloadReceiptPdf(
   receipt: ReceiptData,
-  settings: ReceiptSettings
+  settings: ReceiptSettings,
+  opts: BuildThermalReceiptTextOptions = { demoWatermark: false }
 ): Promise<Result<void>> {
   try {
-    const bytes = await receiptToPdfBytes(receipt, settings);
+    const bytes = await receiptToPdfBytes(receipt, settings, opts);
 
     const filePath = await save({
       defaultPath: `receipt-${receipt.receiptNumber}.pdf`,

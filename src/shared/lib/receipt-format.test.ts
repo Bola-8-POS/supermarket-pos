@@ -578,6 +578,20 @@ describe('buildThermalReceiptText', () => {
     expect(text).not.toMatch(/\x00|\x01/);
   });
 
+  // ---------------------------------------------------------------------
+  // Demo watermark (Demo Edition, Task 9)
+  // ---------------------------------------------------------------------
+
+  it('appends the demo watermark as the last line when demoWatermark is set', () => {
+    const text = buildThermalReceiptText(baseReceipt(), 'en-US', defaultReceiptSettings(), {
+      demoWatermark: true,
+    });
+    expect(text.trim().split('\n').at(-1)).toContain('DEMO');
+    expect(
+      buildThermalReceiptText(baseReceipt(), 'en-US', defaultReceiptSettings())
+    ).not.toContain('DEMO');
+  });
+
   it('empty footerText (schema default) emits no divider/footer lines, same total line count as receipt without footerText', () => {
     const withoutFooter = buildThermalReceiptText(
       baseReceipt(),

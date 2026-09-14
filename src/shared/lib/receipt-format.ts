@@ -178,11 +178,18 @@ export function buildPreChequeText(data: PreChequeData, locale: Locale): string 
   return lines.join('\n');
 }
 
+/** Options for {@link buildThermalReceiptText}. */
+export type BuildThermalReceiptTextOptions = {
+  /** Demo-plan license: appends a translated "not a valid receipt" line after the footer. */
+  demoWatermark: boolean;
+};
+
 /** Plain text for 58mm thermal printer (settings.paperWidthChars columns). Keep aligned with Rust `commands/printer.rs` ESC/POS encoder. */
 export function buildThermalReceiptText(
   receipt: ReceiptData,
   locale: Locale,
-  settings: ReceiptSettings
+  settings: ReceiptSettings,
+  opts: BuildThermalReceiptTextOptions = { demoWatermark: false }
 ): string {
   const tr = receiptT(locale);
   const lines: string[] = [];
@@ -322,6 +329,9 @@ export function buildThermalReceiptText(
         lines.push(padRight(chunk, width));
       }
     }
+  }
+  if (opts.demoWatermark) {
+    lines.push(centerLine(tr('receipt.demoWatermark'), width));
   }
   lines.push('');
   return lines.join('\n');
