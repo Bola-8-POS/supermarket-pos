@@ -8,7 +8,7 @@ import {
   useSettings,
 } from '@entities/settings';
 import type { UserRole } from '@shared/lib/domain';
-import { Input, Label, POSButton, ProtectedAction } from '@shared/ui';
+import { Input, Label, LockedFeature, POSButton, ProtectedAction } from '@shared/ui';
 import { useRegisterUnsavedChanges } from '../model/unsaved-changes';
 
 type Props = {
@@ -114,19 +114,21 @@ export function EmailReceiptsSettingsTab({ currentRole }: Props) {
               ? t('emailReceiptsSettingsTab.saving')
               : t('emailReceiptsSettingsTab.saveEmailSettings')}
           </POSButton>
-          <POSButton
-            type="button"
-            touchSize="large"
-            variant="outline"
-            disabled={sendTest.isPending || updateSetting.isPending}
-            onClick={() => {
-              void sendTestEmail();
-            }}
-          >
-            {sendTest.isPending
-              ? t('emailReceiptsSettingsTab.sending')
-              : t('emailReceiptsSettingsTab.sendTestEmail')}
-          </POSButton>
+          <LockedFeature feature="email_receipts">
+            <POSButton
+              type="button"
+              touchSize="large"
+              variant="outline"
+              disabled={sendTest.isPending || updateSetting.isPending}
+              onClick={() => {
+                void sendTestEmail();
+              }}
+            >
+              {sendTest.isPending
+                ? t('emailReceiptsSettingsTab.sending')
+                : t('emailReceiptsSettingsTab.sendTestEmail')}
+            </POSButton>
+          </LockedFeature>
         </div>
       </div>
     </ProtectedAction>

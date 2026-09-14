@@ -8,7 +8,7 @@ import {
   useSettingsBackups,
 } from '@entities/settings';
 import type { SettingsBackupSummary, UserRole } from '@shared/lib/domain';
-import { ConfirmDialog, EmptyState, POSButton, ProtectedAction } from '@shared/ui';
+import { ConfirmDialog, EmptyState, LockedFeature, POSButton, ProtectedAction } from '@shared/ui';
 
 type Props = {
   currentRole: UserRole | null;
@@ -58,18 +58,20 @@ export function BackupSettingsTab({ currentRole }: Props) {
     >
       <div className="space-y-4">
         <h2 className="text-lg font-semibold">{t('backupSettingsTab.title')}</h2>
-        <POSButton
-          type="button"
-          touchSize="large"
-          disabled={createBackup.isPending || restoreBackup.isPending}
-          onClick={() => {
-            void handleCreateBackup();
-          }}
-        >
-          {createBackup.isPending
-            ? t('backupSettingsTab.creatingBackup')
-            : t('backupSettingsTab.createManualBackup')}
-        </POSButton>
+        <LockedFeature feature="settings_backup">
+          <POSButton
+            type="button"
+            touchSize="large"
+            disabled={createBackup.isPending || restoreBackup.isPending}
+            onClick={() => {
+              void handleCreateBackup();
+            }}
+          >
+            {createBackup.isPending
+              ? t('backupSettingsTab.creatingBackup')
+              : t('backupSettingsTab.createManualBackup')}
+          </POSButton>
+        </LockedFeature>
 
         <div className="space-y-2">
           <h3 className="text-sm font-semibold">{t('backupSettingsTab.backupHistory')}</h3>
@@ -99,17 +101,19 @@ export function BackupSettingsTab({ currentRole }: Props) {
                         : ''}
                     </p>
                   </div>
-                  <POSButton
-                    type="button"
-                    touchSize="default"
-                    variant="outline"
-                    disabled={restoreBackup.isPending}
-                    onClick={() => {
-                      setRestoreTarget(backup);
-                    }}
-                  >
-                    {t('backupSettingsTab.restore')}
-                  </POSButton>
+                  <LockedFeature feature="settings_backup">
+                    <POSButton
+                      type="button"
+                      touchSize="default"
+                      variant="outline"
+                      disabled={restoreBackup.isPending}
+                      onClick={() => {
+                        setRestoreTarget(backup);
+                      }}
+                    >
+                      {t('backupSettingsTab.restore')}
+                    </POSButton>
+                  </LockedFeature>
                 </div>
               ))}
             </div>

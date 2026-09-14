@@ -20,6 +20,7 @@ import { canAccess } from '@shared/lib/rbac';
 import { cn } from '@shared/lib/utils';
 import { DataTable } from '@shared/ui/DataTable';
 import { EmptyState } from '@shared/ui/EmptyState';
+import { LockedFeature } from '@shared/ui/LockedFeature';
 import { MoneyDisplay } from '@shared/ui/MoneyDisplay';
 import { Badge } from '@shared/ui/badge';
 import { Button } from '@shared/ui/button';
@@ -240,18 +241,20 @@ export function BankTransfersList() {
           </Button>
         ))}
       </div>
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        disabled={exportableRows.length === 0 || isExporting}
-        onClick={() => {
-          void exportBankTransfersCsv(exportableRows);
-        }}
-      >
-        <Download className="mr-1.5 size-4" />
-        {t('bankTransfersList.exportCsvButton')}
-      </Button>
+      <LockedFeature feature="report_export">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={exportableRows.length === 0 || isExporting}
+          onClick={() => {
+            void exportBankTransfersCsv(exportableRows);
+          }}
+        >
+          <Download className="mr-1.5 size-4" />
+          {t('bankTransfersList.exportCsvButton')}
+        </Button>
+      </LockedFeature>
     </div>
   );
 

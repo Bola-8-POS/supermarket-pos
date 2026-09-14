@@ -18,7 +18,9 @@ import type {
   StaffMetric,
   VoidRefundRow,
 } from '@shared/lib/domain';
+import { useFeature } from '@shared/lib/license/features';
 import { canAccess } from '@shared/lib/rbac';
+import { LockedFeature } from '@shared/ui/LockedFeature';
 import { POSButton } from '@shared/ui/POSButton';
 import {
   DropdownMenu,
@@ -120,6 +122,7 @@ export function ExportButtons(props: Props) {
   const { t } = useTranslation('featMgmt');
   const role = useStaffStore(s => s.currentStaff?.role);
   const { exportReport, isExporting } = useExportReport();
+  const { locked } = useFeature('report_export');
 
   if (!canAccess(role, 'view_reports')) {
     return null;
@@ -200,6 +203,17 @@ export function ExportButtons(props: Props) {
     props.reportType === 'expiry-loss' ||
     props.reportType === 'turnover';
   /* eslint-enable i18next/no-literal-string */
+
+  if (locked) {
+    return (
+      <LockedFeature feature="report_export">
+        <POSButton variant="outline" touchSize="default">
+          <Download className="mr-2 size-4" />
+          {t('exportReport.exportButton')}
+        </POSButton>
+      </LockedFeature>
+    );
+  }
 
   return (
     <DropdownMenu>

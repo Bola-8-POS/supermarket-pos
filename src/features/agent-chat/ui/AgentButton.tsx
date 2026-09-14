@@ -1,6 +1,7 @@
 import { Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@shared/lib/utils';
+import { LockedFeature } from '@shared/ui/LockedFeature';
 import { Button } from '@shared/ui/button';
 import { useAgentStore } from '../model/agentStore';
 
@@ -13,18 +14,20 @@ export function AgentButton({ className }: { className?: string }) {
   if (agentEnabled === 'false') return null;
 
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      onClick={toggle}
-      aria-label={t('agentChat.openAssistantAria')}
-      size="icon-xs"
-      className={cn('relative text-sidebar-muted hover:text-brand', className)}
-    >
-      {hasUnread && (
-        <span className="absolute top-0.5 right-0.5 size-2 rounded-full bg-brand animate-pulse-soft" />
-      )}
-      <Sparkles className="size-4" aria-hidden="true" />
-    </Button>
+    <LockedFeature feature="ai_assistant">
+      <Button
+        type="button"
+        variant="ghost"
+        onClick={toggle}
+        aria-label={t('agentChat.openAssistantAria')}
+        size="icon-xs"
+        className={cn('relative text-sidebar-muted hover:text-brand', className)}
+      >
+        {hasUnread && (
+          <span className="absolute top-0.5 right-0.5 size-2 rounded-full bg-brand animate-pulse-soft" />
+        )}
+        <Sparkles className="size-4" aria-hidden="true" />
+      </Button>
+    </LockedFeature>
   );
 }

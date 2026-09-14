@@ -5,7 +5,7 @@ import type { ReceiptSettings } from '@shared/lib/domain';
 import type { ReceiptData } from '@shared/lib/edge-function-contracts';
 import { sendReceiptByEmail } from '@shared/lib/email-receipt';
 import { ReceiptEmailSchema } from '@shared/lib/email-schema';
-import { POSButton } from '@shared/ui';
+import { LockedFeature, POSButton } from '@shared/ui';
 import {
   Dialog,
   DialogContent,
@@ -101,16 +101,18 @@ export function EmailReceiptDialog({
           >
             {t('common:actions.cancel')}
           </POSButton>
-          <POSButton
-            type="button"
-            touchSize="large"
-            disabled={pending}
-            onClick={() => {
-              void handleSubmit();
-            }}
-          >
-            {pending ? t('processPayment.sending') : t('processPayment.sendReceipt')}
-          </POSButton>
+          <LockedFeature feature="email_receipts">
+            <POSButton
+              type="button"
+              touchSize="large"
+              disabled={pending}
+              onClick={() => {
+                void handleSubmit();
+              }}
+            >
+              {pending ? t('processPayment.sending') : t('processPayment.sendReceipt')}
+            </POSButton>
+          </LockedFeature>
         </DialogFooter>
       </DialogContent>
     </Dialog>

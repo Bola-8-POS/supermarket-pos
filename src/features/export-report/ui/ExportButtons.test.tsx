@@ -5,7 +5,7 @@
  * report tab expose CSV via one generic serializer + the same dropdown).
  */
 
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useStaffStore } from '@entities/staff/model/store';
@@ -21,11 +21,16 @@ import type {
   StaffMetric,
   VoidRefundRow,
 } from '@shared/lib/domain';
+import { useFeature } from '@shared/lib/license/features';
 import { renderWithProviders } from '@shared/lib/test-utils';
 import { ExportButtons } from './ExportButtons';
 
 vi.mock('@entities/staff/model/store', () => ({
   useStaffStore: vi.fn(),
+}));
+
+vi.mock('@shared/lib/license/features', () => ({
+  useFeature: vi.fn(),
 }));
 
 const DATE_RANGE = { from: new Date('2026-01-01'), to: new Date('2026-01-31') };
@@ -202,6 +207,11 @@ describe('ExportButtons', () => {
         currentStaff: { role: 'manager' },
       } as never)
     );
+    vi.mocked(useFeature).mockReturnValue({
+      enabled: true,
+      locked: false,
+      requestUpgrade: vi.fn(),
+    });
   });
 
   it.each(CASES)(
@@ -226,4 +236,21 @@ describe('ExportButtons', () => {
       }
     }
   );
+
+  it('renders a locked badge instead of the dropdown when report_export is locked', () => {
+    vi.mocked(useFeature).mockReturnValue({
+      enabled: false,
+      locked: true,
+      requestUpgrade: vi.fn(),
+    });
+
+    renderWithProviders(<ExportButtons reportType="caja" data={CAJA_REPORT} />);
+
+    const locked = screen.getByTestId('locked-feature');
+    expect(locked).toHaveAttribute('data-feature', 'report_export');
+    expect(within(locked).getByRole('button', { name: /export/i })).not.toHaveAttribute(
+      'aria-haspopup'
+    );
+    expect(screen.queryByRole('menuitem')).not.toBeInTheDocument();
+  });
 });
