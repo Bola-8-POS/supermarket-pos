@@ -26,6 +26,17 @@ export function getTerminalId(): string {
   }
 }
 
+/** Web demo only: forget this browser's terminal so the server issues a fresh demo. */
+export function resetTerminalId(): string {
+  try {
+    localStorage.removeItem(TERMINAL_ID_KEY);
+  } catch {
+    /* memory fallback below */
+  }
+  _memoryFallbackId = null;
+  return getTerminalId();
+}
+
 /** Human label shown in the portal — reuses the caja terminal label already in use. */
 export function getTerminalName(): string {
   return getSharedTerminalId();

@@ -1,8 +1,8 @@
 import { logger } from '@shared/lib/logger-instance';
 import { err, ok, type AppError, type Result } from '@shared/lib/result';
-import { activateLicense, FATAL_LICENSE_CODES, heartbeatLicense } from './client';
+import { activateLicense, FATAL_LICENSE_CODES, heartbeatLicense, startDemo } from './client';
 import { useLicenseStore } from './store';
-import { getTerminalId } from './terminal-id';
+import { getTerminalId, resetTerminalId } from './terminal-id';
 import { verifyToken } from './token';
 import type { LicensePayload } from './types';
 
@@ -33,6 +33,26 @@ export async function activateWithKey(licenseKey: string): Promise<Result<Licens
     logger.info('license.activated', { plan: applied.data.plan, tenant: applied.data.tenant_slug });
   }
   return applied;
+}
+
+/** Self-service demo: provision a 14-day demo tenant bound to this terminal (spec §4.4). */
+export async function startDemoTrial(): Promise<Result<LicensePayload>> {
+  const res = await startDemo();
+  if (!res.ok) return err(res.error);
+  const applied = await applyToken(res.data.token, res.data.license_key);
+  if (applied.ok) {
+    useLicenseStore.getState().markHeartbeat();
+    logger.info('license.demo_started', { tenant: applied.data.tenant_slug, until: applied.data.period_end });
+  }
+  return applied;
+}
+
+/** Online demo: an expired/used terminal is throwaway — mint a new id and start over. */
+export async function resetTerminalForNewDemo(): Promise<Result<LicensePayload>> {
+  useLicenseStore.getState().clearLicense(null);
+  useLicenseStore.getState().setLicenseKey(null);
+  resetTerminalId();
+  return startDemoTrial();
 }
 
 /** Fully offline stores paste a portal-issued token instead of activating online. */

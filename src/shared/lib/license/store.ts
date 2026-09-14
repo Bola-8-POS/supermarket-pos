@@ -22,6 +22,7 @@ interface LicenseState {
    */
   maxSeenNow: number;
   setLicense: (token: string, payload: LicensePayload, licenseKey: string | null) => void;
+  setLicenseKey: (key: string | null) => void;
   clearLicense: (reason: string | null) => void;
   markHeartbeat: () => void;
   setLastError: (message: string | null) => void;
@@ -43,6 +44,9 @@ export const useLicenseStore = create<LicenseState>()(
       maxSeenNow: 0,
       setLicense: (token, payload, licenseKey) => {
         set({ token, payload, licenseKey: licenseKey ?? get().licenseKey, lastError: null });
+      },
+      setLicenseKey: key => {
+        set({ licenseKey: key });
       },
       clearLicense: reason => {
         set({ token: null, payload: null, lastError: reason });
