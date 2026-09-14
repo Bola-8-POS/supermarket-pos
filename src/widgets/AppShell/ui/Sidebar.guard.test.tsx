@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -81,6 +81,11 @@ describe('Sidebar navigation guard', () => {
 
     await user.click(screen.getByRole('link', { name: 'Home' }));
 
-    expect(screen.getByTestId('location-display')).toHaveTextContent('/home');
+    // The click handler awaits confirmNavigation(), which here awaits a real
+    // guard() Promise — one more microtask hop than the guard-less case, so
+    // the navigate() call lands after user.click's own internal flush.
+    await waitFor(() => {
+      expect(screen.getByTestId('location-display')).toHaveTextContent('/home');
+    });
   });
 });
