@@ -1,5 +1,5 @@
 import { KeyRound } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LicenseActivationForm } from '@features/activate-license';
 import { resetTerminalForNewDemo, startDemoTrial } from '@shared/lib/license/actions';
@@ -14,6 +14,9 @@ interface Props {
 
 const DAY_MS = 86_400_000;
 
+/** The three lock reasons the online-demo build is allowed to self-heal from. */
+type AutoStartReason = 'unlicensed' | 'demo_expired' | 'invalid';
+
 /**
  * Boot-time license wall. Renders the app only while the terminal is licensed (active,
  * warning, or grace). When locked, shows why plus the activation / offline-token form.
@@ -26,34 +29,60 @@ export function LicenseGate({ children }: Props) {
   const { t } = useTranslation('common');
 
   const autoStart = isDemoAutoStart();
-  const [autoState, setAutoState] = useState<'idle' | 'running' | 'failed'>('idle');
+  const [preparing, setPreparing] = useState(false);
+  /** True while a provision/reset call is outstanding — blocks a second concurrent call. */
+  const inFlightRef = useRef(false);
+  /** True while this effect instance is the "live" one — false only after a genuine unmount. */
+  const mountedRef = useRef(true);
+  /** The reason the last auto-start attempt failed for, so a same-reason relock doesn't retry-loop. */
+  const failedReasonRef = useRef<AutoStartReason | null>(null);
+
   useEffect(() => {
-    if (!autoStart || evaluation.state !== 'locked' || autoState !== 'idle') return;
+    mountedRef.current = true;
     if (
-      evaluation.reason !== 'unlicensed' &&
-      evaluation.reason !== 'demo_expired' &&
-      evaluation.reason !== 'invalid'
-    )
-      return;
-    /* eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot guard (autoState !== 'idle' above) prevents re-entrancy; must flip before the async call starts */
-    setAutoState('running');
-    const run = evaluation.reason === 'unlicensed' ? startDemoTrial : resetTerminalForNewDemo;
-    void run().then(res => {
-      if (res.ok) return;
-      const code = 'serverCode' in res.error ? String(res.error.serverCode) : '';
-      if (code === 'DEMO_ALREADY_USED' && evaluation.reason === 'unlicensed') {
-        void resetTerminalForNewDemo().then(r => {
-          setAutoState(r.ok ? 'idle' : 'failed');
-        });
-        return;
-      }
-      setAutoState('failed');
-    });
-  }, [autoStart, evaluation, autoState]);
+      autoStart &&
+      evaluation.state === 'locked' &&
+      (evaluation.reason === 'unlicensed' ||
+        evaluation.reason === 'demo_expired' ||
+        evaluation.reason === 'invalid') &&
+      !inFlightRef.current &&
+      failedReasonRef.current !== evaluation.reason
+    ) {
+      const reason = evaluation.reason;
+      inFlightRef.current = true;
+      /* eslint-disable-next-line react-hooks/set-state-in-effect -- ref-guarded one-shot: inFlightRef (not this state) is what prevents React StrictMode's synchronous mount double-invoke from firing a second, non-idempotent demo-provision call; mountedRef below gates the async completion from touching state after a real unmount */
+      setPreparing(true);
+      const run = reason === 'unlicensed' ? startDemoTrial : resetTerminalForNewDemo;
+      const finish = (ok: boolean) => {
+        inFlightRef.current = false;
+        failedReasonRef.current = ok ? null : reason;
+        if (!mountedRef.current) return;
+        setPreparing(false);
+      };
+      void run().then(res => {
+        if (res.ok) {
+          finish(true);
+          return;
+        }
+        const code = 'serverCode' in res.error ? String(res.error.serverCode) : '';
+        if (code === 'DEMO_ALREADY_USED' && reason === 'unlicensed') {
+          void resetTerminalForNewDemo().then(r => {
+            finish(r.ok);
+          });
+          return;
+        }
+        finish(false);
+      });
+    }
+
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [autoStart, evaluation]);
 
   if (evaluation.state !== 'locked') return <>{children}</>;
 
-  if (autoState === 'running') {
+  if (preparing) {
     return (
       <main
         className="flex min-h-dvh flex-col items-center justify-center gap-3 bg-background p-6"
