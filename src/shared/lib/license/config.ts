@@ -32,3 +32,15 @@ export function isLicenseEnforced(): boolean {
 
 /** Heartbeat cadence — 6 h keeps a 60-day lease refreshed with ~240 attempts of margin. */
 export const HEARTBEAT_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+/** Online-demo build: the gate self-provisions a demo instead of asking for a key. */
+export function isDemoAutoStart(): boolean {
+  const flag = import.meta.env.VITE_DEMO_AUTO_START?.trim().toLowerCase();
+  return flag === 'true' || flag === '1';
+}
+
+/** Where the upgrade dialog sends prospects. */
+export const DEMO_CONTACT = {
+  site: import.meta.env.VITE_DEMO_CONTACT_URL?.trim() || 'https://bola8pos.com',
+  email: import.meta.env.VITE_DEMO_CONTACT_EMAIL?.trim() || 'hola@bola8pos.com',
+} as const;
