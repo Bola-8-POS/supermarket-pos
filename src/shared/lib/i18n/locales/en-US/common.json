@@ -179,6 +179,24 @@
       },
       "terminalId": "Terminal ID",
       "support": "Send this ID to your vendor to get an offline token."
+    },
+    "features": {
+      "report_export": "Report export (CSV/PDF)",
+      "ai_assistant": "AI assistant",
+      "email_receipts": "Email receipts",
+      "settings_backup": "Backup & restore",
+      "audit_log": "Audit log",
+      "edit_history": "Edit history",
+      "staff_management": "Staff management",
+      "rbac_editing": "Role permissions",
+      "promotions": "Promotions",
+      "purchase_orders": "Purchase orders"
+    },
+    "locked": {
+      "tooltip": "Available in the full version",
+      "pageTitle": "{{feature}} is part of the full version",
+      "pageBody": "You are on the demo version. Get a license to unlock this feature and keep your data.",
+      "cta": "Get the full version"
     }
   }
 }

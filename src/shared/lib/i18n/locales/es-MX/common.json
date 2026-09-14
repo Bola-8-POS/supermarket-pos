@@ -179,6 +179,24 @@
       },
       "terminalId": "ID de terminal",
       "support": "Envía este ID a tu proveedor para obtener un token fuera de línea."
+    },
+    "features": {
+      "report_export": "Exportar reportes (CSV/PDF)",
+      "ai_assistant": "Asistente con IA",
+      "email_receipts": "Tickets por correo",
+      "settings_backup": "Respaldo y restauración",
+      "audit_log": "Bitácora de auditoría",
+      "edit_history": "Historial de ediciones",
+      "staff_management": "Gestión de personal",
+      "rbac_editing": "Permisos por rol",
+      "promotions": "Promociones",
+      "purchase_orders": "Órdenes de compra"
+    },
+    "locked": {
+      "tooltip": "Disponible en la versión completa",
+      "pageTitle": "{{feature}} está en la versión completa",
+      "pageBody": "Estás usando la versión demo. Obtén una licencia para desbloquear esta función y conservar tus datos.",
+      "cta": "Obtener la versión completa"
     }
   }
 }
