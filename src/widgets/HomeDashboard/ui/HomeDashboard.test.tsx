@@ -1,13 +1,31 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type * as ReactRouterDom from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useStaffStore } from '@entities/staff/model/store';
 import { usePermissions } from '@entities/staff/model/usePermissions';
+import type * as FeaturesModule from '@shared/lib/license/features';
+import { useUpgradeDialogStore } from '@shared/lib/license/upgrade-dialog-store';
 import { renderWithProviders } from '@shared/lib/test-utils';
 
 import { HomeDashboard } from './HomeDashboard';
+
+// /audit is mocked as feature-locked so precedence with RBAC can be asserted
+// (a cashier is RBAC-gated on /audit regardless — RBAC must still win, per
+// Sidebar.rbac-precedence.test.tsx's equivalent mock).
+vi.mock('@shared/lib/license/features', async importOriginal => {
+  const actual = await importOriginal<typeof FeaturesModule>();
+  return {
+    ...actual,
+    useNavFeatureLocked: (feature: string | undefined) => ({
+      locked: feature === 'audit_log',
+      requestUpgrade: () => {
+        useUpgradeDialogStore.getState().openFor(feature as never);
+      },
+    }),
+  };
+});
 
 const mockNavigate = vi.fn();
 
@@ -90,6 +108,7 @@ describe('HomeDashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setupBartender();
+    useUpgradeDialogStore.getState().close();
   });
 
   it('renders all main navigation button labels', () => {
@@ -149,6 +168,21 @@ describe('HomeDashboard', () => {
     // Audit Log, Edit History, Promotions (Phase 27 Plan 02's admin-gated nav
     // tile) are gated for cashier
     expect(lockIcons.length).toBe(9);
+  });
+
+  it('cashier on a feature-locked Audit Log tile sees the RBAC lock (not the entitlement lock) and clicking opens the manager-PIN gate, never the upgrade dialog', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<HomeDashboard />);
+
+    const auditTile = screen.getByRole('button', { name: 'Audit Log' });
+    expect(within(auditTile).getByTestId('lock-icon')).toBeInTheDocument();
+    expect(within(auditTile).queryByTestId('home-tile-feature-lock-icon')).not.toBeInTheDocument();
+
+    await user.click(auditTile);
+
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(useUpgradeDialogStore.getState().open).toBe(false);
   });
 
   it('logout button calls logout and navigates to /login', async () => {
