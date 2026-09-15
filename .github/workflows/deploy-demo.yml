@@ -1,0 +1,52 @@
+name: deploy-demo
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  deploy:
+    # This repo is git push --mirror'ed to customer repos (release.yml) — never
+    # let a customer's mirrored copy of this workflow deploy to OUR demo site.
+    if: github.repository == 'zedfauji/supermarket-pos'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Read app version
+        run: echo "VITE_APP_VERSION=$(node -p "require('./package.json').version")" >> "$GITHUB_ENV"
+
+      - name: Build web bundle
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.DEMO_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.DEMO_SUPABASE_ANON_KEY }}
+          VITE_LICENSE_SERVER_URL: ${{ secrets.VITE_LICENSE_SERVER_URL }}
+          VITE_LICENSE_SERVER_ANON_KEY: ${{ secrets.VITE_LICENSE_SERVER_ANON_KEY }}
+          VITE_LICENSE_PUBLIC_KEY: ${{ secrets.VITE_LICENSE_PUBLIC_KEY }}
+          VITE_LICENSE_ENFORCE: 'true'
+          VITE_DEMO_AUTO_START: 'true'
+          VITE_AGENT_ENABLED: 'false'
+          VITE_APP_VERSION: ${{ env.VITE_APP_VERSION }}
+        run: npm run build:web
+
+      - name: Deploy to Firebase Hosting (demo)
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BOLA8POS }}
+          projectId: bola8pos
+          target: demo
+          channelId: live

@@ -1,0 +1,12 @@
+{
+  "projects": {
+    "default": "bola8pos"
+  },
+  "targets": {
+    "bola8pos": {
+      "hosting": {
+        "demo": ["demo-bola8pos"]
+      }
+    }
+  }
+}

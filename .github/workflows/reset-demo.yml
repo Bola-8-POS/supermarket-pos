@@ -1,0 +1,71 @@
+name: reset-demo
+
+on:
+  schedule:
+    # 09:00 UTC = 03:00 America/Mexico_City
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+jobs:
+  reset:
+    # This repo is git push --mirror'ed to customer repos (release.yml) — never
+    # let a customer's mirrored copy of this workflow reset OUR demo project.
+    if: github.repository == 'zedfauji/supermarket-pos'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Guard against resetting a real customer project
+        # customers.json is the source of truth for every paying customer's
+        # Supabase project ref. A misconfigured DEMO_SUPABASE_PROJECT_REF
+        # secret pointing at a real customer ref would `db reset --linked`
+        # (destructive, unrecoverable) a paying customer's database. Fail
+        # loudly here, before any supabase command runs.
+        env:
+          DEMO_SUPABASE_PROJECT_REF: ${{ secrets.DEMO_SUPABASE_PROJECT_REF }}
+        run: |
+          node -e "
+            const ref = process.env.DEMO_SUPABASE_PROJECT_REF;
+            if (!ref) { console.error('FAILED: DEMO_SUPABASE_PROJECT_REF secret is not set.'); process.exit(1); }
+            const customers = require('./customers/customers.json');
+            const clash = customers.find((c) => c.supabase_project_ref === ref);
+            if (clash) {
+              console.error('FAILED: DEMO_SUPABASE_PROJECT_REF (' + ref + ') matches customer \'' + clash.name + '\' in customers/customers.json - refusing to reset a real customer project.');
+              process.exit(1);
+            }
+            console.log('OK: DEMO_SUPABASE_PROJECT_REF does not match any customer project ref.');
+          "
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link demo Supabase project
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.DEMO_SUPABASE_DB_PASSWORD }}
+        run: supabase link --project-ref ${{ secrets.DEMO_SUPABASE_PROJECT_REF }}
+
+      - name: Reset demo database
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.DEMO_SUPABASE_DB_PASSWORD }}
+        run: supabase db reset --linked --yes
+
+      - name: Seed demo data
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.DEMO_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.DEMO_SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run seed:demo

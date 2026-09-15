@@ -97,6 +97,8 @@ backups/
 !DESIGN-TOKENS.md
 # Phase 26 D-09 deliverable: tracked onboarding runbook, not scratch — exception to docs/ and *.md above
 !docs/onboarding-new-customer.md
+# Demo Edition Task 13 deliverable: tracked online-demo runbook, not scratch — exception to docs/ and *.md above
+!docs/online-demo.md
 
 # impeccable-live-ignore-start
 .impeccable/hook.cache.json
