@@ -33,6 +33,7 @@ describe('LockedFeature', () => {
     );
     expect(screen.getByRole('button', { name: 'Export' })).toBeEnabled();
     expect(screen.queryByTestId('locked-feature')).toBeNull();
+    expect(screen.queryByTestId('locked-feature-overlay')).toBeNull();
   });
 
   it('disables the child and opens the upgrade dialog on click when locked', () => {
@@ -44,6 +45,27 @@ describe('LockedFeature', () => {
     );
     expect(screen.getByRole('button', { name: 'Export' })).toBeDisabled();
     fireEvent.click(screen.getByTestId('locked-feature'));
+    expect(useUpgradeDialogStore.getState()).toMatchObject({ open: true, feature: 'report_export' });
+  });
+
+  it('renders a click-capturing overlay above the disabled child when locked', () => {
+    featureState.enabled = false;
+    render(
+      <LockedFeature feature="report_export">
+        <button type="button">Export</button>
+      </LockedFeature>
+    );
+    expect(screen.getByTestId('locked-feature-overlay')).toBeInTheDocument();
+  });
+
+  it('opens the upgrade dialog when the click lands on the overlay, not the disabled child itself', () => {
+    featureState.enabled = false;
+    render(
+      <LockedFeature feature="report_export">
+        <button type="button">Export</button>
+      </LockedFeature>
+    );
+    fireEvent.click(screen.getByTestId('locked-feature-overlay'));
     expect(useUpgradeDialogStore.getState()).toMatchObject({ open: true, feature: 'report_export' });
   });
 

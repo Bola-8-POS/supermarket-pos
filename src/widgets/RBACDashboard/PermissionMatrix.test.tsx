@@ -1,9 +1,26 @@
-import { render, screen } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 
+import type * as FeaturesModule from '@shared/lib/license/features';
+import { useUpgradeDialogStore } from '@shared/lib/license/upgrade-dialog-store';
 import { STAFF_ACTIONS, STAFF_ROLES } from '@shared/lib/rbac';
 
 import { PermissionMatrix } from './PermissionMatrix';
+
+const featureState = { enabled: true };
+vi.mock('@shared/lib/license/features', async importOriginal => {
+  const actual = await importOriginal<typeof FeaturesModule>();
+  return {
+    ...actual,
+    useFeature: (key: string) => ({
+      enabled: featureState.enabled,
+      locked: !featureState.enabled,
+      requestUpgrade: () => {
+        useUpgradeDialogStore.getState().openFor(key as never);
+      },
+    }),
+  };
+});
 
 vi.mock('@entities/rbac', () => ({
   useRolePermissions: vi.fn(() => ({
@@ -36,6 +53,11 @@ vi.mock('@shared/lib/logger-instance', () => ({
 }));
 
 describe('PermissionMatrix', () => {
+  beforeEach(() => {
+    featureState.enabled = true;
+    useUpgradeDialogStore.getState().close();
+  });
+
   it('renders one action row per STAFF_ACTIONS entry', () => {
     render(<PermissionMatrix />);
     for (const action of STAFF_ACTIONS) {
@@ -63,6 +85,24 @@ describe('PermissionMatrix', () => {
     const switches = screen.getAllByRole('switch');
     switches.forEach(sw => {
       expect(sw).not.toBeDisabled();
+    });
+  });
+
+  it('when rbac_editing is locked, every toggle is disabled and clicking its wrapper opens the upgrade dialog', () => {
+    featureState.enabled = false;
+    render(<PermissionMatrix />);
+
+    const switches = screen.getAllByRole('switch');
+    switches.forEach(sw => {
+      expect(sw).toBeDisabled();
+    });
+
+    const wrappers = screen.getAllByTestId('locked-feature');
+    expect(wrappers).toHaveLength(STAFF_ACTIONS.length * STAFF_ROLES.length);
+    fireEvent.click(wrappers[0]!);
+    expect(useUpgradeDialogStore.getState()).toMatchObject({
+      open: true,
+      feature: 'rbac_editing',
     });
   });
 });

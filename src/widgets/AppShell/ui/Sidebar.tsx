@@ -93,14 +93,16 @@ function NavEntry({
     <NavLink
       to={item.path}
       onClick={event => {
-        if (featureLocked) {
-          event.preventDefault();
-          requestUpgrade();
-          return;
-        }
+        // RBAC wins over an entitlement lock: a role that can't reach this
+        // item at all sees the existing manager-PIN flow, never upgrade copy.
         if (gated && item.requiredAction) {
           event.preventDefault();
           onGated({ action: item.requiredAction, path: item.path });
+          return;
+        }
+        if (featureLocked) {
+          event.preventDefault();
+          requestUpgrade();
           return;
         }
         if (hasGuard) {
@@ -149,7 +151,7 @@ function NavEntry({
                 !compact && badge !== undefined && badge > 0 && 'ml-2'
               )}
               aria-hidden="true"
-              data-testid={featureLocked ? 'nav-feature-lock-icon' : 'nav-lock-icon'}
+              data-testid={gated ? 'nav-lock-icon' : 'nav-feature-lock-icon'}
             />
           )}
         </>

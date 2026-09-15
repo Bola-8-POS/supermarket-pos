@@ -48,7 +48,10 @@ function Tile({
       type="button"
       variant="ghost"
       onClick={() => {
-        if (featureLocked) {
+        // RBAC wins over an entitlement lock: a role that can't reach this
+        // tile at all gets the existing manager-PIN flow (via onClick below),
+        // never upgrade copy.
+        if (!isGated && featureLocked) {
           requestUpgrade();
           return;
         }
@@ -79,7 +82,7 @@ function Tile({
               <Lock
                 className="size-3.5"
                 aria-hidden="true"
-                data-testid={featureLocked ? 'home-tile-feature-lock-icon' : 'lock-icon'}
+                data-testid={isGated ? 'lock-icon' : 'home-tile-feature-lock-icon'}
               />
             </span>
           )}

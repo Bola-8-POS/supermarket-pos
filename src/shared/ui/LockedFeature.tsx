@@ -55,6 +55,15 @@ export function LockedFeature({ feature, disabled = false, children }: LockedFea
             onKeyDown={onKey}
           >
             {cloneElement(children, { disabled: true })}
+            {/* A disabled native control (Radix Switch renders a real <button disabled>,
+                and disabled form controls dispatch no click/pointer events at all) would
+                otherwise swallow the click before it ever reaches this wrapper's handler.
+                This transparent overlay sits on top and is what the pointer actually hits. */}
+            <span
+              aria-hidden="true"
+              data-testid="locked-feature-overlay"
+              className="absolute inset-0 z-10 cursor-pointer"
+            />
             <Lock
               aria-hidden="true"
               className="pointer-events-none absolute -top-1 -right-1 size-3.5 rounded-full bg-warning p-0.5 text-warning-foreground"
