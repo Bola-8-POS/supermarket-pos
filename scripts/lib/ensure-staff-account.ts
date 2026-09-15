@@ -25,7 +25,10 @@ export async function ensureStaffAccount(
   pin: string,
   // Default 'en-US' keeps setup-dev-users.ts (E2E accounts assert on English UI text)
   // byte-identical in behaviour; scripts/seed-demo.ts passes 'es-MX' for DEMO_STAFF.
-  locale: 'es-MX' | 'en-US' = 'en-US'
+  locale: 'es-MX' | 'en-US' = 'en-US',
+  // Optional fixed auth.users/profiles id (DEMO_STAFF) so a nightly db reset re-creates the
+  // same ids instead of minting new ones (see src/shared/lib/license/demo-accounts.ts).
+  fixedId?: string
 ): Promise<void> {
   const email = emailForName(name);
 
@@ -96,6 +99,7 @@ export async function ensureStaffAccount(
   // No profile yet — create the auth.users account first (profiles.id is a
   // foreign key to auth.users.id, not auto-generated), then the profile row.
   const { data: created, error: createErr } = await db.auth.admin.createUser({
+    ...(fixedId ? { id: fixedId } : {}),
     email,
     password: pin,
     email_confirm: true,
