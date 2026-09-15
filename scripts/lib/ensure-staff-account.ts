@@ -22,7 +22,10 @@ export async function ensureStaffAccount(
   db: any,
   role: 'admin' | 'manager' | 'cashier' | 'kitchen',
   name: string,
-  pin: string
+  pin: string,
+  // Default 'en-US' keeps setup-dev-users.ts (E2E accounts assert on English UI text)
+  // byte-identical in behaviour; scripts/seed-demo.ts passes 'es-MX' for DEMO_STAFF.
+  locale: 'es-MX' | 'en-US' = 'en-US'
 ): Promise<void> {
   const email = emailForName(name);
 
@@ -58,7 +61,7 @@ export async function ensureStaffAccount(
       existing.is_active !== true ||
       existing.deleted_at !== null ||
       existing.must_change_pin !== false ||
-      existing.locale !== 'en-US' ||
+      existing.locale !== locale ||
       !existing.email;
 
     if (needsRepair) {
@@ -72,9 +75,10 @@ export async function ensureStaffAccount(
           must_change_pin: false,
           // App default is es-MX (D-02), but E2E specs assert on English UI text
           // (e2e/helpers/auth.ts and most e2e/*.spec.ts selectors) — post-login,
-          // i18n.changeLanguage(staff.locale) fires, so these test-only accounts
-          // pin to en-US regardless of the app-wide default.
-          locale: 'en-US',
+          // i18n.changeLanguage(staff.locale) fires, so setup-dev-users.ts's test-only
+          // accounts pin to en-US regardless of the app-wide default; seed-demo.ts's
+          // DEMO_STAFF pass 'es-MX' to match the app's real default instead.
+          locale,
           email: existing.email ?? email,
         })
         .eq('id', id);
@@ -109,8 +113,8 @@ export async function ensureStaffAccount(
     email,
     is_active: true,
     must_change_pin: false,
-    // See the repair-path comment above: E2E specs assert on English UI text.
-    locale: 'en-US',
+    // See the repair-path comment above.
+    locale,
   });
   if (insertErr) {
     console.error(`Failed to insert profile "${name}":`, insertErr);

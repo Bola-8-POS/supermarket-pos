@@ -11,7 +11,7 @@ import { isDemoPlan } from '@shared/lib/license/features';
 import { useLicenseStore } from '@shared/lib/license/store';
 import { printJobErrorCopyKey, printReceipt } from '@shared/lib/pos-printer';
 import { buildThermalReceiptText } from '@shared/lib/receipt-format';
-import { POSButton } from '@shared/ui';
+import { LockedFeature, POSButton } from '@shared/ui';
 import { EmailReceiptDialog } from './EmailReceiptDialog';
 
 export interface ReceiptPreviewProps {
@@ -61,17 +61,19 @@ export function ReceiptPreview({ receipt, onDone }: ReceiptPreviewProps) {
         >
           {printBusy ? t('processPayment.printing') : t('processPayment.printReceipt')}
         </POSButton>
-        <POSButton
-          type="button"
-          variant="outline"
-          touchSize="large"
-          className="flex-1"
-          onClick={() => {
-            setEmailOpen(true);
-          }}
-        >
-          {t('processPayment.emailReceiptButton')}
-        </POSButton>
+        <LockedFeature feature="email_receipts">
+          <POSButton
+            type="button"
+            variant="outline"
+            touchSize="large"
+            className="flex-1"
+            onClick={() => {
+              setEmailOpen(true);
+            }}
+          >
+            {t('processPayment.emailReceiptButton')}
+          </POSButton>
+        </LockedFeature>
         <POSButton
           type="button"
           variant="outline"

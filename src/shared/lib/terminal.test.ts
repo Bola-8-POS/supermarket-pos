@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as licenseConfig from './license/config';
 import { DEFAULT_TERMINAL_ID, TERMINAL_ID_STORAGE_KEY, getTerminalId, setTerminalId } from './terminal';
 
 describe('terminal identity', () => {
   beforeEach(() => {
     localStorage.clear();
     vi.unstubAllEnvs();
+    vi.restoreAllMocks();
   });
 
   it('falls back to POS-1 when nothing is configured', () => {
@@ -31,6 +33,18 @@ describe('terminal identity', () => {
   });
   it('ignores a corrupted localStorage value', () => {
     localStorage.setItem(TERMINAL_ID_STORAGE_KEY, 'bad value!');
+    expect(getTerminalId()).toBe(DEFAULT_TERMINAL_ID);
+  });
+
+  it('mints and persists a DEMO- terminal id when demo auto-start is on', () => {
+    vi.spyOn(licenseConfig, 'isDemoAutoStart').mockReturnValue(true);
+    const first = getTerminalId();
+    expect(first).toMatch(/^DEMO-[0-9a-f]{6}$/);
+    expect(getTerminalId()).toBe(first);
+  });
+
+  it('stays POS-1 when demo auto-start is off', () => {
+    vi.spyOn(licenseConfig, 'isDemoAutoStart').mockReturnValue(false);
     expect(getTerminalId()).toBe(DEFAULT_TERMINAL_ID);
   });
 });

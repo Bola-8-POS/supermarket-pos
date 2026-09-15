@@ -59,6 +59,14 @@ Set whatever function secrets these already require in production (email
 provider keys, etc. — same secret names as any other deployment; see
 `SUPABASE-CONTRACTS.md`).
 
+**Do not deploy `send-receipt-email` to this project** (or, if you do, leave
+its email-provider secret unset) — do not add it to the `functions deploy`
+list above — and build the demo with `VITE_AGENT_ENABLED=false`. Entitlement
+locks (`email_receipts`, `ai_assistant`, …) are enforced client-side only, and
+the anon key and every demo staff PIN are public on the online demo, so there
+is no server-side backstop keeping a visitor from calling these functions
+directly if they're deployed and live.
+
 Finally, seed the demo staff + catalog once locally against this project
 (`VITE_SUPABASE_URL` pointed at it, `SUPABASE_SERVICE_ROLE_KEY` from its
 dashboard):
@@ -94,6 +102,14 @@ Redeploying `activate`/`heartbeat`/`issue-offline-token` (not just the new
 `start-demo`) matters because `feat/demo-plan` changes `activate`'s re-bind
 behavior (§6, §8 R6) and both existing functions' shared token-signing code
 picks up the new `plan`/`features` fields.
+
+`supabase db push` applies migrations as separate transactions in filename
+order, so `20260914000001_demo_plan.sql` (`ALTER TYPE … ADD VALUE`, adding
+`'demo'` to the plan enum) must be committed before
+`20260914000002_demo_tenant_features.sql` runs — that second migration's
+partial index predicate references the `'demo'` enum value, which Postgres
+will only accept once the first migration's `ADD VALUE` has committed in its
+own transaction. Never squash these two into one migration file/transaction.
 
 ## 4. Firebase Hosting
 
@@ -216,10 +232,25 @@ where slug = 'demo-xxxx';
 
 (`slug` identifies the one browser/terminal's demo tenant that was minted for
 that prospect — find it via the license server's `terminals`/`tenants` tables
-or ask the prospect for the tenant shown in Settings → License.) This change
-is wiped along with everything else at the next nightly reset (a fresh
-`start-demo` call mints a brand-new tenant with the default allow-list), so
-it's a temporary, per-conversation unlock, not a permanent override.
+or ask the prospect for the tenant shown in Settings → License.)
+
+**Correction:** this change is *not* wiped by the nightly reset — the nightly
+`reset-demo.yml` (`supabase db reset --linked` + `seed:demo`) only resets the
+POS **demo Supabase project** (catalog/sales/staff data). Demo *tenants*
+(the `plan: 'demo'` rows this SQL edits) live in the **production license
+server** project (`zhvcivnojpvgwiknlpuj`, §3 above), which the nightly reset
+never touches — a manually widened `features` array persists indefinitely
+until that specific tenant row is deleted. A tenant row is only ever deleted
+by `start-demo`'s opportunistic cleanup (demos with `current_period_end` more
+than 30 days in the past) or by `activate`'s demo-to-paid re-bind (§6) — so a
+demo tenant can persist for the 14-day trial plus up to ~30 more days of
+cleanup lag. Also note a fresh `start-demo` call only mints a brand-new
+tenant when the browser's *terminal id* changes (a new browser/profile, or
+cleared `localStorage`) — reloading the same browser reuses the existing
+terminal/tenant, so the widened allow-list stays in effect for that prospect
+across visits. Because nothing auto-deletes a demo tenant before its cleanup
+window, demo tenant rows accumulate in the production license DB over time;
+there is currently no admin-portal action to bulk-purge them.
 
 **Conversion path**: a prospect who wants to buy simply activates a real paid
 license key on the same demo install/browser they were trialing. `activate`

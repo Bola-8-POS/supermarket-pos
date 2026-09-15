@@ -85,7 +85,9 @@ async function main() {
 
   console.log('Demo staff accounts:');
   for (const staff of DEMO_STAFF) {
-    await ensureStaffAccount(db, staff.role, staff.name, staff.pin);
+    // Demo staff match the app's real default locale (es-MX, D-02) — unlike the
+    // E2E-only accounts in setup-dev-users.ts, which pin to en-US for English selectors.
+    await ensureStaffAccount(db, staff.role, staff.name, staff.pin, 'es-MX');
   }
 
   console.log('Product/category fixture data (scripts/seed-dev-data.ts):');
