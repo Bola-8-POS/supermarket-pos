@@ -56,7 +56,22 @@ export default defineConfig({
   // it must never run as a side effect of the default local-backend suite.
   // /training\// — captioned screen-recording specs for the user manual, run
   // separately via playwright.training.config.ts (npm run test:e2e:training).
-  testIgnore: [/visual\//, /\.test\.ts$/, /remote-smoke\//, /training\//],
+  // /license\// — the hermetic license-gate suite runs separately via
+  // playwright.license.config.ts (npm run test:e2e:license); it needs
+  // VITE_LICENSE_ENFORCE=true and a test-only signing key the default config
+  // doesn't set up.
+  // /license-live\// — the opt-in LIVE license-server integration check runs
+  // separately via playwright.license-live.config.ts (npm run test:e2e:license:live);
+  // its spec throws at module load without LICENSE_LOCAL_* env vars set, and it must
+  // never run as a side effect of the default suite/CI.
+  testIgnore: [
+    /visual\//,
+    /\.test\.ts$/,
+    /remote-smoke\//,
+    /training\//,
+    /license\//,
+    /license-live\//,
+  ],
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,

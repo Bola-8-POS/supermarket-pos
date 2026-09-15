@@ -17,6 +17,13 @@ const LICENSE_API = 'http://127.0.0.1:55321';
 const TERMINAL_ID_KEY = 'pos.license.terminal_id';
 const PAID_KEY = 'DE00-0000-0000-0001';
 
+/**
+ * Reads a required env var at CALL time, never at module load — this file is discovered
+ * (and its module body executed) by every Playwright config whose testDir includes it,
+ * so throwing here at the top level would break `--list`/discovery under configs that
+ * don't set LICENSE_LOCAL_* (e.g. an accidental default-config scan). Callers only reach
+ * this after `test.beforeAll`'s `test.skip` guard has already bailed out when unset.
+ */
 function requiredEnv(name: string): string {
   const value = process.env[name];
   if (!value || value.trim() === '') {
@@ -29,10 +36,9 @@ function requiredEnv(name: string): string {
   return value.trim();
 }
 
-const serviceRoleKey = requiredEnv('LICENSE_LOCAL_SERVICE_ROLE_KEY');
-
 /** Thin REST helper against the license server's PostgREST, authenticated as service role. */
 async function licenseRest<T>(path: string, method: 'GET' | 'DELETE' = 'GET'): Promise<T> {
+  const serviceRoleKey = requiredEnv('LICENSE_LOCAL_SERVICE_ROLE_KEY');
   const res = await fetch(`${LICENSE_API}/rest/v1/${path}`, {
     method,
     headers: {
@@ -55,6 +61,14 @@ interface TerminalTenantRow {
 }
 
 test.beforeAll(async () => {
+  // Env is read here (runtime), not at module scope, so a tool that merely loads/lists
+  // this file without LICENSE_LOCAL_* set (e.g. the default config's discovery) never
+  // hard-crashes — it skips instead.
+  test.skip(
+    !process.env.LICENSE_LOCAL_SERVICE_ROLE_KEY?.trim(),
+    'LICENSE_LOCAL_SERVICE_ROLE_KEY not set — see playwright.license-live.config.ts header'
+  );
+
   // Self-healing per Task 14's brief: `demo-store` is a persistent seeded tenant with
   // max_terminals: 2 that accumulates bound terminals across reruns of this suite (each
   // run mints a fresh terminal id for steps 1-2, but the conversion step in step 3 binds
