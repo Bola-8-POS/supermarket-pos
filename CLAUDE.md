@@ -131,6 +131,32 @@ email signup disabled, one portal admin created. To point a production POS build
 and `VITE_LICENSE_PUBLIC_KEY` (the prod SPKI, not the dev one baked into `public-key.ts`) at build
 time — see `src/shared/lib/license/{config,public-key}.ts` for exactly how those overrides work.
 
+**Demo edition** (2026-09-14) — a self-service 14-day trial layered on the same token-driven
+entitlement model, plus a Firebase-hosted online demo of this repo's web build. Feature gating is
+`FEATURE_KEYS` in `src/shared/lib/license/features.ts` (10 keys: `report_export`, `ai_assistant`,
+`email_receipts`, `settings_backup`, `audit_log`, `edit_history`, `staff_management`,
+`rbac_editing`, `promotions`, `purchase_orders`); a demo token's server-side allow-list is only
+`promotions` + `purchase_orders` — every other key is locked (`LockedFeature`/`FeatureLockedPage`
+in `src/shared/ui/`), so checkout/inventory/suppliers/caja/reports/payments stay fully usable
+while the demo still has something to sell. A demo tenant is 14 days, 0 grace days, 14-day lease,
+1 terminal. `startDemoTrial()`/`resetTerminalForNewDemo()` (`src/shared/lib/license/actions.ts`)
+call the `start-demo` edge function — that function, like the rest of the license server, lives in
+`pos-license-server` (branch `feat/demo-plan`, **not yet deployed to the prod license server** —
+local 553xx stack only for now). `VITE_DEMO_AUTO_START` skips the "Try it free" click for the web
+build (auto-provisions on first load); `VITE_DEMO_CONTACT_URL`/`VITE_DEMO_CONTACT_EMAIL` override
+the `UpgradeDialog`'s (`src/features/upgrade-license/`) sales contact links. Demo staff — shared
+across every demo tenant, seeded by `npm run seed:demo` (`scripts/seed-demo.ts`) from the single
+source of truth `src/shared/lib/license/demo-accounts.ts` — are Ana Admin/`000000` (admin), Luis
+Gerente/`111111` (manager), Sofía Cajera/`222222` (cashier); this is why `staff_management` and
+`rbac_editing` are locked in a demo. Two E2E tiers: `npm run test:e2e:license` (hermetic, a
+committed test-only P-256 keypair in `e2e/helpers/license-keys.ts` signs tokens, two extra
+`webServer`s per `playwright.license.config.ts` — no license-server Docker needed) and
+`npm run test:e2e:license:live` (opt-in, hits a real local license server; not part of the default
+`npm run test:e2e` run). The web build is `npm run build:web` (`tsc && vite build`, no cargo);
+hosting/deploy/reset automation is `firebase.json` + `.github/workflows/{deploy-demo,reset-demo}.yml`
+at the repo root, with the full runbook (demo Supabase project, prod license-server deploy steps,
+Firebase site setup, GitHub secrets, marketing-site CTA) in `docs/online-demo.md`.
+
 ## Commands
 
 ```bash
@@ -160,6 +186,8 @@ npx vitest run src/path/to.test.ts     # Single test file
 # Testing — E2E (Playwright)
 npm run test:e2e                       # Full Playwright suite (requires dev server)
 npm run test:e2e:report                # Open HTML report after a run
+npm run test:e2e:license               # Hermetic license/demo e2e suite (test keypair, no license-server needed)
+npm run test:e2e:license:live          # Opt-in license/demo e2e against a real local license server
 npx playwright test e2e/caja/session-management.spec.ts   # Single spec file
 npx playwright test --headed           # Non-headless (watch browser)
 npx playwright show-report             # Open last HTML report
@@ -169,6 +197,8 @@ npm run storybook    # Storybook on port 6006
 
 # Setup
 npm run setup:dev    # Create dev users + seed data
+npm run build:web    # Web bundle for the online demo (tsc + vite build, no cargo)
+npm run seed:demo    # Seed demo staff (DEMO_STAFF) + catalog + store name for the online/desktop demo
 ```
 
 ### Ubuntu dev notes
@@ -342,6 +372,8 @@ The suite was fully rewritten in Phase 17 (E2E Suite Overhaul) from a flat 50-fi
 | `e2e/home/` | Home dashboard navigation, RBAC-gated route redirects, removed-route catch-all behavior |
 | `e2e/infra/` | CI smoke checks, general infra checks, Tauri build sanity, updater, offline mutation queue |
 | `e2e/inventory/` | Manual adjustment, low-stock/near-expiry alerts, physical count, open-unit (case→piece) breakdown, loose-weight sale/hold |
+| `e2e/license/` | Hermetic demo-edition coverage (`npm run test:e2e:license`): demo start/lock points/auto-start/paid-license regression, signed via a committed test-only keypair — no license-server Docker needed |
+| `e2e/license-live/` | Opt-in demo-lifecycle coverage against a real local license server (`npm run test:e2e:license:live`); excluded from the default `npm run test:e2e` run (`playwright.config.ts` `testIgnore`) |
 | `e2e/payments/` | Core payment completion, PaymentPane navigation, edge cases (tip/discount/underpayment), refund (with stock-movement assertions), tab split-payment |
 | `e2e/products/` | Product CRUD/visibility in the checkout grid, category tree + modifier-groups RLS |
 | `e2e/purchase-orders/` | PO creation, reorder-suggestion draft, receive-and-close, cashier RBAC/RLS denial |
