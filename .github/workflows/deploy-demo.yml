@@ -3,6 +3,8 @@ name: deploy-demo
 on:
   workflow_dispatch:
   push:
+    branches:
+      - feat/demo-edition   # TEMP: pre-merge verification build, removed before merge
     tags:
       - 'v*'
 
