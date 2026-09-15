@@ -22,5 +22,13 @@
     "supabase_project_ref": "mkvinyekkyennyegfoxq",
     "deployment_mode": "cloud",
     "github_environment": "taj-house-of-spices"
+  },
+  {
+    "name": "demo",
+    "repo": "zedfauji/supermarket-pos-demo",
+    "status": "active",
+    "supabase_project_ref": "zylymybxvwnymcapwpch",
+    "deployment_mode": "cloud",
+    "github_environment": "demo"
   }
 ]

@@ -1,0 +1,18 @@
+{
+  "identifier": "com.bola8pos.demo",
+  "bundle": {
+    "publisher": "Bola8 POS (Demo)",
+    "icon": [
+      "../customers/demo/icons/32x32.png",
+      "../customers/demo/icons/128x128.png",
+      "../customers/demo/icons/128x128@2x.png",
+      "../customers/demo/icons/icon.icns",
+      "../customers/demo/icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": ["https://github.com/zedfauji/supermarket-pos-demo/releases/latest/download/latest.json"]
+    }
+  }
+}

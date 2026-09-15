@@ -98,9 +98,11 @@ Done, verified live:
    customer projects pick it up on their next `functions deploy`).
 
 Still owed (deliberately not done):
-- **§6 desktop demo installer** (`customers.json` `demo` entry, `supermarket-pos-demo` repo + Environment +
-  `CUSTOMER_MIRROR_PAT`, `customers/demo/tauri.override.json`) — needs a mirror PAT and the customer-repo
-  create; `scripts/onboard-customer.ps1` still hardcodes the `zedfauji/` owner.
+- ~~§6 desktop demo installer~~ — done later the same day: `zedfauji/supermarket-pos-demo` (private) created,
+  Environment `demo` on the core repo with `CUSTOMER_MIRROR_PAT` / `VITE_SUPABASE_ANON_KEY` / `VITE_SUPABASE_URL`,
+  `customers/demo/tauri.override.json` (identifier `com.bola8pos.demo`, publisher "Bola8 POS (Demo)", default
+  icons) and an `active` `customers.json` entry. First installer lands on the next `v*` tag via `release.yml`'s
+  sync-customers job; `reset-demo.yml`'s guard now exempts the entry named `demo`.
 - `feat/demo-plan` in `pos-license-server` is deployed but still unmerged/unpushed there.
 - Nightly `reset-demo.yml` has not yet had a scheduled run (dispatch it once from `main` to prove it).
 

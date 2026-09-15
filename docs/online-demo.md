@@ -157,7 +157,7 @@ per-customer Environment secret — the demo is not a customer).
 | `FIREBASE_SERVICE_ACCOUNT_BOLA8POS` | deploy-demo | Firebase service-account JSON for the `bola8pos` project (§4) |
 | `GITHUB_TOKEN` | deploy-demo | Built-in, no setup needed |
 
-## 6. Desktop demo installer
+## 6. Desktop demo installer (done 2026-09-15: `zedfauji/supermarket-pos-demo`, Environment `demo`, `customers/demo/`)
 
 The desktop "Try it free" flow (already built — `LicenseGate` → `start-demo`,
 §6 of the design spec) ships as its own installer/repo, following the exact

@@ -29,7 +29,7 @@ jobs:
             const ref = process.env.DEMO_SUPABASE_PROJECT_REF;
             if (!ref) { console.error('FAILED: DEMO_SUPABASE_PROJECT_REF secret is not set.'); process.exit(1); }
             const customers = require('./customers/customers.json');
-            const clash = customers.find((c) => c.supabase_project_ref === ref);
+            const clash = customers.find((c) => c.supabase_project_ref === ref && c.name !== 'demo');
             if (clash) {
               console.error('FAILED: DEMO_SUPABASE_PROJECT_REF (' + ref + ') matches customer \'' + clash.name + '\' in customers/customers.json - refusing to reset a real customer project.');
               process.exit(1);
