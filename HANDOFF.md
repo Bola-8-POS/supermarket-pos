@@ -7,8 +7,8 @@ next session at it) before doing anything else.
 
 | What | Where | State |
 |---|---|---|
-| POS branch | `feat/demo-edition`, worktree `D:\Projects\Code\supermarket-pos\.claude\worktrees\demo-edition` | 21 commits on top of `main` @ `7b9225f`, HEAD `03a4026`. **Not pushed. Not merged. `main` untouched.** Tree clean. |
-| License-server branch | `D:\Projects\Code\pos-license-server`, branch `feat/demo-plan` | 2 commits (`5ac904a`, `0c46134`) on top of its `main`. **Not pushed. Nothing deployed to the prod project `zhvcivnojpvgwiknlpuj`.** That repo also carries pre-existing UNCOMMITTED files from before this work (`.gitignore`, `README.md`, `portal/src/pages/Login.tsx`, `scripts/add-admin.mjs` rename, `supabase/config.toml`, `issue-offline-token/index.ts`, untracked `.firebaserc`, `firebase.json`, `.vscode/`, `supabase/migrations/20260911000001_google_admin_auth.sql`) — leave them alone; never `git add -A` there. |
+| POS branch | `feat/demo-edition` | Merged fast-forward into `main` and pushed on 2026-09-15 (rollout session); the worktree was removed. |
+| License-server branch | `D:\Projects\Code\pos-license-server`, branch `feat/demo-plan` | 2 commits (`5ac904a`, `0c46134`) on top of its `main`. **Not pushed/merged there, but its migrations + functions ARE deployed to the prod project `zhvcivnojpvgwiknlpuj`.** That repo also carries pre-existing UNCOMMITTED files from before this work (`.gitignore`, `README.md`, `portal/src/pages/Login.tsx`, `scripts/add-admin.mjs` rename, `supabase/config.toml`, `issue-offline-token/index.ts`, untracked `.firebaserc`, `firebase.json`, `.vscode/`, `supabase/migrations/20260911000001_google_admin_auth.sql`) — leave them alone; never `git add -A` there. |
 | Design spec (binding) | `docs/superpowers/specs/2026-09-14-demo-edition-and-online-demo-design.md` | rulings R1–R10 in §8 |
 | Implementation plan | `docs/superpowers/plans/2026-09-14-demo-edition-and-online-demo.md` | all 15 tasks done |
 | Rollout runbook | `docs/online-demo.md` | §1–§9; **§2–§7 are the owner's to-do list** |
@@ -47,7 +47,7 @@ next session at it) before doing anything else.
   `bola8pos-demo` in project `bola8pos`), `.github/workflows/deploy-demo.yml` (dispatch + `v*` tags),
   `.github/workflows/reset-demo.yml` (nightly 09:00 UTC `supabase db reset --linked --yes` + seed; refuses
   to run if the target ref matches any `customers/customers.json` entry). Both workflows are job-guarded by
-  `github.repository == 'zedfauji/supermarket-pos'` because `release.yml` mirrors this repo to customers.
+  `github.repository == 'Bola-8-POS/supermarket-pos'` because `release.yml` mirrors this repo to customers.
 - **Tests.** Unit 1735 pass. `npm run test:e2e:license` — 11 hermetic specs (`e2e/license/`, test-only
   P-256 keypair `e2e/helpers/license-keys.ts`, two extra Vite servers 1522/1523, no license-server
   Docker). `npm run test:e2e:license:live` — 1 opt-in spec (`e2e/license-live/`) against the real local
@@ -72,26 +72,37 @@ Known-open (all deliberately deferred, none blocking — see ledger for detail):
 - License-server minors: `DEMO_FEATURES` literal duplicated in `_shared` + smoke script; `start-demo`
   `existing` cast claims a `name` field not selected.
 
-## 4. What the OWNER still has to do (rollout — nothing here is automated)
+## 4. Rollout status (2026-09-15, second session)
 
-Follow `docs/online-demo.md` in order:
-1. **§3 License server (prod `zhvcivnojpvgwiknlpuj`)**: `supabase db push` the two migrations (they must
-   stay two files/transactions), then deploy `start-demo` and REDEPLOY `activate`, `heartbeat`,
-   `issue-offline-token` (they now emit `features`). Until this is done, "Probar gratis" fails in any
-   production build.
-2. **§2 Demo Supabase project**: create it, push this repo's migrations, deploy the POS edge functions
-   EXCEPT `send-receipt-email` (locks are client-side on a public instance), set secrets, run
-   `npm run seed:demo` against it (never against the shared local e2e DB — see gotchas).
-3. **§4 Firebase**: `firebase hosting:sites:create bola8pos-demo`, target `demo`, custom domain
-   `demo.bola8pos.com` + DNS, service-account secret.
-4. **§5 GitHub secrets**: all 11 listed there (`DEMO_SUPABASE_*`, `SUPABASE_ACCESS_TOKEN`,
-   `VITE_LICENSE_*`, `FIREBASE_SERVICE_ACCOUNT_BOLA8POS`).
-5. **§6 Desktop demo installer**: add the `demo` entry to `customers/customers.json` + its GitHub
-   environment; scaffold `customers/demo/tauri.override.json`.
-6. **§7 Marketing site**: add the "Probar demo" CTA in `D:\Projects\Code\Websites\POS-Website` (separate
-   repo, has uncommitted work — not touched).
-7. **Merge decision**: open a PR `feat/demo-edition` → `main` (and `feat/demo-plan` → `main` in the
-   license-server repo). Both were left unpushed on purpose.
+Done, verified live:
+1. **License server (prod `zhvcivnojpvgwiknlpuj`)**: both demo migrations applied, `start-demo` + the three
+   redeployed functions live (owner did this before the session; verified via `supabase functions list`).
+2. **Demo Supabase project `zylymybxvwnymcapwpch`** (`demo-pos`, siloed): all POS migrations pushed, 12 edge
+   functions deployed (everything except `send-receipt-email`), `npm run seed:demo` run once (Ana/Luis/Sofía +
+   catalog + "Tienda Demo"). DB password was reset via the Management API and stored only in the GitHub secret.
+3. **Firebase**: site `bola8pos-demo` (Firebase rejected the id `demo-bola8pos`), target `demo`; custom domain
+   `demo.bola8pos.com` attached via the Hosting REST API, CNAME `demo.bola8pos.com → bola8pos-demo.web.app`
+   added in Cloud DNS zone `bola8pos` (project `bola8pos`); cert issued, HTTPS 200.
+4. **GitHub secrets** on `Bola-8-POS/supermarket-pos`: all `DEMO_SUPABASE_*`, `SUPABASE_ACCESS_TOKEN`,
+   `FIREBASE_SERVICE_ACCOUNT_BOLA8POS` (service account `github-deploy-demo@bola8pos.iam.gserviceaccount.com`,
+   roles firebasehosting.admin / apiKeysViewer / firebaseauth.admin / run.viewer). Job guards were fixed to the
+   repo's real name — `zedfauji/supermarket-pos` is only a redirect and never equals `github.repository`.
+5. **deploy-demo.yml** ran green from GitHub Actions (run 35013252053) and published the live build.
+6. **Marketing site**: hero "Ver Demo / View Demo" now links to `https://demo.bola8pos.com`
+   (`src/components/hero.tsx` in `Websites/POS-Website/POS-Website`, uncommitted like the rest of that repo's WIP);
+   redeployed to Cloud Run `magidesk-pos` (revision 00016) with `gcloud run deploy --source`.
+7. **Live check** (Playwright, headless, against both `bola8pos-demo.web.app` and `demo.bola8pos.com`):
+   auto-provision via prod `start-demo` (200), Ana Admin `000000` login, `/audit` → `feature-locked-page`,
+   staff create → locked, `/promotions` + `/pos` unlocked, demo bar visible. One real bug found and fixed on the
+   way: `get-server-time` never answered CORS preflight (`fix(edge)` commit; deployed to the demo project only —
+   customer projects pick it up on their next `functions deploy`).
+
+Still owed (deliberately not done):
+- **§6 desktop demo installer** (`customers.json` `demo` entry, `supermarket-pos-demo` repo + Environment +
+  `CUSTOMER_MIRROR_PAT`, `customers/demo/tauri.override.json`) — needs a mirror PAT and the customer-repo
+  create; `scripts/onboard-customer.ps1` still hardcodes the `zedfauji/` owner.
+- `feat/demo-plan` in `pos-license-server` is deployed but still unmerged/unpushed there.
+- Nightly `reset-demo.yml` has not yet had a scheduled run (dispatch it once from `main` to prove it).
 
 ## 5. How to resume locally (next session checklist)
 
