@@ -35,6 +35,7 @@
     "test:e2e:remote-smoke": "playwright test --config=playwright.remote.config.ts",
     "test:e2e:training": "playwright test --config=playwright.training.config.ts",
     "test:e2e:license": "playwright test --config=playwright.license.config.ts",
+    "test:e2e:license:live": "playwright test --config=playwright.license-live.config.ts",
     "index-codebase": "tsx scripts/indexCodebase.ts",
     "docs:tokens": "npx tsx scripts/generate-design-tokens.ts",
     "audit:tech-debt": "bash scripts/run-tech-debt-audit.sh"

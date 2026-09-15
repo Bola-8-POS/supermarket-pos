@@ -227,3 +227,34 @@ detects that the terminal is currently bound to a **demo** tenant, re-binds
 that terminal row to the new paid tenant, and deletes the now-orphaned demo
 tenant (§6, §8 R6) — no portal action, no manual data migration, and the
 prospect keeps using the same terminal id they were already on.
+
+## 9. Local integration check
+
+`e2e/license-live/demo-lifecycle.spec.ts` is an opt-in Playwright suite that drives the
+full demo lifecycle (start-demo → entitlements → convert to paid) against a REAL local
+license-server stack — no `page.route()` mocking, unlike `e2e/license/`. It never runs in
+CI and is not part of `npm run test:e2e`. Run it from this repo (`supermarket-pos/`):
+
+```bash
+# 1. Start the local license-server stack (separate repo, sibling of this one)
+cd D:\Projects\Code\pos-license-server
+npx supabase start
+
+# 2. Start its edge functions
+supabase functions serve --env-file supabase/functions/.env --no-verify-jwt
+
+# 3. Export the two local keys the live config/spec read (read-only — never `db push`
+#    or `functions deploy` against this stack from here)
+npx supabase status -o env
+#   PowerShell:
+#   $env:LICENSE_LOCAL_ANON_KEY='<ANON_KEY>'; $env:LICENSE_LOCAL_SERVICE_ROLE_KEY='<SERVICE_ROLE_KEY>'
+#   bash:
+#   export LICENSE_LOCAL_ANON_KEY='<ANON_KEY>' LICENSE_LOCAL_SERVICE_ROLE_KEY='<SERVICE_ROLE_KEY>'
+
+# 4. Run the suite (back in this repo)
+cd D:\Projects\Code\supermarket-pos\.claude\worktrees\demo-edition
+npm run test:e2e:license:live
+```
+
+See `playwright.license-live.config.ts`'s header comment for what each env var is used
+for and why `VITE_LICENSE_PUBLIC_KEY` is deliberately not overridden.
