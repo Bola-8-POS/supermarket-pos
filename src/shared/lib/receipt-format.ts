@@ -331,7 +331,12 @@ export function buildThermalReceiptText(
     }
   }
   if (opts.demoWatermark) {
-    lines.push(centerLine(tr('receipt.demoWatermark'), width));
+    // Wrap, don't truncate (PRN-style, mirrors the footerText loop above) —
+    // a single centerLine() call silently truncates at `width`, and both
+    // locale strings are longer than the 32-byte schema default.
+    for (const chunk of chunkByByteWidth(tr('receipt.demoWatermark'), width)) {
+      lines.push(centerLine(chunk, width));
+    }
   }
   lines.push('');
   return lines.join('\n');

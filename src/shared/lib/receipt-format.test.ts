@@ -582,14 +582,55 @@ describe('buildThermalReceiptText', () => {
   // Demo watermark (Demo Edition, Task 9)
   // ---------------------------------------------------------------------
 
-  it('appends the demo watermark as the last line when demoWatermark is set', () => {
-    const text = buildThermalReceiptText(baseReceipt(), 'en-US', defaultReceiptSettings(), {
-      demoWatermark: true,
-    });
-    expect(text.trim().split('\n').at(-1)).toContain('DEMO');
+  it('omits the demo watermark entirely when demoWatermark is unset', () => {
     expect(
       buildThermalReceiptText(baseReceipt(), 'en-US', defaultReceiptSettings())
     ).not.toContain('DEMO');
+  });
+
+  it('wraps the es-MX demo watermark across centered lines at paperWidthChars=32 instead of truncating it', () => {
+    const text = buildThermalReceiptText(baseReceipt(), 'es-MX', defaultReceiptSettings(), {
+      demoWatermark: true,
+    });
+    const lines = text.trim().split('\n');
+    const receiptNumberIndex = lines.findIndex(l => l.includes('#R1'));
+    const watermarkLines = lines.slice(receiptNumberIndex + 1);
+
+    expect(watermarkLines.length).toBeGreaterThan(1);
+    for (const line of watermarkLines) {
+      expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(32);
+    }
+    expect(watermarkLines.map(l => l.trim()).join('')).toContain('COMPROBANTE');
+  });
+
+  it('wraps the en-US demo watermark across centered lines at paperWidthChars=32, preserving the closing ***', () => {
+    const text = buildThermalReceiptText(baseReceipt(), 'en-US', defaultReceiptSettings(), {
+      demoWatermark: true,
+    });
+    const lines = text.trim().split('\n');
+    const receiptNumberIndex = lines.findIndex(l => l.includes('#R1'));
+    const watermarkLines = lines.slice(receiptNumberIndex + 1);
+
+    expect(watermarkLines.length).toBeGreaterThan(1);
+    for (const line of watermarkLines) {
+      expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(32);
+    }
+    expect(watermarkLines.at(-1)?.trim().endsWith('***')).toBe(true);
+  });
+
+  it('keeps the demo watermark on a single centered line when paperWidthChars is wide enough (48)', () => {
+    const text = buildThermalReceiptText(
+      baseReceipt(),
+      'en-US',
+      defaultReceiptSettings({ paperWidthChars: 48 }),
+      { demoWatermark: true }
+    );
+    const lines = text.trim().split('\n');
+    const watermarkLine = lines.at(-1) ?? '';
+
+    expect(watermarkLine).toContain('DEMO');
+    expect(watermarkLine.trim().endsWith('***')).toBe(true);
+    expect(new TextEncoder().encode(watermarkLine).length).toBeLessThanOrEqual(48);
   });
 
   it('empty footerText (schema default) emits no divider/footer lines, same total line count as receipt without footerText', () => {
