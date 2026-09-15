@@ -5,8 +5,11 @@
   "targets": {
     "bola8pos": {
       "hosting": {
-        "demo": ["demo-bola8pos"]
+        "demo": [
+          "bola8pos-demo"
+        ]
       }
     }
-  }
+  },
+  "etags": {}
 }

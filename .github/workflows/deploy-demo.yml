@@ -10,7 +10,7 @@ jobs:
   deploy:
     # This repo is git push --mirror'ed to customer repos (release.yml) — never
     # let a customer's mirrored copy of this workflow deploy to OUR demo site.
-    if: github.repository == 'zedfauji/supermarket-pos'
+    if: github.repository == 'Bola-8-POS/supermarket-pos'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

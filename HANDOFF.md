@@ -44,7 +44,7 @@ next session at it) before doing anything else.
 - **Online demo infra.** `npm run build:web` (`tsc && vite build`, no cargo), `npm run seed:demo`
   (`scripts/seed-demo.ts`, demo staff from `src/shared/lib/license/demo-accounts.ts`: Ana Admin `000000`,
   Luis Gerente `111111`, Sofía Cajera `222222`, locale es-MX), `firebase.json` + `.firebaserc` (site
-  `demo-bola8pos` in project `bola8pos`), `.github/workflows/deploy-demo.yml` (dispatch + `v*` tags),
+  `bola8pos-demo` in project `bola8pos`), `.github/workflows/deploy-demo.yml` (dispatch + `v*` tags),
   `.github/workflows/reset-demo.yml` (nightly 09:00 UTC `supabase db reset --linked --yes` + seed; refuses
   to run if the target ref matches any `customers/customers.json` entry). Both workflows are job-guarded by
   `github.repository == 'zedfauji/supermarket-pos'` because `release.yml` mirrors this repo to customers.
@@ -82,7 +82,7 @@ Follow `docs/online-demo.md` in order:
 2. **§2 Demo Supabase project**: create it, push this repo's migrations, deploy the POS edge functions
    EXCEPT `send-receipt-email` (locks are client-side on a public instance), set secrets, run
    `npm run seed:demo` against it (never against the shared local e2e DB — see gotchas).
-3. **§4 Firebase**: `firebase hosting:sites:create demo-bola8pos`, target `demo`, custom domain
+3. **§4 Firebase**: `firebase hosting:sites:create bola8pos-demo`, target `demo`, custom domain
    `demo.bola8pos.com` + DNS, service-account secret.
 4. **§5 GitHub secrets**: all 11 listed there (`DEMO_SUPABASE_*`, `SUPABASE_ACCESS_TOKEN`,
    `VITE_LICENSE_*`, `FIREBASE_SERVICE_ACCOUNT_BOLA8POS`).

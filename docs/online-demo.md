@@ -118,15 +118,15 @@ Same Firebase project as the marketing site and the license portal
 project:
 
 ```bash
-firebase hosting:sites:create demo-bola8pos
-firebase target:apply hosting demo demo-bola8pos --project bola8pos
+firebase hosting:sites:create bola8pos-demo
+firebase target:apply hosting demo bola8pos-demo --project bola8pos
 ```
 
 (`.firebaserc`/`firebase.json` in this repo root already encode that target —
 see Step 1/1 above. `target:apply` is a one-time local-config step; nothing to
 commit beyond what's already here.)
 
-Custom domain: in the Firebase console → Hosting → `demo-bola8pos` site → Add
+Custom domain: in the Firebase console → Hosting → `bola8pos-demo` site → Add
 custom domain → `demo.bola8pos.com`. Firebase shows the exact DNS records
 (a TXT record for verification, then an A/AAAA or CNAME record) to add at
 whatever registrar/DNS host `bola8pos.com` is on — add them there; Firebase
@@ -140,7 +140,7 @@ scoped to the `bola8pos` project, paste the whole JSON as the secret value.
 
 ## 5. GitHub secrets
 
-All of these are **repository** secrets on `zedfauji/supermarket-pos` (not a
+All of these are **repository** secrets on `Bola-8-POS/supermarket-pos` (not a
 per-customer Environment secret — the demo is not a customer).
 
 | Secret | Used by | Value |
