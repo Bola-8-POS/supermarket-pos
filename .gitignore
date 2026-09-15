@@ -53,10 +53,12 @@ e2e-results/
 e2e-results-visual/
 e2e-results-remote-smoke/
 e2e-results-training/
+e2e-results-license/
 e2e-blob-reports/
 playwright-report/
 playwright-report-visual/
 playwright-report-remote-smoke/
+playwright-report-license/
 verification-artifacts/
 e2e/visual/**/*-snapshots/
 

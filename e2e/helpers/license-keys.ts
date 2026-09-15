@@ -1,0 +1,8 @@
+/** TEST-ONLY ECDSA P-256 keypair for hermetic license e2e. Never used by any server. */
+export const TEST_LICENSE_PRIVATE_KEY_PEM = `-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgNxnW9t8xvfJV5WXh
+oLmWrgtlkQid4w/+Hd3nvK9ZhKmhRANCAATOd0jWv51edt6G8E91w3M831Xq2eIc
+54IvpXRFoo8vr07U1c/w/oNHEPtTPiafI6bqnFaeEXKu2fh0Sq5jR0Jl
+-----END PRIVATE KEY-----`;
+export const TEST_LICENSE_PUBLIC_KEY_SPKI =
+  'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEzndI1r+dXnbehvBPdcNzPN9V6tniHOeCL6V0RaKPL69O1NXP8P6DRxD7Uz4mnyOm6pxWnhFyrtn4dEquY0dCZQ==';
