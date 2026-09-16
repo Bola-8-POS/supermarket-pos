@@ -104,6 +104,16 @@ export default defineConfig(async () => {
             fileParallelism: false,
           },
         },
+        {
+          extends: true,
+          test: {
+            name: 'e2e-tools',
+            environment: 'node',
+            globals: true,
+            include: ['e2e/tutorials/**/*.test.ts', 'scripts/tutorial-videos-convert.test.ts'],
+            testTimeout: 10_000,
+          },
+        },
         ...storybookProjects,
       ],
     },

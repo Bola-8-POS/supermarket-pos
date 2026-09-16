@@ -64,6 +64,9 @@ export default defineConfig({
   // separately via playwright.license-live.config.ts (npm run test:e2e:license:live);
   // its spec throws at module load without LICENSE_LOCAL_* env vars set, and it must
   // never run as a side effect of the default suite/CI.
+  // /tutorials\// — comprehensive per-domain tutorial-video recordings, run separately
+  // via playwright.tutorial.config.ts (npm run tutorial-videos:record); must never run
+  // as a side effect of the default suite/CI.
   testIgnore: [
     /visual\//,
     /\.test\.ts$/,
@@ -71,6 +74,7 @@ export default defineConfig({
     /training\//,
     /license\//,
     /license-live\//,
+    /tutorials\//,
   ],
   fullyParallel: false,
   workers: 1,

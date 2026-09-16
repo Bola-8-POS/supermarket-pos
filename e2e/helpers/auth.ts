@@ -24,7 +24,7 @@ function envOrThrow(key: string): string {
   return v.trim();
 }
 
-function staffForRole(role: StaffRole): { name: string; pin: string } {
+export function staffForRole(role: StaffRole): { name: string; pin: string } {
   if (role === 'cashier') {
     // Env var names deliberately unchanged (E2E_BARTENDER_*) — internal-only,
     // never user-visible, avoids a CI secret-store rename (RESEARCH.md Pitfall 5).
