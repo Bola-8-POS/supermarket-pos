@@ -317,6 +317,26 @@ new dedicated fields, not a reuse of the receipt ones.
 - [x] **STORE-02**: The login screen displays the configured store name and a large logo on the left side of the screen, with a sane default (e.g. generic app name, no logo) when unconfigured.
 - [x] **STORE-03**: Automated Playwright E2E/visual-regression coverage proves the login screen renders a configured store name/logo and the unconfigured fallback.
 
+## Phase 34 Requirements — Tutorial Video Generation
+
+Requested directly (not `/gsd-explore`'d) 2026-09-16: HD Playwright-driven video walkthroughs of every
+POS feature/scenario/edge case, for customer staff-training runbooks and website embedding. User
+constraints: Playwright + Chromium (already installed, no new deps), every recorded action holds 2-4s
+before the next step so a human can follow along, videos live under a dedicated directory per domain,
+and no open-ended e2e-spec-debugging loop — stop and ask rather than iterating unattended. Scope,
+output location, bilingual coverage, and MP4-via-ffmpeg conversion confirmed with the user during
+`/gsd-plan-phase` clarifying questions (2026-09-16): per-`e2e/`-domain videos + one long end-to-end
+video, `tutorial-videos/` at repo root, es-MX + en-US, ffmpeg-converted MP4 output.
+
+### Tutorial Videos
+
+- [x] **VIDEO-01**: A reusable Playwright video-recording harness drives the real running app (HD viewport, native `.webm` video capture via Playwright's built-in `recordVideo`) with a scripted pause of 2-4 seconds after every meaningful UI action, so a human watching can see what happened before the next step begins.
+- [x] **VIDEO-02**: One narrated-by-action video per `e2e/` domain folder (checkout, inventory, suppliers, payments, staff/rbac, caja, reports, promotions, receipts, purchase-orders, settings, audit) covering that domain's real workflow(s) plus its key edge cases/error states.
+- [x] **VIDEO-03**: One long end-to-end video walking a full sale-to-close business day across roles (cashier checkout → manager approval/refund → admin reporting).
+- [x] **VIDEO-04**: Every recorded scenario is produced in both es-MX and en-US via the app's existing per-staff locale switch (not two separate apps/builds).
+- [x] **VIDEO-05**: Raw `.webm` captures are converted to HD `.mp4` via ffmpeg as a build step, written under `tutorial-videos/<domain>/` (or the long e2e video's own subfolder); `tutorial-videos/` is gitignored as build output, not committed source.
+- [x] **VIDEO-06**: Recording scripts are planned and built directly (harness + per-domain scripts + generated videos) without an open-ended e2e-spec-debugging loop — if a recording script gets stuck matching an existing e2e spec's flow, the executor stops and asks rather than iterating unattended.
+
 ## v2 Requirements
 
 Deferred to future release. Tracked but not in the v1.2 roadmap.
@@ -447,6 +467,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | STORE-01 | Phase 33 | Complete |
 | STORE-02 | Phase 33 | Complete |
 | STORE-03 | Phase 33 | Complete |
+| VIDEO-01 | Phase 34 | Complete |
+| VIDEO-02 | Phase 34 | Complete |
+| VIDEO-03 | Phase 34 | Complete |
+| VIDEO-04 | Phase 34 | Complete |
+| VIDEO-05 | Phase 34 | Complete |
+| VIDEO-06 | Phase 34 | Complete |
 
 **Coverage:**
 
@@ -463,6 +489,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 - Phase 31 requirements: 4 total, 4/4 mapped (PCAT-01..04, not yet planned)
 - Phase 32 requirements: 5 total, 5/5 mapped to Phase 32 (BRND-01..05, not yet planned)
 - Phase 33 requirements: 3 total, 3/3 mapped to Phase 33 (STORE-01..03, not yet planned)
+- Phase 34 requirements: 6 total, 6/6 mapped to Phase 34 (VIDEO-01..06, not yet planned)
 
 ---
 *Requirements defined: 2026-08-19 (v1.2), 2026-08-19 (v1.3)*
