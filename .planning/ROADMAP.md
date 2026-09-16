@@ -510,7 +510,7 @@ Plans:
 **Goal:** Playwright/Chromium-driven HD video walkthroughs exist under `tutorial-videos/` — one video per `e2e/` domain folder plus one long full end-to-end walkthrough — in es-MX and en-US, each action paced with a 2-4s hold so the recording is watchable as a customer-facing training runbook, converted to MP4 via ffmpeg, ready to embed on the product website and hand to customers for staff training.
 **Requirements**: VIDEO-01, VIDEO-02, VIDEO-03, VIDEO-04, VIDEO-05, VIDEO-06
 **Depends on:** Nothing (independent tooling/documentation phase; does not touch app code)
-**Plans:** 1/6 plans executed
+**Plans:** 5/6 plans executed
 
 Plans:
 **Wave 1**
@@ -519,10 +519,10 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 — parallel, no file overlap)*
 
-- [ ] 34-02-PLAN.md — Domain videos: inventory, suppliers, payments (VIDEO-02, VIDEO-04, VIDEO-06)
-- [ ] 34-03-PLAN.md — Domain videos: staff/rbac, caja, reports (VIDEO-02, VIDEO-04, VIDEO-06)
-- [ ] 34-04-PLAN.md — Domain videos: promotions, receipts, purchase-orders (VIDEO-02, VIDEO-04, VIDEO-06)
-- [ ] 34-05-PLAN.md — Domain videos: settings (real locale-switch UI), audit (VIDEO-02, VIDEO-04, VIDEO-06)
+- [x] 34-02-PLAN.md — Domain videos: inventory, suppliers, payments (VIDEO-02, VIDEO-04, VIDEO-06)
+- [x] 34-03-PLAN.md — Domain videos: staff/rbac, caja, reports (VIDEO-02, VIDEO-04, VIDEO-06)
+- [x] 34-04-PLAN.md — Domain videos: promotions, receipts, purchase-orders (VIDEO-02, VIDEO-04, VIDEO-06)
+- [x] 34-05-PLAN.md — Domain videos: settings (real locale-switch UI), audit (VIDEO-02, VIDEO-04, VIDEO-06)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
