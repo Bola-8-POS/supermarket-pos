@@ -27,6 +27,13 @@ export const test = base.extend<{ narrate: NarrateFn }>({
     await use(page);
     const video = page.video();
     if (!video) return;
+    // Video.saveAs() "waits until the page is closed and the video is fully
+    // saved" (Playwright docs) — the base `page`/`context` fixtures don't
+    // close the page until AFTER this fixture's own teardown code returns,
+    // so without an explicit close() here saveAs() blocks forever (a real
+    // deadlock, not a slow test) until the whole test's global timeout kills
+    // it. Close explicitly first so saveAs() can actually resolve.
+    await page.close().catch(() => undefined);
     const locale = process.env['TUTORIAL_LOCALE'] ?? 'es-MX';
     await video.saveAs(buildVideoOutputPath(testInfo.file, testInfo.title, locale));
   },
