@@ -505,6 +505,31 @@ Plans:
 
 - [x] 33-03-PLAN.md — Settings logo upload control, login hero logo, and STORE-03 functional/RLS/visual coverage
 
+### Phase 34: Tutorial Video Generation
+
+**Goal:** Playwright/Chromium-driven HD video walkthroughs exist under `tutorial-videos/` — one video per `e2e/` domain folder plus one long full end-to-end walkthrough — in es-MX and en-US, each action paced with a 2-4s hold so the recording is watchable as a customer-facing training runbook, converted to MP4 via ffmpeg, ready to embed on the product website and hand to customers for staff training.
+**Requirements**: VIDEO-01, VIDEO-02, VIDEO-03, VIDEO-04, VIDEO-05, VIDEO-06
+**Depends on:** Nothing (independent tooling/documentation phase; does not touch app code)
+**Plans:** 6 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 34-01-PLAN.md — Tracer: pacing/i18n-selector/locale-seeding harness helpers, `playwright.tutorial.config.ts`, `scripts/tutorial-videos-convert.ts`, proven end-to-end on the checkout domain in es-MX (VIDEO-01, VIDEO-02, VIDEO-04, VIDEO-05, VIDEO-06)
+
+**Wave 2** *(blocked on Wave 1 — parallel, no file overlap)*
+
+- [ ] 34-02-PLAN.md — Domain videos: inventory, suppliers, payments (VIDEO-02, VIDEO-04, VIDEO-06)
+- [ ] 34-03-PLAN.md — Domain videos: staff/rbac, caja, reports (VIDEO-02, VIDEO-04, VIDEO-06)
+- [ ] 34-04-PLAN.md — Domain videos: promotions, receipts, purchase-orders (VIDEO-02, VIDEO-04, VIDEO-06)
+- [ ] 34-05-PLAN.md — Domain videos: settings (real locale-switch UI), audit (VIDEO-02, VIDEO-04, VIDEO-06)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 34-06-PLAN.md — Full end-to-end business-day walkthrough + full bilingual double-run + final ffmpeg conversion + phase-gate file-count proof (VIDEO-03, VIDEO-04, VIDEO-05, VIDEO-06)
+
+**UI hint**: no
+
 ### 🔜 v1.4 Barcode Scan Product Peek (Proposed)
 
 **Milestone Goal:** Scanning a barcode on `/pos` opens a separate detached Tauri window showing full product detail (name, size/unit, photo, price, inventory, SKU, barcode) with a qty/weight input, so a cashier can inspect an item before committing it to the cart.
