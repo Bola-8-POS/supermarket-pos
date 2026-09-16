@@ -17,11 +17,13 @@ const PREFIX = 'Tutorial suppliers';
 // own inline dual-locale regex convention verbatim (those specs already do
 // this correctly — no English-only regex is copied from them unmodified).
 const NEW_SUPPLIER_BTN_RE = /new supplier|nuevo proveedor/i;
+const SUPPLIER_DIALOG_RE = /new supplier|nuevo proveedor|edit supplier|editar proveedor/i;
 const SAVE_SUPPLIER_RE = /save supplier|guardar proveedor/i;
 const RECEIVE_SHIPMENT_RE = /receive shipment|recibir/i;
 const ADD_LINE_ITEM_RE = /add line item|agregar partida/i;
 const ADD_PRODUCT_RE = /add product|agregar producto/i;
 const ALREADY_IN_CATALOG_RE = /already in your catalog|ya está en tu catálogo/i;
+const RECEIVE_SHIPMENT_DIALOG_RE = /confirm receipt|confirmar recepción/i;
 
 async function seedProductForLink(): Promise<{ id: string; name: string }> {
   const db = getServiceClient();
@@ -74,7 +76,7 @@ test.describe('Tutorial: suppliers', () => {
       await page.getByRole('button', { name: NEW_SUPPLIER_BTN_RE }).first().click();
     });
 
-    const dialog = page.getByRole('dialog');
+    const dialog = page.getByRole('dialog', { name: SUPPLIER_DIALOG_RE });
 
     await narrate(page, 'Fill in the supplier contact details', async () => {
       await expect(dialog).toBeVisible({ timeout: 10_000 });
@@ -110,7 +112,7 @@ test.describe('Tutorial: suppliers', () => {
       await page.getByRole('button', { name: RECEIVE_SHIPMENT_RE }).click();
     });
 
-    const dialog = page.getByRole('dialog');
+    const dialog = page.getByRole('dialog', { name: RECEIVE_SHIPMENT_DIALOG_RE });
 
     await narrate(page, 'Choose the supplier and add a line item', async () => {
       await expect(dialog).toBeVisible({ timeout: 10_000 });
