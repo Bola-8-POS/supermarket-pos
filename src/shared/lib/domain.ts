@@ -1079,7 +1079,12 @@ export const CajaReportStaffSchema = z.object({
   staffId: UuidSchema,
   staffName: z.string(),
   orderCount: z.number().int(),
-  salesTotal: MoneySchema,
+  // Net total (sales minus refunds attributed to this staff member for the
+  // session) — a staff member who only processes refunds nets negative for
+  // that session, which is real and must render (MoneyDisplay already
+  // supports negative amounts), so this can't use the nonnegative
+  // MoneySchema like a raw sale/payment amount would.
+  salesTotal: z.number().multipleOf(0.01),
 });
 
 export const CajaReportSchema = z.object({
