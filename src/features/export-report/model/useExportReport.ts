@@ -524,6 +524,9 @@ export function useExportReport() {
 
       await writeFile(filePath, bytes);
 
+      // Longer than Sonner's 4000ms default: outlasts the tutorial-video harness's
+      // slowMo-paced narrate() assertion window (gap G-34-1) and reads better for a
+      // confirmation the user may not be watching for.
       toast.success(i18n.t('featMgmt:exportReport.successToast'), { duration: 8000 });
       logger.info('export.report.success', { type });
       return ok(undefined);

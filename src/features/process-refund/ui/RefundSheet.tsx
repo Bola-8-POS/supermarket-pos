@@ -175,6 +175,9 @@ export function RefundSheet({ open, paymentId, onOpenChange }: RefundSheetProps)
       t('processRefund.refundProcessed', {
         amount: formatMoney(Math.round(refundTotal * 100) / 100),
       }),
+      // Longer than Sonner's 4000ms default: a financial confirmation toast fading
+      // before it's read is a real UX gap on its own, and it also has to outlast the
+      // tutorial-video harness's slowMo-paced narrate() assertion window (gap G-34-1).
       { duration: 8000 }
     );
     onOpenChange(false);
