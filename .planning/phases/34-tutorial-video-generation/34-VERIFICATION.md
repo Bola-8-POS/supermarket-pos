@@ -1,160 +1,139 @@
 ---
 phase: 34-tutorial-video-generation
-verified: 2026-09-16T23:30:00Z
+verified: 2026-09-17T20:00:00Z
 status: passed
 score: 6/6 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
-  previous_status: gaps_found
-  previous_score: 3/6
+  previous_status: passed (stale — predates UAT gap G-34-1 discovery and its 34-07 gap-closure plan)
+  previous_score: 6/6
   gaps_closed:
-    - "tutorial-videos/ contains the full bilingual deliverable — one video per e2e/ domain folder (12 domains) plus the full-walkthrough video, in both es-MX and en-US (50 non-empty .mp4 files total)"
+    - "Tutorial videos give a human viewer enough time to see each click/fill before the next one fires (G-34-1) — closed via playwright.tutorial.config.ts's use.launchOptions.slowMo: 600, proven at single-spec scale (+9.72s) and fleet-wide scale (+673.52s / +55%)"
   gaps_remaining: []
   regressions: []
 ---
 
 # Phase 34: Tutorial Video Generation Verification Report
 
-**Phase Goal:** Playwright/Chromium-driven HD video walkthroughs exist under `tutorial-videos/` — one
-video per `e2e/` domain folder plus one long full end-to-end walkthrough — in es-MX and en-US, each
-action paced with a 2-4s hold so the recording is watchable as a customer-facing training runbook,
-converted to MP4 via ffmpeg, ready to embed on the product website and hand to customers for staff
-training.
+**Phase Goal:** Produce a reusable Playwright video-recording harness and generate narrated, bilingual
+(es-MX/en-US) tutorial videos covering every e2e domain plus a full business-day walkthrough, with
+individually-visible per-action pacing (not just pauses between narrated blocks).
 
-**Verified:** 2026-09-16
+**Verified:** 2026-09-17
 **Status:** passed
-**Re-verification:** Yes — after gap closure
+**Re-verification:** Yes — after gap-closure plan 34-07 (UAT gap G-34-1)
 
 ## Goal Achievement
 
-This is a re-verification. The prior pass (2026-09-16, `gaps_found`, 3/6) found that the deliverable
-directory (`tutorial-videos/`) did not exist at all on disk, despite every plan's SUMMARY.md claiming
-it did — because wave-3 execution happened inside an isolated executor git worktree whose output
-(gitignored, so never merged) was force-removed after the worktree merged back. The orchestrator has
-since re-run the full recording + conversion pipeline directly in the main checkout (not an isolated
-worktree). I independently re-verified the filesystem from scratch, trusting no SUMMARY claim.
+The prior `34-VERIFICATION.md` (2026-09-16) certified 6/6 truths passed, but that pass predates the
+UAT session that found gap G-34-1 (videos "too fast to follow" — `narrate()` only paced *between*
+action closures, never between the raw `.click()`/`.fill()` calls bundled inside one). Plan 34-07
+closed that gap. This verification independently re-checks the codebase and file system from scratch —
+not the prior VERIFICATION.md's claims, not 34-07-SUMMARY.md's claims.
 
-### Direct Filesystem Verification (this pass, not SUMMARY narrative)
+### Direct Filesystem/Code Verification (this pass)
 
 ```
-find tutorial-videos -type f -iname "*.mp4" | wc -l        → 50
-find tutorial-videos -type f -iname "*es-MX*.mp4" | wc -l  → 25
-find tutorial-videos -type f -iname "*en-US*.mp4" | wc -l  → 25
-find tutorial-videos -type f -size 0                        → (empty — zero zero-byte files)
-find tutorial-videos -mindepth 1 -maxdepth 1 -type d | wc -l → 13
-find tutorial-videos -type f ! -iname "*.mp4"                → (empty — no stray non-mp4 files)
-find tutorial-videos/full-walkthrough -type f                → exactly 2 files (.en-US.mp4, .es-MX.mp4)
+grep launchOptions playwright.tutorial.config.ts   → launchOptions: { slowMo: 600 }, with an
+                                                       explanatory comment tying it to G-34-1
+find tutorial-videos -iname "*.mp4" | wc -l          → 50
+find tutorial-videos -iname "*es-MX*.mp4" | wc -l    → 25
+find tutorial-videos -iname "*en-US*.mp4" | wc -l    → 25
+find tutorial-videos -type f -size 0 | wc -l         → 0
+find tutorial-videos -mindepth 1 -maxdepth 1 -type d | wc -l → 13 (12 domains + full-walkthrough)
+find tutorial-videos -type f ! -iname "*.mp4"        → (empty — no stray files)
+find e2e-results-tutorials/raw -iname "*.webm" | wc -l → 50
+Fleet-wide ffprobe duration sum (this session, independently recomputed) → 1900.48s
+  vs. plan-recorded pre-fix baseline 1226.96s → +673.52s (+55%), confirms fleet-wide pacing increase
+ffprobe tutorial-videos/checkout/cashier-completes-a-cash-sale.es-MX.mp4 → 27.52s
+  (pre-fix baseline for this exact file was 17.92s per 34-07-PLAN.md's Task 2 — final converted MP4
+  also reflects the pacing increase, not just the raw .webm probed during Task 2)
+git log --name-only d1e646c..HEAD -- e2e/tutorials/  → (empty — no *.spec.ts or fixtures.ts file
+                                                          under e2e/tutorials/ was touched by the
+                                                          gap-closure commits)
+git show 6dda875                                     → touches exactly 2 lines in 2 files
+                                                        (RefundSheet.tsx, useExportReport.ts),
+                                                        each adding { duration: 8000 } to one
+                                                        toast.success() call — matches SUMMARY claim
+                                                        exactly, no scope creep
+npx tsc --noEmit                                     → no errors in the 2 modified toast files
 ```
-
-13 subfolders present, exactly matching the 12 `e2e/` domains (audit, caja, checkout, inventory,
-payments, promotions, purchase-orders, receipts, reports, settings, staff-rbac, suppliers) plus
-`full-walkthrough/`. Every domain folder holds 2 scenario filenames × 2 locales = 4 files;
-`full-walkthrough/` holds 1 scenario filename × 2 locales = 2 files. 12×4 + 2 = 50. All 50 files are
-non-zero size (smallest: 618,432 bytes / 5.72s for the short "cashier redirected from RBAC" clip;
-largest: 8,027,630 bytes / 92.84s for the es-MX full-walkthrough).
-
-**Codec/playability spot-checks (ffprobe, this session):**
-
-| File | Codec | Resolution | Duration | Result |
-|------|-------|------------|----------|--------|
-| `checkout/cashier-completes-a-cash-sale.es-MX.mp4` | h264 | 1920x1080 | 17.92s | ✓ valid |
-| `full-walkthrough/…en-US.mp4` | h264 | 1920x1080 | 92.84s | ✓ valid |
-| `staff-rbac/…rbac-page.en-US.mp4` (smallest file) | h264 | 1920x1080 | 5.72s | ✓ valid |
-
-All three probed files are real H.264/1920×1080 MP4s with plausible non-zero durations — not
-truncated or corrupt stubs. `.gitignore` correctly excludes `tutorial-videos/` (build output, not
-committed source) and `git check-ignore -v` confirms it actively applies to these files.
 
 ### Observable Truths
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | A reusable Playwright HD video-recording harness exists with a real 2-4s post-action hold (VIDEO-01) | ✓ VERIFIED | Unchanged from prior pass — `e2e/tutorials/pacing.ts` unit-tested; harness proven to actually produce real recordings (now proven at full scale, not just spot-check). |
-| 2 | One narrated video per `e2e/` domain folder exists (12 domains) (VIDEO-02) | ✓ VERIFIED | All 12 domain folders under `tutorial-videos/` now contain 4 real, non-empty, ffprobe-valid `.mp4` files each (2 scenarios × 2 locales). Directly confirmed on disk this session. |
-| 3 | One long full end-to-end business-day walkthrough video exists (VIDEO-03) | ✓ VERIFIED | `tutorial-videos/full-walkthrough/` contains exactly 2 files (es-MX + en-US), both ffprobe-valid H.264/1080p, ~93s duration — consistent with a chained multi-role business-day scenario. |
-| 4 | Every recorded scenario is produced in both es-MX and en-US (VIDEO-04) | ✓ VERIFIED | Exactly 25 `*.es-MX.mp4` and 25 `*.en-US.mp4` files counted directly via `find`, spanning all 13 spec groups (1:1 pairing confirmed by filename inspection — every es-MX filename has a matching en-US sibling). |
-| 5 | Raw `.webm` captures are converted to HD `.mp4` via ffmpeg, written under `tutorial-videos/<domain>/`, gitignored (VIDEO-05) | ✓ VERIFIED | All 50 output files are `.mp4` (no stray `.webm` or other extensions found under `tutorial-videos/`), confirmed H.264/1080p via ffprobe, `.gitignore` correctly excludes the directory (`git check-ignore -v` confirms), directory is untracked (`git status` shows it as `??` was absent before, now correctly gitignored rather than appearing as untracked). |
-| 6 | Recording scripts were built without an open-ended debugging loop; stop-and-ask honored when hit (VIDEO-06) | ✓ VERIFIED | Unchanged from prior pass — no debt markers in `e2e/tutorials/**`; `34-REVIEW.md` (0 critical) and SUMMARY deviation logs show bounded, resolved fixes, not unbounded iteration. |
+| 1 | `playwright.tutorial.config.ts` has a real, non-zero `slowMo` value pacing every Playwright action (VIDEO-01) | ✓ VERIFIED | `use.launchOptions.slowMo: 600` confirmed on disk with explanatory comment referencing G-34-1. |
+| 2 | Consecutive actions inside one `narrate()` closure are now individually visible, not just paced between blocks (G-34-1 root cause) | ✓ VERIFIED | Fleet-wide duration increased 1226.96s → 1900.48s (+55%), and the single representative spec (checkout cash sale) increased 17.92s → 27.52s in the final converted MP4 — consistent, measurable, non-trivial pacing added across the whole deliverable, not a config change that silently did nothing. |
+| 3 | `tutorial-videos/` contains exactly 50 non-empty, playable .mp4 files (25 es-MX + 25 en-US, 13 spec groups) (VIDEO-02/03/04/05) | ✓ VERIFIED | Directly counted: 50 total, 25/25 split, 0 zero-byte, 13 subfolders (12 domains + full-walkthrough), no stray non-mp4 files. |
+| 4 | `e2e-results-tutorials/raw/` contains exactly 50 .webm raw captures (VIDEO-01/05) | ✓ VERIFIED | Directly counted: 50 .webm files. |
+| 5 | No `*.spec.ts` file under `e2e/tutorials/` was modified by the gap-closure plan (success-criteria guardrail, VIDEO-06) | ✓ VERIFIED | `git log --name-only d1e646c..HEAD -- e2e/tutorials/` returns empty — only `playwright.tutorial.config.ts` (outside that path) and two unrelated `src/features/**` files changed. |
+| 6 | The regression fix (toast duration) is narrowly scoped and does not touch `pacing.ts` or any spec file (VIDEO-06) | ✓ VERIFIED | `git show 6dda875` touches exactly `RefundSheet.tsx` and `useExportReport.ts`, one `toast.success()` call each, adding `{ duration: 8000 }`. `e2e/tutorials/pacing.ts` untouched (confirmed via the same `git log --name-only` scope check above, which covers the whole `e2e/tutorials/` tree). |
 
-**Score:** 6/6 truths verified. The only truth that regressed in the prior pass (data-generation gap on
-truths 2-5) is now fully closed by direct filesystem evidence gathered in this session.
+**Score:** 6/6 truths verified.
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `e2e/tutorials/pacing.ts` + `.test.ts` | Pure hold/path helpers | ✓ VERIFIED | Unchanged — present, tested. |
-| `e2e/tutorials/i18n-selectors.ts` + `.test.ts` | Dual-locale selector constants | ✓ VERIFIED | Unchanged — present, tested. |
-| `e2e/tutorials/locale.ts` + `.test.ts` | `seedStaffLocale`/`currentTutorialLocale` | ✓ VERIFIED | Unchanged — present, tested. |
-| `e2e/tutorials/fixtures.ts` | `narrate()` + video-saveAs teardown | ✓ VERIFIED | Unchanged — present, proven to work at full scale now (50/50 outputs). |
-| `playwright.tutorial.config.ts` | HD (1920x1080) dedicated config | ✓ VERIFIED | Unchanged — present, `outputDir` fix from 34-06 holds (bilingual run did not wipe the first locale's output — 25 es-MX + 25 en-US both survive together). |
-| `scripts/tutorial-videos-convert.ts` + `.test.ts` | ffmpeg conversion pipeline | ✓ VERIFIED | Unchanged code, but now proven at full 50-file scale (was previously proven only at 2-file scale). |
-| `e2e/tutorials/{12 domains}/*.spec.ts` + `full-walkthrough.spec.ts` | One spec file per domain | ✓ VERIFIED | Present, committed, and this time their *output* is also present and correct. |
-| `tutorial-videos/**/*.mp4` | 50 non-empty playable MP4s (25 es-MX + 25 en-US) | ✓ VERIFIED | **Gap closed.** Confirmed present, correctly counted, correctly split, no zero-byte files, ffprobe-valid on spot-checked samples. |
+| `playwright.tutorial.config.ts` | `use.launchOptions.slowMo` numeric ms value | ✓ VERIFIED | `slowMo: 600`, commented, scoped only to the tutorial config (confirmed by 34-REVIEW.md's grep that `npm run test:e2e`'s `playwright.config.ts` has its own independent, untouched `slowMo`). |
+| `tutorial-videos/**/*.mp4` | 50 non-empty regenerated MP4s | ✓ VERIFIED | 50/50, 25/25 locale split, 0 zero-byte, fleet duration increased vs. baseline. |
+| `e2e-results-tutorials/raw/**/*.webm` | 50 regenerated raw captures | ✓ VERIFIED | 50/50 counted directly. |
+| `src/features/process-refund/ui/RefundSheet.tsx` | Regression fix: extended toast duration | ✓ VERIFIED | `duration: 8000` present on the refund-processed success toast; sibling `toast.error` untouched. |
+| `src/features/export-report/model/useExportReport.ts` | Regression fix: extended toast duration | ✓ VERIFIED | `duration: 8000` present on the export-success toast; sibling error path untouched. |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |------|-----|-----|--------|---------|
-| `*.spec.ts` (all 13 groups) | `fixtures.ts` | `narrate()` + video teardown | ✓ WIRED | Output exists for all 13 groups — the chain executed to completion. |
-| `page.video().saveAs()` | `scripts/tutorial-videos-convert.ts` | raw `.webm` → ffmpeg → `tutorial-videos/<domain>/*.mp4` | ✓ WIRED | All 50 final `.mp4` files exist; no leftover raw `.webm` files found under `tutorial-videos/` (correctly converted and the raw staging dir is separate/gitignored). |
-| Bilingual record runs | `TUTORIAL_LOCALE` env var | es-MX run then en-US run, both preserved | ✓ WIRED | Both locales' outputs coexist (25 + 25) — the `outputDir` collision bug fixed in 34-06 did not regress. |
+| `playwright.tutorial.config.ts`'s `slowMo` | Every raw `.click()`/`.fill()` inside every `narrate()` closure across all 13 spec files | Native Playwright CDP-level pacing, no spec-file edits | ✓ WIRED | Fleet-wide and single-spec duration deltas both confirm the mechanism actually engages, not just present in config. |
+| `slowMo`-paced recording | Toast-dismissal assertion in `payments.spec.ts`/`reports.spec.ts`/`full-walkthrough.spec.ts` | Extended `toast.success` `duration: 8000` | ✓ WIRED | All 50 specs pass in the regenerated fleet (per plan Task 3's "50/50 passed" result, cross-checked here by the fact that all 50 output files exist and are non-empty — a failed spec would leave that domain's file missing/stale). |
 
 ### Requirements Coverage
 
 | Requirement | Source Plan | Description | Status | Evidence |
 |-------------|------------|-------------|--------|----------|
-| VIDEO-01 | 34-01 | HD harness with 2-4s hold | ✓ SATISFIED | Harness code + full-scale successful run. |
-| VIDEO-02 | 34-01..34-05 | One video per domain (12) | ✓ SATISFIED | All 12 domain folders populated with real, valid MP4s. |
-| VIDEO-03 | 34-06 | One long full walkthrough | ✓ SATISFIED | `full-walkthrough/` contains 2 valid, ~93s MP4s. |
-| VIDEO-04 | all plans | es-MX + en-US bilingual | ✓ SATISFIED | 25/25 split confirmed directly. |
-| VIDEO-05 | 34-01, 34-06 | ffmpeg → MP4 under `tutorial-videos/` | ✓ SATISFIED | All 50 outputs are valid H.264 MP4s; gitignored correctly. |
-| VIDEO-06 | all plans | No open-ended debugging loop | ✓ SATISFIED | Unchanged — no debt markers, bounded fixes in review/summary logs. |
+| VIDEO-01 | 34-01, 34-07 | HD harness with 2-4s hold + per-action pacing | ✓ SATISFIED | Harness + `slowMo` fix both present and proven effective. |
+| VIDEO-02 | 34-01..34-05 | One video per domain (12) | ✓ SATISFIED | All 12 domain folders populated with regenerated, correctly-paced MP4s. |
+| VIDEO-03 | 34-06 | One long full walkthrough | ✓ SATISFIED | `full-walkthrough/` contains exactly 2 regenerated files. |
+| VIDEO-04 | all plans, 34-07 | es-MX + en-US bilingual | ✓ SATISFIED | 25/25 split confirmed directly, both locales regenerated with the fix. |
+| VIDEO-05 | 34-01, 34-06, 34-07 | ffmpeg → MP4 under `tutorial-videos/`, regenerated with fix | ✓ SATISFIED | 50/50 valid outputs, fleet duration increase confirms regeneration with corrected pacing (not stale pre-fix files left in place). |
+| VIDEO-06 | all plans | No open-ended debugging loop; stop-and-ask honored | ✓ SATISFIED | The toast-dismissal regression was escalated to the user as a decision checkpoint (3 candidate fixes presented) rather than auto-resolved or iterated on unattended — matches this requirement's intent exactly. |
 
-**Requirement IDs cross-referenced against `.planning/REQUIREMENTS.md`:** all six (`VIDEO-01`..`VIDEO-06`)
-are present in the "Tutorial Videos" section and mapped to Phase 34 in the traceability table — every
-ID declared across the phase's plans is accounted for; none orphaned.
-
-**Documentation-hygiene note (non-blocking):** `.planning/REQUIREMENTS.md`'s six `VIDEO-0X` checkboxes
-are still unchecked (`[ ]`) and the traceability table still reads "Not Started" for all six, and this
-edit is currently uncommitted in the working tree (`git status` shows the file modified). This is a
-paperwork/bookkeeping gap, not a code or deliverable gap — the underlying evidence for every requirement
-is now verified present on disk. Recommend flipping the six checkboxes to `[x]` and the traceability
-rows to "Complete" as part of closing out this phase (e.g. via `/gsd-ship`), but it does not block the
-phase goal, which is about the video artifacts existing and being usable — which they now are.
+`.planning/REQUIREMENTS.md` has all six `VIDEO-0X` checkboxes checked (`[x]`) and the traceability table
+marks all six "Complete" — the documentation-hygiene gap flagged in the prior VERIFICATION.md pass has
+since been closed. No orphaned requirement IDs: all six `VIDEO-0X` IDs declared across plans 34-01
+through 34-07 map to entries in REQUIREMENTS.md, and no REQUIREMENTS.md `VIDEO-0X` entry is unclaimed
+by any plan.
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| `package.json` / `vitest.config.ts` | 16-21 / 107-116 | `e2e-tools` vitest project (12 harness unit tests) still never invoked by `npm run test` or CI (carried over from 34-REVIEW.md WR-01, unresolved) | ⚠️ Warning | Pre-existing, non-blocking; a regression in the harness's pure helpers would pass CI silently. Does not affect the already-recorded deliverable. |
-| `e2e/tutorials/payments/payments.spec.ts:245,269`, `e2e/tutorials/full-walkthrough/full-walkthrough.spec.ts:105` | — | Manager PIN read via raw `process.env['E2E_MANAGER_PIN'] ?? ''` instead of `staffForRole('manager').pin` (carried over from 34-REVIEW.md WR-02, unresolved) | ⚠️ Warning | Pre-existing, non-blocking; the actual recording run succeeded (proven by the valid output files), so this fragility did not manifest as a failure this time, but remains a latent risk for future re-recording runs. |
-| `.planning/REQUIREMENTS.md` | 333-338, 470-475 | `VIDEO-0X` checkboxes/traceability rows not updated to reflect completion | ℹ️ Info | Documentation-only; does not affect the deliverable's existence or usability. |
+| `src/features/process-refund/ui/RefundSheet.tsx:178`, `src/features/export-report/model/useExportReport.ts:527` | — | Test-harness-driven production UX change (`duration: 8000`) with no code comment tying the magic number to its cause, and no product decision doc recording that these two toasts now intentionally behave differently from every other toast in the app (`34-REVIEW.md` WR-01/IN-01, carried forward, unresolved) | ⚠️ Warning | Every real cashier/admin now sees these two success toasts stay up 8s instead of ~4s, forever — not just during tutorial recording. A future maintainer "cleaning up" the seemingly arbitrary literal back to the default would silently reopen G-34-1 the next time videos are regenerated, with no CI signal (the affected specs live under the non-CI `e2e/tutorials/` suite). Does not block the phase goal (videos exist, correctly paced) but is an unresolved code-quality/maintainability risk directly caused by this phase's own gap-closure fix. |
+| `package.json` / `vitest.config.ts` | — | `e2e-tools` vitest project (harness unit tests) still never invoked by `npm run test` or CI (carried over from 34-REVIEW.md original pass, unresolved) | ⚠️ Warning | Pre-existing, non-blocking; unrelated to G-34-1 but still open. |
 
-No `TBD`/`FIXME`/`XXX` debt markers found in any file touched by this phase — the debt-marker gate does
-not trigger.
+No `TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER` debt markers found in `playwright.tutorial.config.ts`,
+`RefundSheet.tsx`, or `useExportReport.ts` — the debt-marker gate does not trigger.
 
 ## Gaps Summary
 
-None. The single gap from the prior verification pass — the missing `tutorial-videos/` deliverable —
-is closed. Direct, independent filesystem inspection in this session (not a re-read of any SUMMARY.md
-claim) confirms: exactly 50 non-empty `.mp4` files, exactly 25 `es-MX` + 25 `en-US`, spanning all 13
-expected subfolders (12 `e2e/` domains + `full-walkthrough`), `full-walkthrough/` containing exactly 2
-files, no zero-byte or stray files, and ffprobe-confirmed valid H.264/1920×1080 video streams on three
-spot-checked samples across different sizes (smallest, largest, and a mid-size domain clip).
+None blocking. UAT gap G-34-1 is closed: `playwright.tutorial.config.ts`'s `launchOptions.slowMo: 600`
+measurably paces every individual action inside a `narrate()` closure (fleet-wide +55% duration, single
+spec +9.72s raw / consistent in the final converted MP4), all 50 tutorial videos were regenerated with
+the fix in place (not stale pre-fix files), no spec file under `e2e/tutorials/` was touched, and the
+regression the fix exposed (a slowMo-paced assertion window outlasting Sonner's default 4000ms toast)
+was root-caused and fixed with a narrowly-scoped, user-approved change to exactly two toast call sites.
 
-Two pre-existing code-review warnings (WR-01: harness unit tests not wired into `npm run test`; WR-02:
-raw `process.env` PIN read) remain open from `34-REVIEW.md` and are carried forward here for visibility,
-but they are quality/robustness concerns about future maintainability, not blockers on the
-already-achieved phase goal. The `.planning/REQUIREMENTS.md` checkbox/traceability staleness is a
-documentation-hygiene item, also non-blocking.
-
-The phase goal — HD, bilingual, ffmpeg-converted Playwright video walkthroughs for staff training,
-ready to hand to customers and embed on the product website — is achieved and now durably present in
-the main checkout (not trapped in a since-deleted isolated worktree).
+Two pre-existing/newly-surfaced code-review warnings remain open (WR-01: undocumented production toast-
+duration side effect with no code comment or product decision doc; the pre-existing `e2e-tools` vitest
+wiring gap) — both are quality/maintainability concerns, not blockers on the phase's already-achieved
+goal. Recommend addressing WR-01 (a one-line code comment at each call site, per `34-REVIEW.md`'s
+suggested fix) in a follow-up, since it is the one item with a real risk of silently regressing this
+exact phase's fix if a future maintainer "cleans up" the toast duration without knowing why it exists.
 
 ---
 
-*Verified: 2026-09-16*
+*Verified: 2026-09-17*
 *Verifier: Claude (gsd-verifier)*
