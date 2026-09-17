@@ -1,185 +1,115 @@
 ---
 phase: 34-tutorial-video-generation
-reviewed: 2026-09-16T00:00:00Z
+reviewed: 2026-09-17T00:00:00Z
 depth: standard
-files_reviewed: 28
+files_reviewed: 3
 files_reviewed_list:
-  - .gitignore
-  - e2e/helpers/auth.ts
-  - e2e/tutorials/audit/audit.spec.ts
-  - e2e/tutorials/caja/caja.spec.ts
-  - e2e/tutorials/checkout/checkout.spec.ts
-  - e2e/tutorials/fixtures.ts
-  - e2e/tutorials/full-walkthrough/full-walkthrough.spec.ts
-  - e2e/tutorials/i18n-selectors.test.ts
-  - e2e/tutorials/i18n-selectors.ts
-  - e2e/tutorials/inventory/inventory.spec.ts
-  - e2e/tutorials/locale.test.ts
-  - e2e/tutorials/locale.ts
-  - e2e/tutorials/pacing.test.ts
-  - e2e/tutorials/pacing.ts
-  - e2e/tutorials/payments/payments.spec.ts
-  - e2e/tutorials/promotions/promotions.spec.ts
-  - e2e/tutorials/purchase-orders/purchase-orders.spec.ts
-  - e2e/tutorials/receipts/receipts.spec.ts
-  - e2e/tutorials/reports/reports.spec.ts
-  - e2e/tutorials/settings/settings.spec.ts
-  - e2e/tutorials/staff-rbac/staff-rbac.spec.ts
-  - e2e/tutorials/suppliers/suppliers.spec.ts
-  - package.json
-  - playwright.config.ts
   - playwright.tutorial.config.ts
-  - scripts/tutorial-videos-convert.test.ts
-  - scripts/tutorial-videos-convert.ts
-  - src/shared/lib/domain.ts
-  - vitest.config.ts
+  - src/features/process-refund/ui/RefundSheet.tsx
+  - src/features/export-report/model/useExportReport.ts
 findings:
   critical: 0
-  warning: 3
-  info: 2
-  total: 5
+  warning: 1
+  info: 1
+  total: 2
 status: issues_found
 ---
 
 # Phase 34: Code Review Report
 
-**Reviewed:** 2026-09-16
+**Reviewed:** 2026-09-17
 **Depth:** standard
-**Files Reviewed:** 28
+**Files Reviewed:** 3
 **Status:** issues_found
 
 ## Summary
 
-This phase adds a Playwright-based tutorial-video-recording harness (`e2e/tutorials/**`), a small
-shared pacing/locale/selector library, a video→mp4 conversion script, and one production fix in
-`src/shared/lib/domain.ts`.
+Re-review scoped to gap-closure plan 34-07 only: commit `d1e646c` (adds
+`launchOptions.slowMo: 600` to `playwright.tutorial.config.ts`) and commit
+`6dda875` (extends the refund and CSV-export success-toast `duration` to
+`8000` in `RefundSheet.tsx` / `useExportReport.ts`). Diffs were pulled
+directly via `git show` for both commits to confirm exactly what changed.
 
-The one production change — loosening `CajaReportStaffSchema.salesTotal` from the nonnegative
-`MoneySchema` to a plain `z.number().multipleOf(0.01)` — is correct, minimal, and well-isolated.
-It does not touch `MoneySchema` itself or any other schema, so no other validation is loosened.
-`git blame`/`git show` confirm this is the only commit touching that line, and the change is
-consistent with `CajaReportPanel.tsx`'s existing use of `MoneyDisplay`, which already renders
-negative amounts. No issue found here.
+**`slowMo` scoping — confirmed safe, no issue.** `playwright.tutorial.config.ts`
+is only wired to the `tutorial-videos:record` npm script
+(`playwright test --config=playwright.tutorial.config.ts`). `npm run test:e2e`
+(CI-critical suite) uses `playwright.config.ts`, which has its own
+independent `slowMo` (`fastE2e ? 0 : 400`) untouched by this change. There is
+no shared import or config inheritance between the two files, so `slowMo: 600`
+cannot leak into CI or into the app's production build. The comment added at
+lines 46-51 correctly documents why native `slowMo` is needed in addition to
+`pacing.ts`'s `resolveHoldMs` (which only paces *between* `narrate()` blocks,
+never the raw `.click()`/`.fill()` calls bundled inside one). No functional
+issue found in this part of the diff.
 
-The e2e/tutorial harness itself (`pacing.ts`, `locale.ts`, `i18n-selectors.ts`, `fixtures.ts`) is
-carefully built and covered by real unit tests. Spot-checking a large sample of the dual-locale
-regex selectors against the actual es-MX/en-US locale JSON files (`wPanels.json`, `wAdmin.json`,
-`pages.json`, `featOrders.json`) found them all correct. `playwright.tutorial.config.ts`'s
-`outputDir` fix (moving it to a `.pw-artifacts` sibling folder so Playwright's own output-clearing
-`rm -rf` no longer deletes the first locale's already-saved `.webm` files on the second locale's
-run) is correct and verified against the commit that introduced the bug.
-
-Two real gaps were found, both quality/robustness issues rather than production bugs: the four new
-Vitest unit-test files for this harness are never actually executed by any npm script or CI
-pathway (they sit in a `vitest.config.ts` project — `e2e-tools` — that nothing runs), and three
-call sites read `E2E_MANAGER_PIN` directly via `process.env[...] ?? ''` instead of through the
-existing `staffForRole()` helper, silently entering an empty PIN instead of failing loudly when the
-env var is missing.
+**Toast-duration fix — correctly and narrowly scoped, but has an
+undocumented production side effect.** Both edits touch exactly the one
+`toast.success(...)` call each file's diff hunk shows (`RefundSheet.tsx:174-179`,
+`useExportReport.ts:527`); no other toast call in either file was touched,
+and the sibling `toast.error(...)` paths (`RefundSheet.tsx:171`,
+`useExportReport.ts:532`) correctly remain untouched since the tutorial specs
+only exercise the happy path for these two flows. A repo-wide grep confirms
+these are the *only two* `toast.success`/`toast.error` call sites in the
+entire `src/` tree that pass an explicit `duration` option — see WR-01 below
+for why that matters.
 
 ## Warnings
 
-### WR-01: New harness unit tests are never run by any script or CI job
+### WR-01: Test-pacing fix silently doubles a real-user-facing toast duration, with no comment tying the magic number to its cause
 
-**File:** `vitest.config.ts:107-116`, `package.json:16-21`
-
-**Issue:** `vitest.config.ts` defines a third project, `e2e-tools`, whose `include` covers exactly
-the four test files delivered by this phase (`e2e/tutorials/pacing.test.ts`,
-`e2e/tutorials/locale.test.ts`, `e2e/tutorials/i18n-selectors.test.ts`,
-`scripts/tutorial-videos-convert.test.ts`). Every test-running script in `package.json`
-(`test`, `test:watch`, `test:ui`, `test:coverage`) is hardcoded to `--project unit`, and there is no
-`test:e2e-tools` (or equivalent) script, nor any reference to the `e2e-tools` project name anywhere
-in `package.json` or a CI workflow. `npm run test` — the CLAUDE.md-documented CI gate — therefore
-never executes these four files. They only run if someone manually types
-`npx vitest run --project e2e-tools`, which nobody is instructed to do. In practice this is
-untested code from day one: a regression in `resolveHoldMs`, `buildVideoOutputPath`,
-`seedStaffLocale`, `selectProductRe`, or `resolveOutputPath`/`buildFfmpegArgs` will pass CI silently.
-
-**Fix:** Add a script that runs it (and wire it into whatever aggregate "test" step CI actually
-invokes), e.g.:
-```json
-"test:e2e-tools": "vitest run --project e2e-tools --reporter=dot",
-```
-and either fold it into `npm run test` (`vitest run --project unit --project e2e-tools --reporter=dot`)
-or add a fourth conjunct to whatever CI job runs `npm run test`.
-
-### WR-02: Manager PIN read via raw `process.env` instead of the existing validated helper — silently enters an empty PIN if unset
-
-**File:** `e2e/tutorials/payments/payments.spec.ts:245`, `e2e/tutorials/payments/payments.spec.ts:269`, `e2e/tutorials/full-walkthrough/full-walkthrough.spec.ts:105`
-
-**Issue:** All three call sites already import `staffForRole` from `../../helpers/auth` (and use it
-for `.name` in the same file), but read the manager's PIN with
-`process.env['E2E_MANAGER_PIN'] ?? ''` instead of `staffForRole('manager').pin`. `staffForRole()`
-goes through `envOrThrow()`, which throws an explicit, actionable error
-(`Missing required env: E2E_MANAGER_PIN ...`) the moment the env var is missing or blank. The
-direct-`process.env` path instead silently produces `managerPin = ''`; `enterPin(page, '')`
-(`e2e/helpers/auth.ts:42-47`) then iterates zero times over the empty string, clicking no PIN keys
-at all, and the test fails later with an opaque timeout on the PIN dialog rather than a clear
-"missing env var" message — the exact failure mode `envOrThrow` exists to prevent.
-
-**Fix:** Use the already-imported helper consistently:
+**File:** `src/features/process-refund/ui/RefundSheet.tsx:178`
+**File:** `src/features/export-report/model/useExportReport.ts:527`
+**Issue:** The fix changes production UX for every real cashier/admin, not
+just the tutorial-recording pipeline: the refund-processed and CSV-export
+success toasts now stay on screen for 8000ms instead of Sonner's default
+~4000ms, for every store using the app, forever — not only during
+`tutorial-videos:record`. That's a legitimate way to close the race (the plan
+doc/commit message explains it clearly), but the *source files themselves*
+carry zero indication of why `duration: 8000` was chosen or that it exists to
+satisfy a test-harness timing constraint (`e2e/tutorials/pacing.ts`'s
+`resolveHoldMs` 3000ms hold + slowMo-paced narrate-block overhead landing
+~4.4s after the toast fires). The only place this reasoning is recorded is
+the `6dda875` commit message. A future maintainer editing either toast call
+(e.g. localizing copy, adjusting the refund flow) has no signal that
+"cleaning up" the seemingly arbitrary `duration: 8000` back to the default
+would silently reopen UAT gap G-34-1 the next time tutorial videos are
+regenerated — and no test in the default `npm run test`/`npm run test:e2e`
+run would catch that regression, since the affected specs live under the
+separate, non-CI `e2e/tutorials/` suite. It also makes these two toasts
+behave inconsistently with every other toast in the app (confirmed via grep:
+no other `toast.success`/`toast.error` call anywhere in `src/` passes a
+`duration` override) with no accompanying product decision recorded
+(`.planning/decisions/`) that 8s is now the intended UX for financial-impact
+confirmations.
+**Fix:** Add a one-line comment at each call site tying the literal to its
+cause, e.g.:
 ```ts
-const { pin: managerPin } = staffForRole('manager');
+// duration: 8000 (default is ~4000) — keeps this toast visible long enough
+// to survive tutorial-video slowMo pacing (playwright.tutorial.config.ts);
+// see UAT gap G-34-1. Do not revert to the default without re-running
+// `npm run tutorial-videos:record`'s refund/export specs.
+toast.success(t('processRefund.refundProcessed', { amount: ... }), { duration: 8000 });
 ```
-
-### WR-03: `e2e/tutorials/settings/settings.spec.ts`'s second test depends on execution order of the first
-
-**File:** `e2e/tutorials/settings/settings.spec.ts:117-163`
-
-**Issue:** Test 2 (`'a dirty settings tab prompts Save/Discard/Stay on navigation away'`) does not
-call `resetTestState()` and relies on a code comment's claim that Test 1 always runs first because
-`playwright.tutorial.config.ts` sets `fullyParallel: false, workers: 1`. That's true for a full
-`npx playwright test --config=playwright.tutorial.config.ts` run of the whole file, but breaks
-under any narrower invocation Playwright explicitly supports and this suite's own package.json
-comments elsewhere assume people will use — e.g. `playwright test e2e/tutorials/settings -g "dirty
-settings tab"` while debugging a flaky recording, or reordering/adding a test above it later. In
-this specific case the fallout is limited (the dual-locale selectors this test uses are
-locale-agnostic, so it happens to still pass regardless of actual staff locale state), but the
-pattern — silent cross-test ordering dependency guarded only by a comment, not an explicit
-`test.describe.configure({ mode: 'serial' })` or an assertion — is fragile and will bite the next
-person who adds a test between them.
-
-**Fix:** Make the dependency explicit and enforced, not just documented:
-```ts
-test.describe.configure({ mode: 'serial' });
-```
-at the top of the `describe` block (Playwright will then fail loudly instead of silently reordering
-if the constraint is ever violated).
+Optionally hoist the value into a single shared named constant (e.g.
+`TOAST_DURATION_TUTORIAL_SAFE_MS` in `@shared/lib`) so both call sites stay
+in sync and a grep for the constant name surfaces both usages together.
 
 ## Info
 
-### IN-01: `caja.spec.ts`'s `.single()` query assumes exactly one open caja session exists
+### IN-01: `8000` is a duplicated magic number across two files
 
-**File:** `e2e/tutorials/caja/caja.spec.ts:96-100`
-
-**Issue:** `admin.from('caja_sessions').select('id').eq('status', 'open').single()` throws if more
-than one row matches. Per CLAUDE.md, caja sessions are now scoped per-terminal (multiple can be
-open simultaneously across terminals), so this query is only safe because `resetTestState()` is
-assumed to leave exactly one caja session open (the one just opened via the UI two lines above).
-That assumption holds today but isn't defensive — a future change to `resetTestState()` or to this
-test (e.g., adding a second terminal to the tutorial) will produce an opaque "JSON object requested,
-multiple (or no) rows returned" error instead of a clear one.
-
-**Fix:** Scope the query to the terminal this test actually opened, e.g.
-`.eq('terminal_id', 'POS-1')`, or use `.limit(1).maybeSingle()` with an explicit null-check error
-message.
-
-### IN-02: `buildVideoOutputPath`'s output path collides across spec files that happen to share both a domain folder name and a test title
-
-**File:** `e2e/tutorials/pacing.ts:30-37`
-
-**Issue:** The raw `.webm` path is `raw/<parent-dir-of-spec-file>/<slugified-test-title>.<locale>.webm`
-— it does not include the spec filename itself, only its parent directory. Today every tutorial
-domain folder holds exactly one spec file, so this is harmless, but nothing enforces that
-invariant; a second spec file added to the same domain folder with a same-named test (e.g. two
-"happy path" tests in different files under `e2e/tutorials/checkout/`) would silently overwrite one
-video with the other with no error, only `video.saveAs()` succeeding twice into the same path.
-
-**Fix:** Not urgent given the current one-file-per-domain convention; if a second spec file is ever
-added to a domain folder, include the spec's own basename in the output path to guarantee
-uniqueness.
+**File:** `src/features/process-refund/ui/RefundSheet.tsx:178`
+**File:** `src/features/export-report/model/useExportReport.ts:527`
+**Issue:** The same literal `8000` is repeated in two unrelated feature
+folders with no shared constant. Minor duplication; if a third toast ever
+needs the same treatment (or these two values ever need to move together,
+e.g. if a future `slowMo` bump in `playwright.tutorial.config.ts` requires a
+larger margin again), there's nothing enforcing they stay equal.
+**Fix:** Same remedy as WR-01 — a shared exported constant removes the
+duplication and gives both call sites a single point of change.
 
 ---
 
-_Reviewed: 2026-09-16_
+_Reviewed: 2026-09-17_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
