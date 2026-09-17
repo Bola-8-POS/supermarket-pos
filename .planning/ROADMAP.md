@@ -510,7 +510,7 @@ Plans:
 **Goal:** Playwright/Chromium-driven HD video walkthroughs exist under `tutorial-videos/` — one video per `e2e/` domain folder plus one long full end-to-end walkthrough — in es-MX and en-US, each action paced with a 2-4s hold so the recording is watchable as a customer-facing training runbook, converted to MP4 via ffmpeg, ready to embed on the product website and hand to customers for staff training.
 **Requirements**: VIDEO-01, VIDEO-02, VIDEO-03, VIDEO-04, VIDEO-05, VIDEO-06
 **Depends on:** Nothing (independent tooling/documentation phase; does not touch app code)
-**Plans:** 7/7 plans executed (gap closure: G-34-1 pacing fix in progress)
+**Plans:** 7/7 plans complete
 
 Plans:
 **Wave 1**
