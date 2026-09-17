@@ -3,16 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Receipt Designer + Inventory Management Expansion
 current_phase: 34
-status: completed
+current_phase_name: Tutorial Video Generation
+status: executing
 stopped_at: Phase 34 complete — all phases complete
-last_updated: "2026-09-16T22:21:17.766Z"
-last_activity: 2026-09-16
-last_activity_desc: Phase 34 complete
-state_head: cedf265537a6052a624fef12fa05eba2b05321fe
+last_updated: "2026-09-17T17:27:18.640Z"
+last_activity: 2026-09-17
+last_activity_desc: Phase 34 execution started
+state_head: 0db4b90f49eaf473eea056d397b2934d0898f6b2
 progress:
   total_phases: 17
   completed_phases: 12
-  total_plans: 62
+  total_plans: 63
   completed_plans: 62
   percent: 71
 ---
@@ -24,14 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-08)
 
 **Core value:** Fast, reliable checkout (barcode scan → cart → pay) backed by inventory that's always accurate — what's on the shelf, what's expiring, and what needs reordering — without the owner doing manual data entry for every supplier delivery.
-**Current focus:** Phase 33 — Login Screen Store Branding
+**Current focus:** Phase 34 — Tutorial Video Generation
 
 ## Current Position
 
-Phase: 34
-Status: All phases complete
+Phase: 34 (Tutorial Video Generation) — EXECUTING
+Status: Executing Phase 34
   Phase-level verification/completion is the orchestrator's next step, not yet run.
-Last activity: 2026-09-16 — Phase 34 complete
+Last activity: 2026-09-17 — Phase 34 execution started
   filter dropdowns added to the admin Catalog product table (`DataTable` `toolbar` prop, D-11) and to
   the POS checkout grid (secondary `<select>`s below `CategoryTabs`, AND-composed with the active
   category tab per D-12 — `CategoryTabs.tsx` itself verified untouched via `git diff --name-only` on
