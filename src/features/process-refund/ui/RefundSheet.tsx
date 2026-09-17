@@ -174,7 +174,8 @@ export function RefundSheet({ open, paymentId, onOpenChange }: RefundSheetProps)
     toast.success(
       t('processRefund.refundProcessed', {
         amount: formatMoney(Math.round(refundTotal * 100) / 100),
-      })
+      }),
+      { duration: 8000 }
     );
     onOpenChange(false);
   }

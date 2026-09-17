@@ -524,7 +524,7 @@ export function useExportReport() {
 
       await writeFile(filePath, bytes);
 
-      toast.success(i18n.t('featMgmt:exportReport.successToast'));
+      toast.success(i18n.t('featMgmt:exportReport.successToast'), { duration: 8000 });
       logger.info('export.report.success', { type });
       return ok(undefined);
     } catch (e) {
