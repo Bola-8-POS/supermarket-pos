@@ -43,6 +43,13 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:1520',
     headless: true,
+    // Native Playwright per-operation pacing (UAT gap G-34-1): pacing.ts's
+    // resolveHoldMs() only ever applies a hold BETWEEN narrate() blocks — the
+    // 2-3 raw .click()/.fill() calls bundled inside a single narrate()
+    // closure (e.g. checkout.spec.ts's fill-then-click) fired back-to-back
+    // with zero delay. slowMo delays every CDP-level input action, so those
+    // intra-block actions are now individually visible on playback too.
+    launchOptions: { slowMo: 600 },
     viewport: { width: 1920, height: 1080 },
     trace: 'off',
     video: {
