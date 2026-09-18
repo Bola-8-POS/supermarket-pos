@@ -36,20 +36,113 @@ pub fn now_iso() -> String {
     format!("{}", dur.as_millis())
 }
 
-/// Appends a timestamped line to `broker.log` and stderr. Best-effort — a log
-/// write failure must never break the broker itself.
+/// Disk-fill guard: the broker is a permanent Windows Service and used to
+/// append to `broker.log` forever with no cap. Rotate once the active file
+/// crosses this size instead.
+const MAX_LOG_BYTES: u64 = 10 * 1024 * 1024;
+/// Cap on rotated files kept alongside the active one (oldest deleted first).
+const MAX_ROTATED_LOGS: usize = 10;
+
+/// Takes an explicit `dir` (rather than calling `data_dir()` itself) so this
+/// is unit-testable against a tempdir instead of the real `%ProgramData%`.
+fn rotate_log_if_needed(path: &Path, dir: &Path, max_bytes: u64, max_rotated: usize) {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return;
+    };
+    if meta.len() < max_bytes {
+        return;
+    }
+    let rotated = dir.join(format!("broker.{}.log", now_iso()));
+    let _ = std::fs::rename(path, &rotated);
+
+    let mut rotated_logs: Vec<PathBuf> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("broker.") && n.ends_with(".log") && n != "broker.log")
+        })
+        .collect();
+    rotated_logs.sort_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
+    if rotated_logs.len() > max_rotated {
+        for p in rotated_logs.iter().take(rotated_logs.len() - max_rotated) {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+}
+
+/// Appends a timestamped line to `broker.log` and stderr, rotating the file
+/// once it grows past `MAX_LOG_BYTES`. Best-effort — a log write failure must
+/// never break the broker itself.
 pub fn log(msg: &str) {
+    log_at(msg, false);
+}
+
+/// Same as `log`, but also reports the message to the Windows Application
+/// Event Log (native OS logging service, visible in Event Viewer / any SIEM
+/// already reading it) — use for failures an operator needs to see without
+/// opening broker.log. No-op on non-Windows.
+pub fn log_error(msg: &str) {
+    log_at(msg, true);
+}
+
+fn log_at(msg: &str, is_error: bool) {
     use std::io::Write as _;
+    let path = log_path();
+    rotate_log_if_needed(&path, &data_dir(), MAX_LOG_BYTES, MAX_ROTATED_LOGS);
     let line = format!("{} {}\n", now_iso(), msg);
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_path())
-    {
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
         let _ = f.write_all(line.as_bytes());
     }
     eprint!("{line}");
+    if is_error {
+        report_to_event_log(msg);
+    }
 }
+
+#[cfg(windows)]
+fn report_to_event_log(msg: &str) {
+    use windows::core::PCWSTR;
+    use windows::Win32::System::EventLog::{
+        DeregisterEventSource, RegisterEventSourceW, ReportEventW, EVENTLOG_ERROR_TYPE,
+    };
+
+    fn wide(s: &str) -> Vec<u16> {
+        s.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    // Best-effort, ad-hoc event source (no registry-registered message DLL) —
+    // Event Viewer still records the source/message text; it just shows a
+    // generic "description not found" header instead of a formatted one.
+    unsafe {
+        let source = wide(crate::SERVICE_NAME);
+        let Ok(handle) = RegisterEventSourceW(None, PCWSTR(source.as_ptr())) else {
+            return;
+        };
+        if handle.is_invalid() {
+            return;
+        }
+        let message = wide(msg);
+        let strings = [PCWSTR(message.as_ptr())];
+        let _ = ReportEventW(
+            handle,
+            EVENTLOG_ERROR_TYPE,
+            0,
+            0,
+            None,
+            0,
+            Some(&strings),
+            None,
+        );
+        let _ = DeregisterEventSource(handle);
+    }
+}
+
+#[cfg(not(windows))]
+fn report_to_event_log(_msg: &str) {}
 
 const SCHEMA_SQL: &str = "CREATE TABLE IF NOT EXISTS jobs (
     id TEXT PRIMARY KEY,
@@ -126,6 +219,51 @@ mod tests {
             "print-broker-test-ledger-{name}-{}.db",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn rotate_log_if_needed_rolls_oversized_file_and_prunes_beyond_cap() {
+        let dir = std::env::temp_dir().join(format!(
+            "print-broker-test-rotate-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let active = dir.join("broker.log");
+
+        // Below the cap: no rotation.
+        std::fs::write(&active, "small").unwrap();
+        rotate_log_if_needed(&active, &dir, 1024, 10);
+        assert!(active.exists(), "file under cap must not rotate");
+
+        // Over the cap: rotates to a timestamped sibling, active path freed up.
+        std::fs::write(&active, "x".repeat(20)).unwrap();
+        rotate_log_if_needed(&active, &dir, 10, 10);
+        assert!(!active.exists(), "oversized file must be renamed away");
+        let rotated: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert_eq!(rotated.len(), 1, "exactly one rotated file expected");
+
+        // Beyond max_rotated: oldest rotated files get pruned.
+        for i in 0..3 {
+            std::fs::write(&active, "x".repeat(20)).unwrap();
+            rotate_log_if_needed(&active, &dir, 10, 1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            let _ = i;
+        }
+        let remaining: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert!(
+            remaining.len() <= 2, // 1 kept rotated file + the fresh active file
+            "pruning must cap rotated files at max_rotated, got {}",
+            remaining.len()
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

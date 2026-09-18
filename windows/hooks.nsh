@@ -20,6 +20,18 @@
 ;   - `certutil -f -addstore Root` (Phase 20: Store Deployment: Signed Elevated
 ;     Installer) uses `-f` (force), which makes re-adding an already-present
 ;     cert a no-op rather than an error — safe to re-run on upgrade.
+;
+; PREINSTALL runs BEFORE files are copied — on an upgrade, PrintBrokerService
+; is normally still running (AutoStart) and holds a lock on broker.exe, so
+; NSIS's file copy for that upgraded binary fails/silently no-ops (Pitfall 6
+; above) unless the service is stopped first. `sc.exe stop` on an
+; already-stopped or not-yet-installed service exits non-zero — ExecWait
+; ignores exit codes (same pattern as every other command in this file), so
+; this is safe on a fresh install too.
+!macro NSIS_HOOK_PREINSTALL
+  ExecWait 'sc.exe stop PrintBrokerService'
+!macroend
+
 !macro NSIS_HOOK_POSTINSTALL
   ExecWait '"$INSTDIR\broker\broker.exe" install'
   ExecWait 'netsh advfirewall firewall add rule name="Store Print Broker" dir=in action=allow program="$INSTDIR\broker\broker.exe" protocol=TCP localport=8973 profile=private remoteip=LocalSubnet'

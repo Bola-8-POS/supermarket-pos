@@ -1,6 +1,6 @@
 [package]
 name = "bar-pos"
-version = "1.6.4"
+version = "1.6.5"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -38,5 +38,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 windows = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Graphics_Printing",
+  "Win32_System_EventLog",
+  "Win32_Security",
 ] }
 

@@ -112,7 +112,7 @@ mod scm {
         ) {
             Ok(h) => h,
             Err(e) => {
-                crate::ledger::log(&format!("service_control_handler::register failed: {e}"));
+                crate::ledger::log_error(&format!("service_control_handler::register failed: {e}"));
                 return;
             }
         };
@@ -127,7 +127,7 @@ mod scm {
             process_id: None,
         };
         if let Err(e) = status_handle.set_service_status(running_status) {
-            crate::ledger::log(&format!("set_service_status(Running) failed: {e}"));
+            crate::ledger::log_error(&format!("set_service_status(Running) failed: {e}"));
             return;
         }
 
@@ -153,7 +153,19 @@ mod scm {
     }
 }
 
+/// The worker thread (`run_broker`'s `std::thread::spawn`) has no supervisor —
+/// an unhandled panic there used to just print Rust's default message to
+/// stderr (nowhere, since a Windows Service has no console) and silently die,
+/// leaving printing broken with zero record anywhere. Routes panics through
+/// `log_error` (file + Windows Event Log) before the thread unwinds.
+fn install_panic_hook() {
+    std::panic::set_hook(Box::new(|info| {
+        ledger::log_error(&format!("panic: {info}"));
+    }));
+}
+
 fn main() {
+    install_panic_hook();
     let args: Vec<String> = std::env::args().skip(1).collect();
     match parse_command(&args) {
         Command::Install => {

@@ -92,8 +92,8 @@ mod imp {
             .status();
         match status {
             Ok(s) if s.success() => {}
-            Ok(s) => crate::ledger::log(&format!("sc.exe failure exited with status {s}")),
-            Err(e) => crate::ledger::log(&format!("sc.exe failure failed to launch: {e}")),
+            Ok(s) => crate::ledger::log_error(&format!("sc.exe failure exited with status {s}")),
+            Err(e) => crate::ledger::log_error(&format!("sc.exe failure failed to launch: {e}")),
         }
     }
 

@@ -13,6 +13,17 @@ use tauri::{AppHandle, Manager};
 /// Maximum number of log files to keep (30 days)
 const MAX_LOG_FILES: usize = 30;
 
+/// Disk-fill guard: a single day's log file used to have no size cap, so a
+/// high-traffic terminal could grow one file without bound. Roll to a new
+/// file once the active one crosses this size; `rotate_logs` still prunes by
+/// file count regardless of name.
+const MAX_LOG_FILE_BYTES: u64 = 10 * 1024 * 1024;
+
+/// Windows Application Event Log source name — matches `productName` in
+/// tauri.conf.json, so it's recognizable in Event Viewer without a
+/// registered message DLL (raw string, no formatted description).
+const EVENT_SOURCE: &str = "Supermarket POS";
+
 /// Gets the log directory path
 fn get_log_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let app_data_dir = app
@@ -70,11 +81,26 @@ fn rotate_logs(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Rolls the current log file to a timestamped name if it has crossed
+/// `MAX_LOG_FILE_BYTES` — keeps a single busy day's file from growing
+/// unbounded between the count-based `rotate_logs` passes.
+fn rotate_by_size_if_needed(log_file: &PathBuf) {
+    let Ok(meta) = fs::metadata(log_file) else {
+        return;
+    };
+    if meta.len() < MAX_LOG_FILE_BYTES {
+        return;
+    }
+    let rolled = log_file.with_extension(format!("{}.log", Local::now().format("%H%M%S")));
+    let _ = fs::rename(log_file, rolled);
+}
+
 /// Writes a log entry to the current log file
 #[tauri::command]
 pub fn write_log(app: AppHandle, entry: String) -> Result<(), String> {
     // Get current log file path
     let log_file = get_current_log_file(&app)?;
+    rotate_by_size_if_needed(&log_file);
 
     // Open file in append mode (create if doesn't exist)
     let mut file = OpenOptions::new()
@@ -91,8 +117,56 @@ pub fn write_log(app: AppHandle, entry: String) -> Result<(), String> {
     // We'll do this opportunistically when writing logs
     let _ = rotate_logs(&app);
 
+    // Warn/error entries also go to the Windows Application Event Log
+    // (native OS logging service) so an operator can see them in Event
+    // Viewer without pulling the app's own log files off the machine.
+    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&entry) {
+        let level = parsed.get("level").and_then(|v| v.as_str()).unwrap_or("");
+        if level == "warn" || level == "error" {
+            report_to_event_log(level, &entry);
+        }
+    }
+
     Ok(())
 }
+
+#[cfg(windows)]
+fn report_to_event_log(level: &str, message: &str) {
+    use windows::core::PCWSTR;
+    use windows::Win32::System::EventLog::{
+        DeregisterEventSource, RegisterEventSourceW, ReportEventW, EVENTLOG_ERROR_TYPE,
+        EVENTLOG_WARNING_TYPE,
+    };
+
+    fn wide(s: &str) -> Vec<u16> {
+        s.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    // Best-effort, ad-hoc event source (no registry-registered message DLL)
+    // — Event Viewer still records the source/message text, just without a
+    // formatted description.
+    unsafe {
+        let source = wide(EVENT_SOURCE);
+        let Ok(handle) = RegisterEventSourceW(None, PCWSTR(source.as_ptr())) else {
+            return;
+        };
+        if handle.is_invalid() {
+            return;
+        }
+        let wtype = if level == "error" {
+            EVENTLOG_ERROR_TYPE
+        } else {
+            EVENTLOG_WARNING_TYPE
+        };
+        let wide_message = wide(message);
+        let strings = [PCWSTR(wide_message.as_ptr())];
+        let _ = ReportEventW(handle, wtype, 0, 0, None, 0, Some(&strings), None);
+        let _ = DeregisterEventSource(handle);
+    }
+}
+
+#[cfg(not(windows))]
+fn report_to_event_log(_level: &str, _message: &str) {}
 
 #[cfg(test)]
 mod tests {
@@ -105,5 +179,32 @@ mod tests {
         let expected = format!("bar-pos-{}.log", now.format("%Y-%m-%d"));
         assert!(expected.starts_with("bar-pos-"));
         assert!(expected.ends_with(".log"));
+    }
+
+    #[test]
+    fn rotate_by_size_if_needed_rolls_oversized_file_away() {
+        let dir = std::env::temp_dir().join(format!(
+            "bar-pos-test-rotate-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let active = dir.join("bar-pos-2026-01-01.log");
+
+        fs::write(&active, "small").unwrap();
+        rotate_by_size_if_needed(&active);
+        assert!(active.exists(), "file under cap must not rotate");
+
+        // Shrink the effective cap for this test by writing past a size we
+        // know is below MAX_LOG_FILE_BYTES is impractical (10MB) — instead
+        // verify the rename mechanics directly against an oversized write.
+        let big = "x".repeat((MAX_LOG_FILE_BYTES + 1) as usize);
+        fs::write(&active, big).unwrap();
+        rotate_by_size_if_needed(&active);
+        assert!(!active.exists(), "oversized file must be renamed away");
+        let siblings: Vec<_> = fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).collect();
+        assert_eq!(siblings.len(), 1, "exactly one rolled file expected");
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }
