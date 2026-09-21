@@ -1,7 +1,7 @@
 -- Restrict function privileges in schema public.
 --
--- Callers without a session (anon, PUBLIC) no longer hold EXECUTE on the
--- application's functions, and functions created from now on do not get it.
+-- EXECUTE on the application's functions is held by signed-in staff and the
+-- service role only, and functions created from now on follow the same default.
 -- The three checkout RPCs are executable by the service role only: the
 -- edge functions process-payment, process-split-payment and
 -- process-direct-sale are their only callers.
@@ -9,8 +9,10 @@
 -- Access for signed-in staff and for the service role is preserved on every
 -- other function by granting it explicitly before the revoke.
 --
--- Functions owned by another role cannot be changed from here; they are
--- reported as warnings and are caught by scripts/sql/verify-function-privileges.sql.
+-- The migration stops when a function in the schema is owned by a role other
+-- than the migration role: ownership has to be aligned first, then the
+-- migration re-run. scripts/sql/verify-function-privileges.sql checks the
+-- resulting state.
 
 DO $$
 DECLARE
@@ -24,8 +26,7 @@ BEGIN
       AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')
   LOOP
     IF r.owner_name <> current_user THEN
-      RAISE WARNING 'not changed: % is owned by % (migration role is %)', r.sig, r.owner_name, current_user;
-      CONTINUE;
+      RAISE EXCEPTION 'cannot change privileges on %: owned by %, migration role is %', r.sig, r.owner_name, current_user;
     END IF;
 
     IF has_function_privilege('authenticated', r.oid, 'EXECUTE') THEN
@@ -49,7 +50,13 @@ BEGIN
   END LOOP;
 END $$;
 
--- Functions created by this role from now on: no EXECUTE for PUBLIC or anon.
--- Signed-in staff and the service role keep the existing schema-level default.
+-- Default privileges for functions created by this role.
+-- The first statement is global for the role (it has no schema): it removes the
+-- built-in PUBLIC execute default everywhere, and a schema-qualified statement
+-- cannot do that. Functions this role creates outside schema public (including
+-- through CREATE EXTENSION) therefore get no anon, authenticated or service_role
+-- EXECUTE and need an explicit grant. In schema public the per-schema default
+-- grants EXECUTE to authenticated and service_role; the second statement
+-- keeps anon out of it.
 ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM anon;

@@ -1,7 +1,7 @@
 -- Harden audit payloads.
 --
 -- 1. Payloads recorded for staff changes are built from an explicit column
---    list instead of the whole profile row.
+--    list.
 -- 2. record_audit removes credential-like keys from any payload it stores.
 -- 3. Only the service role may name the recorded actor; every other caller is
 --    recorded as itself.
