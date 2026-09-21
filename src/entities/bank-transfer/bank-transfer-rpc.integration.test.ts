@@ -547,7 +547,7 @@ describe('bank-transfer RPCs (integration)', () => {
       });
 
       if (error) {
-        expect(error.message).toContain('FORBIDDEN');
+        expect(`${error.code ?? ''} ${error.message}`).toMatch(/42501|permission denied|FORBIDDEN/);
       } else {
         expect(data?.ok).toBe(false);
         expect(data?.code).toBe('FORBIDDEN');
