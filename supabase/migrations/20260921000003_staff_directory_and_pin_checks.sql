@@ -2,7 +2,7 @@
 --
 -- 1. staff_directory: the staff list used by the sign-in screen and the
 --    in-app staff pickers (id, name, role and display flags).
--- 2. pin_attempts with two helpers: shared attempt limiting for PIN checks.
+-- 2. pin_attempts with three helpers: shared attempt limiting for PIN checks.
 --    Locks are time-based and expire on their own.
 -- 3. verify_staff_pin: PIN check for signed-in callers.
 -- 4. staff_pin_holder: staff-management helper for the reset dialog.
@@ -43,9 +43,9 @@ AS $$
 $$;
 
 -- Records one outcome for p_key and returns the lock now in force, in seconds.
--- Four failures are free; from the fifth the key is locked for 30 s, doubling
--- with each further failure, capped at 15 minutes. A success clears the key.
--- A key with no failure for 30 minutes starts again at one.
+-- Four attempts are free; the fifth and later attempts lock the key for 30 s,
+-- doubling with each further attempt, capped at 15 minutes. A success clears
+-- the key. A key with no attempt for 30 minutes starts again at one.
 CREATE FUNCTION public.pin_attempt_record(p_key text, p_success boolean)
 RETURNS integer
 LANGUAGE plpgsql
@@ -80,15 +80,39 @@ BEGIN
 END;
 $$;
 
+-- Opens one attempt for p_key. Serialized per key. Returns the seconds still
+-- locked (the attempt is refused and not counted), or 0 after counting the
+-- attempt up front; a success clears the key through pin_attempt_record.
+CREATE FUNCTION public.pin_attempt_begin(p_key text)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_wait integer;
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended(p_key, 0));
+  v_wait := pin_attempt_retry_after(p_key);
+  IF v_wait > 0 THEN
+    RETURN v_wait;
+  END IF;
+  PERFORM pin_attempt_record(p_key, false);
+  RETURN 0;
+END;
+$$;
+
 REVOKE ALL ON FUNCTION public.pin_attempt_retry_after(text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.pin_attempt_record(text, boolean) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.pin_attempt_begin(text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.pin_attempt_retry_after(text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.pin_attempt_record(text, boolean) TO service_role;
+GRANT EXECUTE ON FUNCTION public.pin_attempt_begin(text) TO service_role;
 
 -- PIN check for a signed-in caller. With p_staff_id the PIN must belong to
 -- that staff member; without it, every active staff member holding the PIN
 -- is returned (name order) and the caller applies its own role rule.
--- A wrong PIN is returned, not raised, so the recorded failure is kept.
+-- A wrong PIN is returned, not raised, so the counted attempt is kept.
 CREATE FUNCTION public.verify_staff_pin(p_pin text, p_staff_id uuid DEFAULT NULL)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -106,7 +130,7 @@ BEGIN
   END IF;
   v_key := 'caller:' || v_uid::text;
 
-  v_wait := pin_attempt_retry_after(v_key);
+  v_wait := pin_attempt_begin(v_key);
   IF v_wait > 0 THEN
     RETURN jsonb_build_object('ok', false, 'code', 'LOCKED', 'retry_after', v_wait);
   END IF;
@@ -120,8 +144,7 @@ BEGIN
     AND (p_staff_id IS NULL OR p.id = p_staff_id);
 
   IF v_matches IS NULL THEN
-    v_wait := pin_attempt_record(v_key, false);
-    RETURN jsonb_build_object('ok', false, 'code', 'INVALID_PIN', 'retry_after', v_wait);
+    RETURN jsonb_build_object('ok', false, 'code', 'INVALID_PIN', 'retry_after', pin_attempt_retry_after(v_key));
   END IF;
 
   PERFORM pin_attempt_record(v_key, true);

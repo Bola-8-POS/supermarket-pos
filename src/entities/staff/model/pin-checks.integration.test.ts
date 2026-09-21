@@ -136,6 +136,8 @@ describe.skipIf(skip)('staff directory and PIN checks', () => {
     expect(recErr?.code).toBe('42501');
     const { error: waitErr } = await admin.client.rpc('pin_attempt_retry_after', { p_key: 'x' });
     expect(waitErr?.code).toBe('42501');
+    const { error: beginErr } = await admin.client.rpc('pin_attempt_begin', { p_key: 'x' });
+    expect(beginErr?.code).toBe('42501');
     const { error: tableErr } = await admin.client.from('pin_attempts').select('attempt_key').limit(1);
     expect(tableErr?.code).toBe('42501');
   });
@@ -154,5 +156,29 @@ describe.skipIf(skip)('staff directory and PIN checks', () => {
 
     const { error: forbidden } = await cashier.client.rpc('staff_pin_holder', { p_pin: admin.pin });
     expect(forbidden?.message).toContain('AUTH_FORBIDDEN');
+  });
+
+  // Locks the admin caller's key: placed last so no later test depends on it.
+  it('keeps the attempt budget under parallel requests', async () => {
+    const wrong = await unusedPin();
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => admin.client.rpc('verify_staff_pin', { p_pin: wrong })),
+    );
+
+    for (const { error } of results) {
+      expect(error).toBeNull();
+    }
+
+    const codes = results.map((r: any) => r.data.code);
+    for (const code of codes) {
+      expect(['INVALID_PIN', 'LOCKED']).toContain(code);
+    }
+    const invalidCount = codes.filter((c: string) => c === 'INVALID_PIN').length;
+    const lockedCount = codes.filter((c: string) => c === 'LOCKED').length;
+    expect(invalidCount).toBeGreaterThanOrEqual(1);
+    expect(invalidCount).toBeLessThanOrEqual(5);
+    expect(invalidCount + lockedCount).toBe(20);
+
+    await db.from('pin_attempts').delete().eq('attempt_key', `caller:${admin.id}`);
   });
 });

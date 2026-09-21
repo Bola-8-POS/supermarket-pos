@@ -45,12 +45,15 @@ BEGIN
   -- 4. Function privileges.
   IF has_function_privilege('authenticated', 'public.pin_attempt_record(text, boolean)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.pin_attempt_retry_after(text)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.pin_attempt_begin(text)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.pin_attempt_record(text, boolean)', 'EXECUTE')
-     OR has_function_privilege('anon', 'public.pin_attempt_retry_after(text)', 'EXECUTE') THEN
+     OR has_function_privilege('anon', 'public.pin_attempt_retry_after(text)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.pin_attempt_begin(text)', 'EXECUTE') THEN
     RAISE EXCEPTION 'attempt helpers must be callable by the service role only';
   END IF;
   IF NOT has_function_privilege('service_role', 'public.pin_attempt_record(text, boolean)', 'EXECUTE')
-     OR NOT has_function_privilege('service_role', 'public.pin_attempt_retry_after(text)', 'EXECUTE') THEN
+     OR NOT has_function_privilege('service_role', 'public.pin_attempt_retry_after(text)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.pin_attempt_begin(text)', 'EXECUTE') THEN
     RAISE EXCEPTION 'the service role cannot call the attempt helpers';
   END IF;
   IF has_function_privilege('anon', 'public.verify_staff_pin(text, uuid)', 'EXECUTE')
@@ -60,10 +63,15 @@ BEGIN
     RAISE EXCEPTION 'verify_staff_pin or staff_pin_holder privileges are wrong';
   END IF;
 
-  -- 5. The check records a failure instead of raising, so the count survives.
+  -- 5. The check counts the attempt up front through the serialized helper,
+  --    not with a separate call made after the PIN is verified.
   IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE oid = 'public.verify_staff_pin(text, uuid)'::regprocedure
-                 AND prosrc LIKE '%pin_attempt_record%' AND prosrc LIKE '%pin_attempt_retry_after%') THEN
-    RAISE EXCEPTION 'verify_staff_pin does not use the attempt helpers';
+                 AND prosrc LIKE '%pin_attempt_begin%') THEN
+    RAISE EXCEPTION 'verify_staff_pin does not use pin_attempt_begin';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE oid = 'public.verify_staff_pin(text, uuid)'::regprocedure
+             AND prosrc ~ 'pin_attempt_record\s*\(\s*v_key\s*,\s*false') THEN
+    RAISE EXCEPTION 'verify_staff_pin still records a failure directly instead of counting it up front';
   END IF;
 END $$;
 SELECT 'verify-staff-pin-checks: ok' AS result;
