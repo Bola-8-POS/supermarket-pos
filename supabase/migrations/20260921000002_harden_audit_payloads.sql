@@ -43,12 +43,16 @@ SET search_path TO 'public'
 AS $function$
 DECLARE
   v_actor_id   uuid;
-  v_before     jsonb := public.audit_redact(p_before);
-  v_after      jsonb := public.audit_redact(p_after);
+  v_before     jsonb;
+  v_after      jsonb;
   v_log_id     uuid;
 BEGIN
+  v_before := public.audit_redact(p_before);
+  v_after := public.audit_redact(p_after);
+
   -- Only the service role may name the actor (trusted server paths); every
   -- other caller is recorded as the authenticated user.
+  -- A plain database session without JWT claims (auth.role() NULL) gets a NULL actor.
   IF auth.role() = 'service_role' THEN
     v_actor_id := COALESCE(p_user_id, auth.uid());
   ELSE
