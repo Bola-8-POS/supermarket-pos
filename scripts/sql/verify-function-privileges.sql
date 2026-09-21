@@ -1,3 +1,4 @@
+\set ON_ERROR_STOP on
 -- Assertions: function privileges in schema public.
 -- Run as postgres: psql -U postgres -d postgres -v ON_ERROR_STOP=1 < scripts/sql/verify-function-privileges.sql
 -- Reads the catalog; the last check creates and drops a probe function inside the DO block.
