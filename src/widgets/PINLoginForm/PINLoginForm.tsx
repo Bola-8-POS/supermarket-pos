@@ -6,7 +6,7 @@ import { useLoginUiStore } from '@entities/staff/model/loginUiStore';
 import { rememberOfflineUnlock } from '@entities/staff/model/offlineUnlock';
 import { useMutationClockIn } from '@entities/staff/model/queries';
 import { useStaffStore } from '@entities/staff/model/store';
-import { callStaffSignIn } from '@shared/lib/edge-function-contracts';
+import { callChangeOwnPin, callStaffSignIn } from '@shared/lib/edge-function-contracts';
 import { logger } from '@shared/lib/logger-instance';
 import { supabase } from '@shared/lib/supabase';
 import { getTerminalId } from '@shared/lib/terminal';
@@ -137,28 +137,16 @@ export function PINLoginForm() {
 
     setIsSubmittingNewPin(true);
     try {
-      const { error: updateError } = await supabase.auth.updateUser({ password: newPin });
-      if (updateError) {
-        logger.error('login.forced_pin_change.update_user_failed', {
-          message: updateError.message,
-        });
-        setPinChangeError(t('pinLoginForm.couldNotSetPin'));
-        resetForcedPinChangeFields();
-        return;
-      }
-
-      /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
-      const db = supabase as any;
-      const { error: clearError } = (await db.rpc('clear_must_change_pin', {
-        p_new_pin: newPin,
-        p_terminal_id: getTerminalId(),
-      })) as { error: { message: string } | null };
-      /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
-      if (clearError) {
-        logger.error('login.forced_pin_change.clear_flag_failed', {
-          message: clearError.message,
-        });
-        setPinChangeError(t('pinLoginForm.couldNotFinishPin'));
+      // One server-side credential write covers both stores; the server also
+      // refuses a PIN equal to the current one (PIN_SAME).
+      const result = await callChangeOwnPin({ newPin, terminalId: getTerminalId() });
+      if (!result.ok) {
+        logger.error('login.forced_pin_change.failed', { message: result.error.message });
+        setPinChangeError(
+          result.error.code === 'PIN_SAME'
+            ? t('pinLoginForm.choosePinDifferent')
+            : t('pinLoginForm.couldNotSetPin')
+        );
         resetForcedPinChangeFields();
         return;
       }

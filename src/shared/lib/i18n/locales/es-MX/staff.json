@@ -10,7 +10,8 @@
     "clockIn": "Marcar entrada",
     "clockOut": "Marcar salida",
     "forcePinChange": "Forzar cambio de PIN",
-    "resetPin": "Restablecer PIN"
+    "resetPin": "Restablecer PIN",
+    "deactivate": "Desactivar"
   },
   "section": {
     "title": "Personal",
@@ -51,5 +52,15 @@
     "successToast": "PIN restablecido para {{name}}. Se le pedirá establecer un PIN nuevo en su próximo inicio de sesión.",
     "genericFailure": "No se pudo restablecer el PIN. Inténtalo de nuevo.",
     "partialFailureToast": "El restablecimiento del PIN falló parcialmente — la credencial cambió pero el registro del personal no se sincronizó. Contacta a soporte antes de que este miembro del personal intente iniciar sesión."
+  },
+  "deactivate": {
+    "dialogTitle": "¿Desactivar a {{name}}?",
+    "dialogDescription": "{{name}} ya no podrá iniciar sesión ni autorizar nada, y desaparecerá de la lista de personal. Sus turnos y ventas anteriores se conservan.",
+    "confirm": "Desactivar",
+    "confirming": "Desactivando…",
+    "successToast": "{{name}} ha sido desactivado.",
+    "genericFailure": "No se pudo desactivar a este miembro del personal. Inténtalo de nuevo.",
+    "lastAdmin": "Es el único administrador activo. Agrega otro administrador antes de desactivar a este.",
+    "partialFailureToast": "La desactivación falló parcialmente — el registro del personal cambió pero el inicio de sesión no se sincronizó. Inténtalo de nuevo y contacta a soporte si vuelve a ocurrir."
   }
 }

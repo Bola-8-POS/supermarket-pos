@@ -10,7 +10,8 @@
     "clockIn": "Clock In",
     "clockOut": "Clock Out",
     "forcePinChange": "Force PIN Change",
-    "resetPin": "Reset PIN"
+    "resetPin": "Reset PIN",
+    "deactivate": "Deactivate"
   },
   "section": {
     "title": "Staff",
@@ -51,5 +52,15 @@
     "successToast": "PIN reset for {{name}}. They'll be asked to set a new PIN at next login.",
     "genericFailure": "Couldn't reset the PIN. Try again.",
     "partialFailureToast": "PIN reset partially failed — the credential changed but the staff record didn't sync. Contact support before this staff member tries to log in."
+  },
+  "deactivate": {
+    "dialogTitle": "Deactivate {{name}}?",
+    "dialogDescription": "{{name}} will no longer be able to sign in or approve anything, and will disappear from the staff list. Their past shifts and sales are kept.",
+    "confirm": "Deactivate",
+    "confirming": "Deactivating…",
+    "successToast": "{{name}} has been deactivated.",
+    "genericFailure": "Couldn't deactivate this staff member. Try again.",
+    "lastAdmin": "This is the only active admin. Add another admin before deactivating this one.",
+    "partialFailureToast": "Deactivation partially failed — the staff record changed but sign-in didn't sync. Try again, and contact support if it happens again."
   }
 }

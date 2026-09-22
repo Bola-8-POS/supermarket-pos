@@ -24,12 +24,9 @@ vi.mock('sonner', () => ({
 }));
 
 // Overrides the global @shared/lib/supabase mock (src/shared/lib/test-setup.ts) for
-// this file so the sign-in and forced_pin_change tests can control
-// setSession/updateUser/rpc.
-const { mockSetSession, mockUpdateUser, mockRpc } = vi.hoisted(() => ({
+// this file so the sign-in tests can control setSession.
+const { mockSetSession } = vi.hoisted(() => ({
   mockSetSession: vi.fn().mockResolvedValue({ data: { session: null, user: null }, error: null }),
-  mockUpdateUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }),
-  mockRpc: vi.fn().mockResolvedValue({ data: null, error: null }),
 }));
 
 vi.mock('@shared/lib/supabase', () => ({
@@ -44,22 +41,23 @@ vi.mock('@shared/lib/supabase', () => ({
     })),
     auth: {
       setSession: mockSetSession,
-      updateUser: mockUpdateUser,
       signOut: vi.fn().mockResolvedValue({ error: null }),
     },
-    rpc: mockRpc,
   },
 }));
 
-// Staff PIN checks now run server-side (Task 4) — mock the edge-function
-// client and the offline-unlock cache the login form calls after sign-in.
-const { mockCallStaffSignIn, mockRememberOfflineUnlock } = vi.hoisted(() => ({
+// Staff PIN checks and the forced PIN change run server-side — mock the
+// edge-function client and the offline-unlock cache the login form calls
+// after sign-in.
+const { mockCallStaffSignIn, mockCallChangeOwnPin, mockRememberOfflineUnlock } = vi.hoisted(() => ({
   mockCallStaffSignIn: vi.fn(),
+  mockCallChangeOwnPin: vi.fn(),
   mockRememberOfflineUnlock: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@shared/lib/edge-function-contracts', () => ({
   callStaffSignIn: mockCallStaffSignIn,
+  callChangeOwnPin: mockCallChangeOwnPin,
 }));
 
 vi.mock('@entities/staff/model/offlineUnlock', async importOriginal => {
@@ -272,7 +270,7 @@ describe('PINLoginForm', () => {
       await waitFor(() => {
         expect(screen.getByText('New PIN')).toBeInTheDocument();
       });
-      expect(mockUpdateUser).not.toHaveBeenCalled();
+      expect(mockCallChangeOwnPin).not.toHaveBeenCalled();
     });
 
     it('rejects a new PIN identical to the one just typed at sign-in', async () => {
@@ -300,42 +298,47 @@ describe('PINLoginForm', () => {
           screen.getByText('Choose a PIN different from your current one.')
         ).toBeInTheDocument();
       });
-      expect(mockUpdateUser).not.toHaveBeenCalled();
+      expect(mockCallChangeOwnPin).not.toHaveBeenCalled();
     });
 
-    it('on a matching, different new PIN, updates auth password, remembers the new PIN for offline unlock, clears the flag, then proceeds to opening cash', async () => {
+    // Drives sign-in with mustChangePin, then enters and confirms `newPin`.
+    async function completeForcedChange(user: ReturnType<typeof userEvent.setup>, newPin: string) {
       mockCallStaffSignIn.mockResolvedValueOnce(
         ok({ accessToken: 'a', refreshToken: 'r', mustChangePin: true })
       );
-      mockUpdateUser.mockResolvedValueOnce({ data: { user: null }, error: null });
-      mockRpc.mockResolvedValueOnce({ data: { ok: true }, error: null });
-
-      const user = userEvent.setup();
       renderLoginForm();
 
-      await enterDigits(user, randomPin());
+      let signInPin = randomPin();
+      while (signInPin === newPin) signInPin = randomPin();
+      await enterDigits(user, signInPin);
       await waitFor(() => {
         expect(screen.getByText('New PIN')).toBeInTheDocument();
       });
 
-      await enterDigits(user, '222222');
+      await enterDigits(user, newPin);
       await waitFor(() => {
         expect(screen.getByText('Confirm new PIN')).toBeInTheDocument();
       });
 
-      await enterDigits(user, '222222');
+      await enterDigits(user, newPin);
+    }
+
+    it('on a matching, different new PIN, sends one change-own-pin call with the terminal id, remembers the new PIN for offline unlock, then proceeds to opening cash', async () => {
+      const newPin = randomPin();
+      mockCallChangeOwnPin.mockResolvedValueOnce(ok({ ok: true }));
+
+      const user = userEvent.setup();
+      await completeForcedChange(user, newPin);
 
       await waitFor(() => {
-        expect(mockUpdateUser).toHaveBeenCalledWith({ password: '222222' });
-      });
-      await waitFor(() => {
-        expect(mockRpc).toHaveBeenCalledWith('clear_must_change_pin', {
-          p_new_pin: '222222',
-          p_terminal_id: expect.any(String) as unknown as string,
+        expect(mockCallChangeOwnPin).toHaveBeenCalledWith({
+          newPin,
+          terminalId: expect.any(String) as unknown as string,
         });
       });
+      expect(mockCallChangeOwnPin).toHaveBeenCalledTimes(1);
       await waitFor(() => {
-        expect(mockRememberOfflineUnlock).toHaveBeenCalledWith(mockStaff[0]!.id, '222222');
+        expect(mockRememberOfflineUnlock).toHaveBeenCalledWith(mockStaff[0]!.id, newPin);
       });
       await waitFor(() => {
         expect(
@@ -344,6 +347,37 @@ describe('PINLoginForm', () => {
           )
         ).toBeInTheDocument();
       });
+    });
+
+    it('when the server refuses the PIN as unchanged (PIN_SAME), shows the choose-a-different-PIN message and resets to New PIN', async () => {
+      mockCallChangeOwnPin.mockResolvedValueOnce(err({ code: 'PIN_SAME', message: 'SAME_PIN' }));
+
+      const user = userEvent.setup();
+      await completeForcedChange(user, randomPin());
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('Choose a PIN different from your current one.')
+        ).toBeInTheDocument();
+      });
+      expect(screen.getByText('New PIN')).toBeInTheDocument();
+      expect(mockRememberOfflineUnlock).toHaveBeenCalledTimes(1); // sign-in only
+    });
+
+    it('on any other change-own-pin failure, shows could-not-set-PIN and does not remember the new PIN', async () => {
+      mockCallChangeOwnPin.mockResolvedValueOnce(
+        err({ code: 'PIN_CHANGE_PARTIAL_FAILURE', message: 'PARTIAL_FAILURE: sync' })
+      );
+
+      const user = userEvent.setup();
+      await completeForcedChange(user, randomPin());
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('Could not set your new PIN. Please try again.')
+        ).toBeInTheDocument();
+      });
+      expect(mockRememberOfflineUnlock).toHaveBeenCalledTimes(1); // sign-in only
     });
   });
 

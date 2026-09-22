@@ -97,6 +97,14 @@ describe('StaffDashboard', () => {
     expect(screen.getAllByRole('button', { name: 'Force PIN Change' }).length).toBe(2);
   });
 
+  it('renders a "Deactivate" action for every row except the signed-in staff member', () => {
+    // currentStaff is Jamie (staffClosed): only Alex's row gets the action.
+    renderWithProviders(<MemoryRouter><StaffDashboard /></MemoryRouter>);
+    const buttons = screen.getAllByRole('button', { name: 'Deactivate' });
+    expect(buttons.length).toBe(1);
+    expect(buttons[0]?.closest('tr')).toBe(screen.getByText('Alex').closest('tr'));
+  });
+
   it('shows loading state when queries pending', () => {
     useStaffList.mockReturnValue({ data: undefined, isIdleOrLoading: true });
     useOpenShifts.mockReturnValue({ data: undefined, isIdleOrLoading: true });

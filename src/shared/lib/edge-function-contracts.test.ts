@@ -3,7 +3,13 @@ import {
   type ReceiptData,
   AdminResetPinRequestSchema,
   AdminResetPinSuccessSchema,
+  ChangeOwnPinRequestSchema,
+  ChangeOwnPinSuccessSchema,
+  SetStaffActiveRequestSchema,
+  SetStaffActiveSuccessSchema,
   mapAdminResetPinEdgeError,
+  mapChangeOwnPinEdgeError,
+  mapSetStaffActiveEdgeError,
   mapProcessPaymentEdgeError,
   mapProcessSplitPaymentEdgeError,
   mapStaffSignInEdgeError,
@@ -474,6 +480,103 @@ describe('AdminResetPinRequestSchema / AdminResetPinSuccessSchema / mapAdminRese
 
   it('maps a plain 500 (not PARTIAL_FAILURE-prefixed) to SUPABASE_ERROR — proves the prefix match is not a blanket 500 catch', () => {
     expect(mapAdminResetPinEdgeError(500, 'some other db error').code).toBe('SUPABASE_ERROR');
+  });
+
+  it('maps a 409 CREDENTIAL_WRITE_FAILED (compensated, nothing changed) to the generic SUPABASE_ERROR', () => {
+    expect(
+      mapAdminResetPinEdgeError(409, 'CREDENTIAL_WRITE_FAILED: nothing changed, try again').code
+    ).toBe('SUPABASE_ERROR');
+  });
+});
+
+describe('SetStaffActiveRequestSchema / SetStaffActiveSuccessSchema / mapSetStaffActiveEdgeError', () => {
+  const validUuid = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+
+  it('accepts staffId + active, with and without terminalId', () => {
+    expect(
+      SetStaffActiveRequestSchema.safeParse({ staffId: validUuid, active: false }).success
+    ).toBe(true);
+    expect(
+      SetStaffActiveRequestSchema.safeParse({
+        staffId: validUuid,
+        active: true,
+        terminalId: 'POS-1',
+      }).success
+    ).toBe(true);
+  });
+
+  it('rejects a non-uuid staffId and a non-boolean active', () => {
+    expect(SetStaffActiveRequestSchema.safeParse({ staffId: 'nope', active: false }).success).toBe(
+      false
+    );
+    expect(
+      SetStaffActiveRequestSchema.safeParse({ staffId: validUuid, active: 'no' }).success
+    ).toBe(false);
+  });
+
+  it('accepts the { ok: true, changed } success body and rejects ok: false', () => {
+    expect(SetStaffActiveSuccessSchema.safeParse({ ok: true, changed: true }).success).toBe(true);
+    expect(SetStaffActiveSuccessSchema.safeParse({ ok: false, changed: false }).success).toBe(
+      false
+    );
+  });
+
+  it('maps LAST_ADMIN, SELF and NOT_FOUND refusals', () => {
+    expect(mapSetStaffActiveEdgeError(409, 'LAST_ADMIN').code).toBe('STAFF_LAST_ADMIN');
+    expect(mapSetStaffActiveEdgeError(400, 'SELF').code).toBe('STAFF_SELF');
+    expect(mapSetStaffActiveEdgeError(404, 'NOT_FOUND').code).toBe('NOT_FOUND');
+  });
+
+  it('maps a PARTIAL_FAILURE-prefixed message to STAFF_DEACTIVATE_PARTIAL_FAILURE', () => {
+    expect(
+      mapSetStaffActiveEdgeError(
+        500,
+        'PARTIAL_FAILURE: staff record updated but sign-in state failed to sync, retry'
+      ).code
+    ).toBe('STAFF_DEACTIVATE_PARTIAL_FAILURE');
+  });
+
+  it('maps 401/403 to the auth codes and anything else to SUPABASE_ERROR', () => {
+    expect(mapSetStaffActiveEdgeError(401, 'Missing bearer token').code).toBe('AUTH_REQUIRED');
+    expect(mapSetStaffActiveEdgeError(403, 'Insufficient role').code).toBe('AUTH_FORBIDDEN');
+    expect(mapSetStaffActiveEdgeError(400, 'Invalid request').code).toBe('SUPABASE_ERROR');
+  });
+});
+
+describe('ChangeOwnPinRequestSchema / ChangeOwnPinSuccessSchema / mapChangeOwnPinEdgeError', () => {
+  it('accepts a 6-digit newPin, with and without terminalId', () => {
+    expect(ChangeOwnPinRequestSchema.safeParse({ newPin: '123456' }).success).toBe(true);
+    expect(
+      ChangeOwnPinRequestSchema.safeParse({ newPin: '123456', terminalId: 'POS-1' }).success
+    ).toBe(true);
+  });
+
+  it('rejects a newPin that is not exactly 6 digits', () => {
+    expect(ChangeOwnPinRequestSchema.safeParse({ newPin: '12345' }).success).toBe(false);
+    expect(ChangeOwnPinRequestSchema.safeParse({ newPin: '12345a' }).success).toBe(false);
+  });
+
+  it('accepts { ok: true } and rejects ok: false', () => {
+    expect(ChangeOwnPinSuccessSchema.safeParse({ ok: true }).success).toBe(true);
+    expect(ChangeOwnPinSuccessSchema.safeParse({ ok: false }).success).toBe(false);
+  });
+
+  it('maps SAME_PIN to PIN_SAME and a PARTIAL_FAILURE prefix to PIN_CHANGE_PARTIAL_FAILURE', () => {
+    expect(mapChangeOwnPinEdgeError(400, 'SAME_PIN').code).toBe('PIN_SAME');
+    expect(
+      mapChangeOwnPinEdgeError(
+        500,
+        'PARTIAL_FAILURE: credential changed but staff record failed to sync'
+      ).code
+    ).toBe('PIN_CHANGE_PARTIAL_FAILURE');
+  });
+
+  it('maps 401/403 to the auth codes and a compensated 409 to SUPABASE_ERROR', () => {
+    expect(mapChangeOwnPinEdgeError(401, 'Invalid session').code).toBe('AUTH_REQUIRED');
+    expect(mapChangeOwnPinEdgeError(403, 'Insufficient role').code).toBe('AUTH_FORBIDDEN');
+    expect(
+      mapChangeOwnPinEdgeError(409, 'CREDENTIAL_WRITE_FAILED: nothing changed, try again').code
+    ).toBe('SUPABASE_ERROR');
   });
 });
 

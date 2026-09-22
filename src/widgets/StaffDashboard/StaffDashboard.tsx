@@ -6,6 +6,7 @@ import { AdminResetPinDialog } from '@features/admin-reset-pin';
 import { ClockInModal } from '@features/clock-in-staff';
 import { ClockOutDialog } from '@features/clock-out-staff';
 import { CreateStaffDialog } from '@features/create-staff';
+import { DeactivateStaffDialog } from '@features/deactivate-staff';
 import { EditLocaleDialog } from '@features/edit-staff-locale';
 import { ForcePinChangeDialog } from '@features/force-pin-change';
 import { useOpenShifts, useStaffList } from '@entities/staff';
@@ -57,6 +58,7 @@ export function StaffDashboard() {
   const [forcePinTarget, setForcePinTarget] = useState<Staff | null>(null);
   const [resetPinTarget, setResetPinTarget] = useState<Staff | null>(null);
   const [localeTarget, setLocaleTarget] = useState<Staff | null>(null);
+  const [deactivateTarget, setDeactivateTarget] = useState<Staff | null>(null);
   const [addStaffOpen, setAddStaffOpen] = useState(false);
 
   const rows: StaffShiftRow[] = useMemo(() => {
@@ -193,12 +195,26 @@ export function StaffDashboard() {
                   {t('locale.editTrigger')}
                 </POSButton>
               </ProtectedAction>
+              {staff.id !== currentStaffId && (
+                <ProtectedAction action="manage_staff" currentRole={currentRole}>
+                  <POSButton
+                    type="button"
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => {
+                      setDeactivateTarget(staff);
+                    }}
+                  >
+                    {t('actions.deactivate')}
+                  </POSButton>
+                </ProtectedAction>
+              )}
             </div>
           );
         },
       },
     ],
-    [currentRole, t, tick]
+    [currentRole, currentStaffId, t, tick]
   );
 
   const isLoading = staffLoading || shiftsLoading;
@@ -292,6 +308,14 @@ export function StaffDashboard() {
         open={localeTarget !== null}
         onOpenChange={next => {
           if (!next) setLocaleTarget(null);
+        }}
+      />
+
+      <DeactivateStaffDialog
+        staff={deactivateTarget}
+        open={deactivateTarget !== null}
+        onOpenChange={next => {
+          if (!next) setDeactivateTarget(null);
         }}
       />
 

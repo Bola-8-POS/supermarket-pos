@@ -442,6 +442,8 @@ export type AdminResetPinSuccess = z.infer<typeof AdminResetPinSuccessSchema>;
  */
 export function mapAdminResetPinEdgeError(status: number, message: string): AppError {
   if (message.startsWith('PARTIAL_FAILURE')) return { code: 'PIN_RESET_PARTIAL_FAILURE', message };
+  // Nothing changed server side (the credential write was rolled back): plain retry.
+  if (message.startsWith('CREDENTIAL_WRITE_FAILED')) return { code: 'SUPABASE_ERROR', message };
   if (status === 401) return { code: 'AUTH_REQUIRED', message };
   if (status === 403) return { code: 'AUTH_FORBIDDEN', message };
   if (status === 404) return { code: 'NOT_FOUND', message };
@@ -449,15 +451,20 @@ export function mapAdminResetPinEdgeError(status: number, message: string): AppE
 }
 
 /**
- * Calls the admin-reset-pin edge function.
- *
- * @returns Unwrapped success payload or structured {@link AppError}.
+ * Shared transport for the staff edge functions that require a signed-in
+ * caller: raw `fetch` with the cached bearer token and the project key, a
+ * flat `{ error: string }` failure envelope, and a zod-checked success body.
  */
-export async function callAdminResetPin(
-  request: AdminResetPinRequest
-): Promise<Result<AdminResetPinSuccess, AppError>> {
+async function callStaffEdgeFunction<TRequest, TSuccess>(
+  fnName: string,
+  request: TRequest,
+  requestSchema: z.ZodType<TRequest>,
+  successSchema: z.ZodType<TSuccess>,
+  mapEdgeError: (status: number, message: string) => AppError,
+  fallbackMessage: string
+): Promise<Result<TSuccess, AppError>> {
   try {
-    const validatedRequest = AdminResetPinRequestSchema.parse(request);
+    const validatedRequest = requestSchema.parse(request);
 
     const accessToken = getCachedAccessToken();
     if (!accessToken) {
@@ -467,7 +474,7 @@ export async function callAdminResetPin(
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-    const response = await fetch(`${supabaseUrl}/functions/v1/admin-reset-pin`, {
+    const response = await fetch(`${supabaseUrl}/functions/v1/${fnName}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -486,11 +493,11 @@ export async function callAdminResetPin(
         'error' in data &&
         typeof data.error === 'string'
           ? data.error
-          : `Could not reset PIN (${String(response.status)})`;
-      return err(mapAdminResetPinEdgeError(response.status, edgeMessage));
+          : `${fallbackMessage} (${String(response.status)})`;
+      return err(mapEdgeError(response.status, edgeMessage));
     }
 
-    const success = AdminResetPinSuccessSchema.safeParse(data);
+    const success = successSchema.safeParse(data);
     if (!success.success) {
       return err({
         code: 'VALIDATION_ERROR',
@@ -514,6 +521,108 @@ export async function callAdminResetPin(
       message: error instanceof Error ? error.message : 'Unknown error occurred',
     });
   }
+}
+
+/**
+ * Calls the admin-reset-pin edge function.
+ *
+ * @returns Unwrapped success payload or structured {@link AppError}.
+ */
+export function callAdminResetPin(
+  request: AdminResetPinRequest
+): Promise<Result<AdminResetPinSuccess, AppError>> {
+  return callStaffEdgeFunction(
+    'admin-reset-pin',
+    request,
+    AdminResetPinRequestSchema,
+    AdminResetPinSuccessSchema,
+    mapAdminResetPinEdgeError,
+    'Could not reset PIN'
+  );
+}
+
+// ============================================================================
+// SET STAFF ACTIVE (staff lifecycle)
+// ============================================================================
+
+export const SetStaffActiveRequestSchema = z.object({
+  staffId: UuidSchema,
+  active: z.boolean(),
+  terminalId: z.string().regex(TERMINAL_ID_PATTERN).optional(),
+});
+
+export type SetStaffActiveRequest = z.infer<typeof SetStaffActiveRequestSchema>;
+
+export const SetStaffActiveSuccessSchema = z.object({
+  ok: z.literal(true),
+  changed: z.boolean(),
+});
+
+export type SetStaffActiveSuccess = z.infer<typeof SetStaffActiveSuccessSchema>;
+
+/** Exported for unit tests. Flat `{ error: string }` envelope like admin-reset-pin. */
+export function mapSetStaffActiveEdgeError(status: number, message: string): AppError {
+  if (message.startsWith('PARTIAL_FAILURE')) {
+    return { code: 'STAFF_DEACTIVATE_PARTIAL_FAILURE', message };
+  }
+  if (message === 'LAST_ADMIN') return { code: 'STAFF_LAST_ADMIN', message };
+  if (message === 'SELF') return { code: 'STAFF_SELF', message };
+  if (status === 401) return { code: 'AUTH_REQUIRED', message };
+  if (status === 403) return { code: 'AUTH_FORBIDDEN', message };
+  if (status === 404) return { code: 'NOT_FOUND', message };
+  return { code: 'SUPABASE_ERROR', message };
+}
+
+/** Calls the set-staff-active edge function (deactivate or reactivate a staff member). */
+export function callSetStaffActive(
+  request: SetStaffActiveRequest
+): Promise<Result<SetStaffActiveSuccess, AppError>> {
+  return callStaffEdgeFunction(
+    'set-staff-active',
+    request,
+    SetStaffActiveRequestSchema,
+    SetStaffActiveSuccessSchema,
+    mapSetStaffActiveEdgeError,
+    'Could not update staff member'
+  );
+}
+
+// ============================================================================
+// CHANGE OWN PIN (forced first-login change)
+// ============================================================================
+
+export const ChangeOwnPinRequestSchema = z.object({
+  newPin: PinSchema,
+  terminalId: z.string().regex(TERMINAL_ID_PATTERN).optional(),
+});
+
+export type ChangeOwnPinRequest = z.infer<typeof ChangeOwnPinRequestSchema>;
+
+export const ChangeOwnPinSuccessSchema = z.object({ ok: z.literal(true) });
+
+export type ChangeOwnPinSuccess = z.infer<typeof ChangeOwnPinSuccessSchema>;
+
+/** Exported for unit tests. Flat `{ error: string }` envelope like admin-reset-pin. */
+export function mapChangeOwnPinEdgeError(status: number, message: string): AppError {
+  if (message.startsWith('PARTIAL_FAILURE')) return { code: 'PIN_CHANGE_PARTIAL_FAILURE', message };
+  if (message === 'SAME_PIN') return { code: 'PIN_SAME', message };
+  if (status === 401) return { code: 'AUTH_REQUIRED', message };
+  if (status === 403) return { code: 'AUTH_FORBIDDEN', message };
+  return { code: 'SUPABASE_ERROR', message };
+}
+
+/** Calls the change-own-pin edge function for the signed-in staff member. */
+export function callChangeOwnPin(
+  request: ChangeOwnPinRequest
+): Promise<Result<ChangeOwnPinSuccess, AppError>> {
+  return callStaffEdgeFunction(
+    'change-own-pin',
+    request,
+    ChangeOwnPinRequestSchema,
+    ChangeOwnPinSuccessSchema,
+    mapChangeOwnPinEdgeError,
+    'Could not change PIN'
+  );
 }
 
 // ============================================================================
