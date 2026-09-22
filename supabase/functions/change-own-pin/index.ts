@@ -47,7 +47,10 @@ Deno.serve(async (req) => {
     .select('pin, must_change_pin')
     .eq('id', caller.id)
     .single()
-  if (profileError || !profile) return json({ error: 'Insufficient role' }, 403)
+  if (profileError || !profile) {
+    console.error('change-own-pin: own profile lookup failed', caller.id, profileError?.message ?? 'no row')
+    return json({ error: 'Insufficient role' }, 403)
+  }
   if (newPin === profile.pin) return json({ error: 'SAME_PIN' }, 400)
 
   // The Auth password is written with the caller's own token (PUT
@@ -65,7 +68,13 @@ Deno.serve(async (req) => {
       body: JSON.stringify({ password: pin }),
     })
     if (resp.ok) return { error: null }
-    const body = (await resp.json().catch(() => ({}))) as { msg?: string; message?: string }
+    const body = (await resp.json().catch(() => ({}))) as { error_code?: string; msg?: string; message?: string }
+    // GoTrue refuses a self update to the password already in place
+    // (422, error_code same_password). The Auth store then already holds the
+    // requested value, which is what a retry after a partial failure looks
+    // like: count it as written so the profile write can bring both stores
+    // back together. The admin endpoint has no such check.
+    if (resp.status === 422 && body.error_code === 'same_password') return { error: null }
     return { error: { message: body.msg ?? body.message ?? `auth update failed (${resp.status})` } }
   }
 

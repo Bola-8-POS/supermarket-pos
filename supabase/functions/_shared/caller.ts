@@ -28,7 +28,14 @@ export async function verifyCaller(req: Request, admin: SupabaseClient): Promise
     .select('role, is_active')
     .eq('id', user.id)
     .maybeSingle()
-  if (error || !profile?.is_active) return { ok: false, status: 403, error: 'Insufficient role' }
+  if (error || !profile?.is_active) {
+    console.error(
+      'verifyCaller: profile refused',
+      user.id,
+      error?.message ?? (profile ? 'profile inactive' : 'no profile row')
+    )
+    return { ok: false, status: 403, error: 'Insufficient role' }
+  }
 
   return { ok: true, id: user.id, role: profile.role as string }
 }

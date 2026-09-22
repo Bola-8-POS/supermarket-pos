@@ -39,13 +39,20 @@ Deno.serve(async (req) => {
   const caller = await verifyCaller(req, admin)
   if (!caller.ok) return json({ error: caller.error }, caller.status)
 
-  const { data: permission } = await admin
+  const { data: permission, error: permissionError } = await admin
     .from('role_permissions')
     .select('id')
     .eq('role', caller.role)
     .eq('action', 'manage_staff')
     .maybeSingle()
-  if (!permission) return json({ error: 'Insufficient role' }, 403)
+  if (!permission) {
+    console.error(
+      'set-staff-active: manage_staff permission refused',
+      caller.id,
+      permissionError?.message ?? `role ${caller.role} lacks manage_staff`
+    )
+    return json({ error: 'Insufficient role' }, 403)
+  }
 
   let raw: unknown
   try {
@@ -57,7 +64,8 @@ Deno.serve(async (req) => {
   if (!parsed.success) return json({ error: 'Invalid request' }, 400)
   const { staffId, active, terminalId } = parsed.data
 
-  const setBan = () => admin.auth.admin.updateUserById(staffId, { ban_duration: active ? 'none' : BAN_DURATION })
+  const setBan = (banned: boolean) =>
+    admin.auth.admin.updateUserById(staffId, { ban_duration: banned ? BAN_DURATION : 'none' })
   const flip = () =>
     admin.rpc('set_staff_active', {
       p_staff_id: staffId,
@@ -67,7 +75,7 @@ Deno.serve(async (req) => {
     })
 
   if (active) {
-    const { error: unbanError } = await setBan()
+    const { error: unbanError } = await setBan(false)
     if (unbanError) {
       console.error('set-staff-active: sign-in state update failed', unbanError.message)
       return json({ error: 'Sign-in state update failed, retry' }, 500)
@@ -75,17 +83,29 @@ Deno.serve(async (req) => {
   }
 
   const { data, error: rpcError } = await flip()
-  if (rpcError) {
-    console.error('set-staff-active: staff record update failed', rpcError.message)
-    return json({ error: 'Staff record update failed, retry' }, 500)
+  const outcome = (data ?? { ok: false }) as { ok: boolean; code?: string; changed?: boolean }
+  if (rpcError || !outcome.ok) {
+    if (active) {
+      // The record did not flip. When the target is still inactive, put the
+      // ban back so the account stays unable to sign in. (A SELF refusal
+      // names the active caller, whose ban must not be touched.)
+      const { data: target } = await admin.from('profiles').select('is_active').eq('id', staffId).maybeSingle()
+      if (target && target.is_active === false) {
+        const { error: rebanError } = await setBan(true)
+        if (rebanError) console.error('set-staff-active: ban restore failed', rebanError.message)
+      }
+    }
+    if (rpcError) {
+      console.error('set-staff-active: staff record update failed', rpcError.message)
+      return json({ error: 'Staff record update failed, retry' }, 500)
+    }
+    return json({ error: outcome.code }, RPC_STATUS[outcome.code ?? ''] ?? 500)
   }
-  const outcome = data as { ok: boolean; code?: string; changed?: boolean }
-  if (!outcome.ok) return json({ error: outcome.code }, RPC_STATUS[outcome.code ?? ''] ?? 500)
 
   if (!active) {
     // Runs even when the record was already inactive, so a retry after a
     // partial failure completes the ban.
-    const { error: banError } = await setBan()
+    const { error: banError } = await setBan(true)
     if (banError) {
       console.error('set-staff-active: sign-in state update failed', banError.message)
       await recordAudit(admin, {
