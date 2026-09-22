@@ -292,6 +292,16 @@ describe.skipIf(skip)('edit_paid_tab RPC (integration)', () => {
 
     const { data: tab } = await db.from('tabs').select('version').eq('id', seed.tabId).single();
     expect(tab?.version).toBe(seed.version + 1);
+
+    const { data: audit } = await db
+      .from('audit_logs')
+      .select('after')
+      .eq('action', 'tab.edit_paid')
+      .eq('entity_id', seed.tabId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+    expect(audit?.after.approved_by).toBe(managerId);
   });
 
   it('SC-1: STALE_VERSION is returned when p_expected_version does not match tabs.version', async () => {

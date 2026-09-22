@@ -254,7 +254,7 @@ describe.skipIf(skip)('manager approvals', () => {
     expect(locked.retryAfter).toBeGreaterThan(0);
   });
 
-  it('counts one attempt for a direct sale that delegates to the payment RPC', async () => {
+  it('counts one attempt and records no payment when a direct sale is refused', async () => {
     const wrong = managerA.pin === '000000' ? '000001' : '000000';
     const { data: product } = await db.from('products').select('id').eq('is_active', true).limit(1).single();
     if (!product) throw new Error('no active product');
@@ -282,5 +282,90 @@ describe.skipIf(skip)('manager approvals', () => {
       await db.from('caja_sessions').update({ status: 'closed', closed_at: new Date().toISOString() }).eq('id', caja.id);
       await db.from('caja_sessions').delete().eq('id', caja.id);
     }
+  });
+
+  it('stores the approver on the delegated payment and clears the attempt when a direct sale succeeds', async () => {
+    const { data: product } = await db.from('products').select('id, base_price').eq('is_active', true).eq('sold_by_weight', false).limit(1).single();
+    if (!product) throw new Error('no active product');
+    const { data: caja, error: cajaErr } = await db.from('caja_sessions').insert({ opened_by: managerA.id, opening_cash: 0, terminal_id: `T${stamp.slice(-8)}` }).select('id, terminal_id').single();
+    if (cajaErr || !caja) throw new Error(`caja insert: ${cajaErr?.message}`);
+    let saleTabId: string | null = null;
+    try {
+      const basePrice = Number(product.base_price);
+      const discountAmount = Math.round(basePrice * 10) / 100;
+      const total = Math.round((basePrice - discountAmount) * 100) / 100;
+      const { data, error } = await db.rpc('process_direct_sale_atomic', {
+        p_staff_id: cashier.id,
+        p_shift_id: shiftId,
+        p_caja_session_id: caja.id,
+        p_items: [{ product_id: product.id, quantity: 1, unit_price: basePrice, modifier_ids: [], modifier_price_delta: 0, notes: '' }],
+        p_idempotency_key: `${TAG}${Date.now()}`,
+        p_method: 'cash',
+        p_amount: total,
+        p_tendered_amount: total,
+        p_discount_scope: 'all',
+        p_discount_type: 'percent',
+        p_discount_value: 10,
+        p_discount_amount: discountAmount,
+        p_manager_override: true,
+        p_manager_pin: managerA.pin,
+        p_approver_id: managerA.id,
+        p_terminal_id: caja.terminal_id,
+      });
+      expect(error).toBeNull();
+      expect(data.ok).toBe(true);
+      saleTabId = data.tabId;
+      tabIds.push(data.tabId);
+      const { data: payment } = await db.from('payments').select('approved_by, processed_by').eq('id', data.paymentId).single();
+      expect(payment).toEqual({ approved_by: managerA.id, processed_by: cashier.id });
+      const { data: audit } = await db.from('audit_logs').select('actor_id, after').eq('action', 'payment.process').eq('entity_id', data.paymentId).single();
+      expect(audit.after.approved_by).toBe(managerA.id);
+      // Called with the service key, not a signed-in session: record_audit's auth.uid() is NULL.
+      expect(audit.actor_id).toBeNull();
+      expect(await attemptRow(cashier)).toBeNull();
+    } finally {
+      // caja_sessions (like tabs) carries the bump_version_on_update trigger
+      // (STALE_VERSION unless new.version = old.version + 1), and the tab the
+      // sale just created still references this caja_session_id — release
+      // that reference (with its own version bump) before closing and
+      // deleting the caja, or both updates below silently no-op/fail.
+      if (saleTabId) {
+        const { data: tabRow } = await db.from('tabs').select('version').eq('id', saleTabId).single();
+        const tabVersion = ((tabRow as { version?: number } | null)?.version ?? 0) + 1;
+        await db.from('tabs').update({ caja_session_id: null, version: tabVersion }).eq('id', saleTabId);
+      }
+      const { data: cajaRow } = await db.from('caja_sessions').select('version').eq('id', caja.id).single();
+      const cajaVersion = ((cajaRow as { version?: number } | null)?.version ?? 0) + 1;
+      await db.from('caja_sessions').update({ status: 'closed', closed_at: new Date().toISOString(), version: cajaVersion }).eq('id', caja.id);
+      await db.from('caja_sessions').delete().eq('id', caja.id);
+    }
+  });
+
+  it('stores the approver on every leg of a split payment', async () => {
+    const tabId = await seedOpenTab();
+    const { data, error } = await db.rpc('process_split_payment_atomic', {
+      p_tab_id: tabId,
+      p_staff_id: cashier.id,
+      p_legs: [
+        { method: 'cash', amount: 18, tenderedAmount: 18 },
+        { method: 'cash', amount: 18, tenderedAmount: 18 },
+      ],
+      p_expected_total: 36,
+      p_idempotency_key: `${TAG}${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      p_discount_scope: 'all',
+      p_discount_type: 'percent',
+      p_discount_value: 10,
+      p_discount_amount: 4.0,
+      p_manager_override: true,
+      p_manager_pin: managerA.pin,
+      p_approver_id: managerA.id,
+    });
+    expect(error).toBeNull();
+    expect(data.ok).toBe(true);
+    const { data: payments } = await db.from('payments').select('approved_by').eq('tab_id', tabId);
+    expect(payments.length).toBeGreaterThan(0);
+    expect(payments.every((p: { approved_by: string }) => p.approved_by === managerA.id)).toBe(true);
+    const { data: audit } = await db.from('audit_logs').select('after').eq('action', 'payment.process_split').eq('entity_id', data.paymentGroupId).single();
+    expect(audit.after.approved_by).toBe(managerA.id);
   });
 });

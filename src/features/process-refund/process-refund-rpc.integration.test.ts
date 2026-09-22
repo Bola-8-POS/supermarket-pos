@@ -354,6 +354,8 @@ describe('process_refund RPC (integration)', () => {
 
     expect(error).toBeNull();
     expect(data).toBeNull();
+    const { count } = await svc.from('refunds').select('id', { count: 'exact', head: true }).eq('original_payment_id', paymentId);
+    expect(count).toBe(0);
   });
 
   itAuth(

@@ -330,6 +330,16 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
 
       const { data: payment } = await db.from('payments').select('status').eq('id', seed.paymentId).single();
       expect(payment?.status).toBe('reopened_void');
+
+      const { data: audit } = await db
+        .from('audit_logs')
+        .select('after')
+        .eq('action', 'tab.reopen')
+        .eq('entity_id', seed.tabId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      expect(audit?.after.approved_by).toBe(managerId);
     }
   );
 
