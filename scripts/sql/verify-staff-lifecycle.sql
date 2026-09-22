@@ -62,7 +62,7 @@ BEGIN
     AND has_function_privilege('authenticated', p.oid, 'EXECUTE')
     AND p.prosrc ~ 'auth\.uid\(\)'
     AND p.prosrc ~ '\mrole\s+(IN\s*\(|NOT IN|=|INTO)'
-    AND p.prosrc !~ 'is_active';
+    AND p.prosrc !~ 'is_active\s*=\s*true';
   IF v_bad IS NOT NULL THEN
     RAISE EXCEPTION 'role gate without an active-caller check on: %', v_bad;
   END IF;

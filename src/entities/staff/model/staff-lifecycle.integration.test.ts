@@ -167,6 +167,26 @@ describe.skipIf(skip)('staff lifecycle', () => {
     const { count: opened } = await db.from('caja_sessions').select('id', { count: 'exact', head: true }).eq('opened_by', member.id);
     expect(opened).toBe(0);
 
+    // Closing an open caja is refused and the session stays open. The caja is
+    // created by the service role so the refusal comes from the caller gate,
+    // not from a missing row.
+    const { data: caja, error: cajaInsertErr } = await db
+      .from('caja_sessions')
+      .insert({ opened_by: admin.id, opening_cash: 0, terminal_id: `${TAG}terminal` })
+      .select('id')
+      .single();
+    expect(cajaInsertErr).toBeNull();
+    const { data: closed, error: closeErr } = await memberClient.rpc('close_caja_session', {
+      p_caja_id: caja!.id, p_closed_by: member.id, p_closing_cash: 0, p_notes: null,
+    });
+    expect(closeErr).toBeNull();
+    expect((closed as any).ok).toBe(false);
+    expect((closed as any).error?.code).toBe('PERMISSION_DENIED');
+    const { data: cajaAfter } = await db.from('caja_sessions').select('status').eq('id', caja!.id).single();
+    expect(cajaAfter?.status).toBe('open');
+    const { error: cajaDeleteErr } = await db.from('caja_sessions').delete().eq('id', caja!.id);
+    expect(cajaDeleteErr).toBeNull();
+
     // A read gated through get_user_role() returns nothing.
     const { data: rows, error: readErr } = await memberClient.from('caja_sessions').select('id').limit(1);
     expect(readErr).toBeNull();

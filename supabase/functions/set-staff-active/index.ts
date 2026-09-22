@@ -89,7 +89,8 @@ Deno.serve(async (req) => {
       // The record did not flip. When the target is still inactive, put the
       // ban back so the account stays unable to sign in. (A SELF refusal
       // names the active caller, whose ban must not be touched.)
-      const { data: target } = await admin.from('profiles').select('is_active').eq('id', staffId).maybeSingle()
+      const { data: target, error: targetError } = await admin.from('profiles').select('is_active').eq('id', staffId).maybeSingle()
+      if (targetError) console.error('set-staff-active: target read failed, ban not restored', targetError.message)
       if (target && target.is_active === false) {
         const { error: rebanError } = await setBan(true)
         if (rebanError) console.error('set-staff-active: ban restore failed', rebanError.message)

@@ -112,7 +112,7 @@ DECLARE
   v_cash_sales NUMERIC(12,2);
 BEGIN
   SELECT role INTO v_caller_role FROM profiles WHERE id = auth.uid() AND is_active = true;
-  IF v_caller_role NOT IN ('manager', 'admin') THEN
+  IF v_caller_role IS NULL OR v_caller_role NOT IN ('manager', 'admin') THEN
     RETURN json_build_object('ok', false, 'error', json_build_object(
       'code', 'PERMISSION_DENIED',
       'message', 'Only managers and admins can close the caja.'
