@@ -68,8 +68,10 @@ describe.skipIf(skip)('manager approvals', () => {
   async function removeUser(u: TestUser): Promise<void> {
     if (!u.id) return;
     await db.from('pin_attempts').delete().eq('attempt_key', `caller:${u.id}`);
-    await db.from('profiles').delete().eq('id', u.id);
-    await db.auth.admin.deleteUser(u.id);
+    const { error: profileErr } = await db.from('profiles').delete().eq('id', u.id);
+    if (profileErr) throw new Error(`profile delete for ${u.name}: ${profileErr.message}`);
+    const { error: authErr } = await db.auth.admin.deleteUser(u.id);
+    if (authErr) throw new Error(`auth user delete for ${u.name}: ${authErr.message}`);
   }
 
   async function clearAttempts(u: TestUser): Promise<void> {
@@ -165,13 +167,33 @@ describe.skipIf(skip)('manager approvals', () => {
 
   afterAll(async () => {
     for (const tabId of tabIds) {
-      await db.from('refunds').delete().in('original_payment_id', (await db.from('payments').select('id').eq('tab_id', tabId)).data?.map((p: { id: string }) => p.id) ?? []);
+      const tabPaymentIds = (await db.from('payments').select('id').eq('tab_id', tabId)).data?.map((p: { id: string }) => p.id) ?? [];
+      // payments.refund_id and refunds.original_payment_id reference each
+      // other (both RESTRICT), so the refund-tracking payment row has to go
+      // before the refund it points to, or the refund delete below is
+      // blocked by its own foreign key.
+      await db.from('payments').delete().eq('tab_id', tabId).eq('is_refund', true);
+      await db.from('refunds').delete().in('original_payment_id', tabPaymentIds);
       await db.from('payments').delete().eq('tab_id', tabId);
       await db.from('order_items').delete().in('order_id', (await db.from('orders').select('id').eq('tab_id', tabId)).data?.map((o: { id: string }) => o.id) ?? []);
       await db.from('orders').delete().eq('tab_id', tabId);
       await db.from('tabs').delete().eq('id', tabId);
     }
     if (shiftId) await db.from('shifts').delete().eq('id', shiftId);
+
+    // The payment and direct-sale paths write stock_movements rows for the
+    // cashier (via the order_items trigger), and process_refund writes a
+    // legacy audit_log row for the approver. Both carry a RESTRICT/NO ACTION
+    // foreign key to profiles, so clear them before removing the profiles
+    // below or the deletes silently no-op and the rows accumulate.
+    const testUserIds = [cashier.id, managerA.id, managerB.id, admin.id].filter(Boolean);
+    if (testUserIds.length > 0) {
+      const { error: stockErr } = await db.from('stock_movements').delete().in('staff_id', testUserIds);
+      if (stockErr) throw new Error(`stock_movements cleanup: ${stockErr.message}`);
+      const { error: auditErr } = await db.from('audit_log').delete().in('actor_id', testUserIds);
+      if (auditErr) throw new Error(`audit_log cleanup: ${auditErr.message}`);
+    }
+
     await removeUser(cashier);
     await removeUser(managerA);
     await removeUser(managerB);
