@@ -10,6 +10,7 @@
   },
   "pinLoginForm": {
     "incorrectPin": "Incorrect PIN. Try again.",
+    "lockedOut": "Too many attempts. Try again in {{seconds}} s.",
     "signInFailed": "Sign-in failed. Please try again or contact your manager.",
     "pinsDontMatch": "PINs don't match. Try again.",
     "choosePinDifferent": "Choose a PIN different from your current one.",

@@ -3,8 +3,10 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useLoginUiStore } from '@entities/staff/model/loginUiStore';
+import { rememberOfflineUnlock } from '@entities/staff/model/offlineUnlock';
 import { useMutationClockIn } from '@entities/staff/model/queries';
 import { useStaffStore } from '@entities/staff/model/store';
+import { callStaffSignIn } from '@shared/lib/edge-function-contracts';
 import { logger } from '@shared/lib/logger-instance';
 import { supabase } from '@shared/lib/supabase';
 import { getTerminalId } from '@shared/lib/terminal';
@@ -28,6 +30,7 @@ export function PINLoginForm() {
   const [confirmPin, setConfirmPin] = useState('');
   const [pinChangeError, setPinChangeError] = useState('');
   const [isSubmittingNewPin, setIsSubmittingNewPin] = useState(false);
+  const [signedInPin, setSignedInPin] = useState('');
   const navigate = useNavigate();
   const clockInMutation = useMutationClockIn();
 
@@ -72,24 +75,35 @@ export function PINLoginForm() {
   };
 
   const handlePinComplete = async (enteredPin: string): Promise<void> => {
-    if (enteredPin !== selectedStaff.pin) {
-      setError(t('pinLoginForm.incorrectPin'));
+    const result = await callStaffSignIn({ staffId: selectedStaff.id, pin: enteredPin });
+    if (!result.ok) {
+      if (result.error.message === 'LOCKED') {
+        setError(t('pinLoginForm.lockedOut', { seconds: Number(result.error.details ?? 0) }));
+      } else if (result.error.message === 'INVALID_CREDENTIALS') {
+        setError(t('pinLoginForm.incorrectPin'));
+      } else {
+        logger.error('login.staff_sign_in_failed', { message: result.error.message });
+        setError(t('pinLoginForm.signInFailed'));
+      }
       setPin('');
       return;
     }
 
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: selectedStaff.email,
-      password: enteredPin,
+    const { error: sessionError } = await supabase.auth.setSession({
+      access_token: result.data.accessToken,
+      refresh_token: result.data.refreshToken,
     });
-    if (signInError) {
-      logger.error('login.supabase_sign_in_failed', { message: signInError.message });
+    if (sessionError) {
+      logger.error('login.set_session_failed', { message: sessionError.message });
       setError(t('pinLoginForm.signInFailed'));
       setPin('');
       return;
     }
 
-    if (selectedStaff.mustChangePin) {
+    setSignedInPin(enteredPin);
+    await rememberOfflineUnlock(selectedStaff.id, enteredPin);
+
+    if (result.data.mustChangePin) {
       setPhase('forced_pin_change');
       return;
     }
@@ -109,7 +123,7 @@ export function PINLoginForm() {
       return;
     }
 
-    if (newPin === selectedStaff.pin) {
+    if (newPin === signedInPin) {
       setPinChangeError(t('pinLoginForm.choosePinDifferent'));
       resetForcedPinChangeFields();
       return;
@@ -143,6 +157,7 @@ export function PINLoginForm() {
         return;
       }
 
+      await rememberOfflineUnlock(selectedStaff.id, newPin);
       await proceedAfterAuth();
     } finally {
       setIsSubmittingNewPin(false);
