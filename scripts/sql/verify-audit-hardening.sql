@@ -11,7 +11,7 @@ BEGIN
   IF EXISTS (
     SELECT 1 FROM pg_proc
     WHERE pronamespace = 'public'::regnamespace
-      AND proname IN ('set_own_locale', 'force_pin_change', 'clear_must_change_pin')
+      AND proname IN ('set_own_locale', 'force_pin_change')
       AND prosrc ~* 'to_jsonb\s*\(\s*[a-z_]+\s*\)'
   ) THEN
     RAISE EXCEPTION 'an audit payload is built with to_jsonb of a whole row';

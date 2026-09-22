@@ -461,7 +461,7 @@ export function useMutationUpdateStaffRole() {
   return useMutation<Result<Staff>, Error, { staffId: string; role: Staff['role'] }>({
     mutationFn: async ({ staffId, role }): Promise<Result<Staff>> => {
       const res = await supabaseMutation(() =>
-        supabase.from('profiles').update({ role }).eq('id', staffId).select().single()
+        supabase.from('profiles').update({ role }).eq('id', staffId).select('id, name, role, is_active, must_change_pin, locale').single()
       );
 
       if (!res.ok) {
@@ -560,7 +560,7 @@ export function useMutationUpdateStaffLocale() {
   return useMutation<Result<Staff>, Error, { staffId: string; locale: Staff['locale'] }>({
     mutationFn: async ({ staffId, locale }): Promise<Result<Staff>> => {
       const res = await supabaseMutation(() =>
-        supabase.from('profiles').update({ locale }).eq('id', staffId).select().single()
+        supabase.from('profiles').update({ locale }).eq('id', staffId).select('id, name, role, is_active, must_change_pin, locale').single()
       );
 
       if (!res.ok) {

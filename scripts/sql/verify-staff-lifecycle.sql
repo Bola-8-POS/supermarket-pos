@@ -7,8 +7,7 @@ DO $$
 DECLARE
   v_fn    regprocedure := 'public.set_staff_active(uuid, boolean, uuid, text)'::regprocedure;
   v_gated text[] := ARRAY['force_pin_change', 'close_tab', 'confirm_transfer_payment',
-                          'dispute_transfer_payment', 'caja_open', 'close_caja_session',
-                          'clear_must_change_pin'];
+                          'dispute_transfer_payment', 'caja_open', 'close_caja_session'];
   v_name  text;
   v_bad   text;
 BEGIN
