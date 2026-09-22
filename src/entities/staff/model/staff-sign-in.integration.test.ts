@@ -23,12 +23,13 @@ describe.skipIf(skip)('staff-sign-in', () => {
   const staff = { id: '', email: `${TAG}${stamp}@test.local`, pin: randomPin() };
   const locked = { id: '', email: `${TAG}l_${stamp}@test.local`, pin: randomPin() };
   const parallel = { id: '', email: `${TAG}p_${stamp}@test.local`, pin: randomPin() };
+  const addressChange = { id: '', email: `${TAG}ac_${stamp}@test.local`, pin: randomPin() };
   const unknownStaffId = crypto.randomUUID();
 
-  async function call(body: unknown): Promise<{ status: number; json: any }> {
+  async function call(body: unknown, extraHeaders: Record<string, string> = {}): Promise<{ status: number; json: any }> {
     const res = await fetch(`${url}/functions/v1/staff-sign-in`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: anonKey!, Authorization: `Bearer ${anonKey}` },
+      headers: { 'Content-Type': 'application/json', apikey: anonKey!, Authorization: `Bearer ${anonKey}`, ...extraHeaders },
       body: JSON.stringify(body),
     });
     return { status: res.status, json: await res.json().catch(() => null) };
@@ -47,7 +48,7 @@ describe.skipIf(skip)('staff-sign-in', () => {
 
   async function removeStaff(s: { id: string }): Promise<void> {
     if (!s.id) return;
-    await db.from('pin_attempts').delete().like('attempt_key', `login:${s.id}:%`);
+    await db.from('pin_attempts').delete().like('attempt_key', `login:${s.id}%`);
     await db.from('profiles').delete().eq('id', s.id);
     await db.auth.admin.deleteUser(s.id);
   }
@@ -56,13 +57,15 @@ describe.skipIf(skip)('staff-sign-in', () => {
     await makeStaff(staff);
     await makeStaff(locked);
     await makeStaff(parallel);
+    await makeStaff(addressChange);
   });
 
   afterAll(async () => {
     await removeStaff(staff);
     await removeStaff(locked);
     await removeStaff(parallel);
-    await db.from('pin_attempts').delete().like('attempt_key', `login:${unknownStaffId}:%`);
+    await removeStaff(addressChange);
+    await db.from('pin_attempts').delete().like('attempt_key', `login:${unknownStaffId}%`);
   });
 
   it('returns a working session for the right PIN', async () => {
@@ -106,6 +109,23 @@ describe.skipIf(skip)('staff-sign-in', () => {
 
     // Another staff member is not affected.
     expect((await call({ staffId: staff.id, pin: staff.pin })).status).toBe(200);
+  });
+
+  it('locks the account even when the caller address changes', async () => {
+    const wrongPin = addressChange.pin === '123456' ? '654321' : '123456';
+    let last: any = null;
+    for (let i = 0; i < 5; i++) {
+      last = await call({ staffId: addressChange.id, pin: wrongPin }, { 'x-forwarded-for': `10.0.0.${i}` });
+    }
+    expect(last.status).toBe(401);
+    expect(last.json.retryAfter).toBeGreaterThan(0);
+
+    const right = await call(
+      { staffId: addressChange.id, pin: addressChange.pin },
+      { 'x-forwarded-for': '10.0.0.99' }
+    );
+    expect(right.status).toBe(429);
+    expect(right.json.error).toBe('LOCKED');
   });
 
   // Locks the parallel staff member's key: placed last so no later test depends on it.

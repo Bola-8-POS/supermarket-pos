@@ -43,21 +43,42 @@ Deno.serve(async (req) => {
   const noSession = { auth: { persistSession: false, autoRefreshToken: false } }
   const admin = createClient(supabaseUrl, serviceRoleKey, noSession)
 
-  // Keyed per staff member and caller address, so one network cannot lock a
-  // staff member out for another.
-  const address = (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim() || 'unknown'
-  const key = `login:${staffId}:${address}`
+  // The last entry is the one the gateway appended; earlier entries are
+  // caller-supplied.
+  const address = (req.headers.get('x-forwarded-for') ?? '').split(',').pop()?.trim() || 'unknown'
+
+  // Two keys: the account key caps how many wrong PINs a staff member's
+  // sign-in accepts regardless of caller address (a caller-chosen address
+  // cannot buy a fresh key); the address key caps how many wrong PINs one
+  // network address may send (a shared store address cannot lock one staff
+  // member out for longer than the account key's own cap).
+  const accountKey = `login:${staffId}`
+  const addressKey = `login:${staffId}:${address}`
 
   // Serialized per key: counts this attempt up front (returns 0) or refuses
   // it outright when already locked (returns the seconds still locked,
   // without counting it again). This is what keeps a parallel burst from
-  // exceeding the attempt budget.
-  const { data: began, error: beginError } = await admin.rpc('pin_attempt_begin', { p_key: key })
-  if (beginError) {
-    console.error('staff-sign-in: attempt lookup failed', beginError.message)
+  // exceeding the attempt budget. Both keys are opened (and so both count
+  // this attempt) even when one is already locked.
+  const { data: beganAccount, error: beginAccountError } = await admin.rpc('pin_attempt_begin', {
+    p_key: accountKey,
+  })
+  if (beginAccountError) {
+    console.error('staff-sign-in: attempt lookup failed', beginAccountError.message)
     return json({ error: 'UNAVAILABLE' }, 503)
   }
-  if (typeof began === 'number' && began > 0) return json({ error: 'LOCKED', retryAfter: began }, 429)
+  const { data: beganAddress, error: beginAddressError } = await admin.rpc('pin_attempt_begin', {
+    p_key: addressKey,
+  })
+  if (beginAddressError) {
+    console.error('staff-sign-in: attempt lookup failed', beginAddressError.message)
+    return json({ error: 'UNAVAILABLE' }, 503)
+  }
+  const waitAccount = typeof beganAccount === 'number' ? beganAccount : 0
+  const waitAddress = typeof beganAddress === 'number' ? beganAddress : 0
+  if (waitAccount > 0 || waitAddress > 0) {
+    return json({ error: 'LOCKED', retryAfter: Math.max(waitAccount, waitAddress) }, 429)
+  }
 
   const { data: profile, error: profileError } = await admin
     .from('profiles')
@@ -79,18 +100,27 @@ Deno.serve(async (req) => {
       return json({ error: 'UNAVAILABLE' }, 503)
     }
     session = data.session
+    // The session must belong to the requested staff member.
+    if (data.user?.id !== staffId) session = null
   }
 
   if (!session) {
     // The attempt was already counted by pin_attempt_begin above; read the
     // lock now in force instead of recording a second failure.
-    const { data: wait } = await admin.rpc('pin_attempt_retry_after', { p_key: key })
-    return json({ error: 'INVALID_CREDENTIALS', retryAfter: typeof wait === 'number' ? wait : 0 }, 401)
+    const [{ data: waitAcc }, { data: waitAddr }] = await Promise.all([
+      admin.rpc('pin_attempt_retry_after', { p_key: accountKey }),
+      admin.rpc('pin_attempt_retry_after', { p_key: addressKey }),
+    ])
+    const retryAfter = Math.max(typeof waitAcc === 'number' ? waitAcc : 0, typeof waitAddr === 'number' ? waitAddr : 0)
+    return json({ error: 'INVALID_CREDENTIALS', retryAfter }, 401)
   }
 
-  const { error: resetError } = await admin.rpc('pin_attempt_record', { p_key: key, p_success: true })
-  if (resetError) {
-    console.error('staff-sign-in: attempt reset failed', resetError.message)
+  const [{ error: resetAccountError }, { error: resetAddressError }] = await Promise.all([
+    admin.rpc('pin_attempt_record', { p_key: accountKey, p_success: true }),
+    admin.rpc('pin_attempt_record', { p_key: addressKey, p_success: true }),
+  ])
+  if (resetAccountError || resetAddressError) {
+    console.error('staff-sign-in: attempt reset failed', (resetAccountError ?? resetAddressError)?.message)
   }
   return json({
     accessToken: session.access_token,
