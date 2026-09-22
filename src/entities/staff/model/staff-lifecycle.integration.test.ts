@@ -23,7 +23,7 @@ interface Fixture {
   id: string;
   name: string;
   email: string;
-  role: 'admin' | 'cashier';
+  role: 'admin' | 'manager' | 'cashier';
   pin: string;
   mustChangePin: boolean;
 }
@@ -32,12 +32,13 @@ describe.skipIf(skip)('staff lifecycle', () => {
   const db = createClient(url!, serviceKey!, { auth: { persistSession: false } }) as any;
   const stamp = String(Date.now());
   const admin: Fixture = { id: '', name: `${TAG}admin`, email: `${TAG}a_${stamp}@test.local`, role: 'admin', pin: randomPin(), mustChangePin: false };
-  const cashier: Fixture = { id: '', name: `${TAG}cashier`, email: `${TAG}c_${stamp}@test.local`, role: 'cashier', pin: randomPin(), mustChangePin: false };
+  // A manager: role-gated RPCs answer it while active, so their refusal after deactivation is meaningful.
+  const member: Fixture = { id: '', name: `${TAG}member`, email: `${TAG}m_${stamp}@test.local`, role: 'manager', pin: randomPin(), mustChangePin: false };
   const changer: Fixture = { id: '', name: `${TAG}changer`, email: `${TAG}p_${stamp}@test.local`, role: 'cashier', pin: randomPin(), mustChangePin: true };
-  const fixtures = [admin, cashier, changer];
+  const fixtures = [admin, member, changer];
 
   let adminToken = '';
-  let cashierClient: any = null;
+  let memberClient: any = null;
 
   const anon = () => createClient(url!, anonKey!, { auth: { persistSession: false } }) as any;
 
@@ -94,9 +95,9 @@ describe.skipIf(skip)('staff lifecycle', () => {
     if (error || !data.session) throw new Error(`admin sign in: ${error?.message}`);
     adminToken = data.session.access_token;
 
-    const signedIn = await signIn(cashier, cashier.pin);
-    if (signedIn.status !== 200) throw new Error(`cashier sign in: ${signedIn.status}`);
-    cashierClient = await sessionClient(signedIn.json);
+    const signedIn = await signIn(member, member.pin);
+    if (signedIn.status !== 200) throw new Error(`member sign in: ${signedIn.status}`);
+    memberClient = await sessionClient(signedIn.json);
   });
 
   afterAll(async () => {
@@ -107,56 +108,73 @@ describe.skipIf(skip)('staff lifecycle', () => {
     expect(count).toBe(0);
   });
 
-  it('starts with an active cashier that holds a session and appears in the directory', async () => {
-    expect(await inDirectory(cashier.id)).toBe(true);
-    const { data, error } = await cashierClient.rpc('get_user_role');
+  it('starts with an active member that holds a session and appears in the directory', async () => {
+    expect(await inDirectory(member.id)).toBe(true);
+    const { data, error } = await memberClient.rpc('get_user_role');
     expect(error).toBeNull();
-    expect(data).toBe('cashier');
+    expect(data).toBe('manager');
+
+    // A role-gated RPC answers the active manager (the target already carries the flag).
+    const { data: forced, error: forcedErr } = await memberClient.rpc('force_pin_change', { p_staff_id: changer.id });
+    expect(forcedErr).toBeNull();
+    expect((forced as any).ok).toBe(true);
   });
 
-  it('lets an admin deactivate the cashier', async () => {
-    const { status, json } = await callFn('set-staff-active', adminToken, { staffId: cashier.id, active: false, terminalId: 'test' });
+  it('lets an admin deactivate the member', async () => {
+    const { status, json } = await callFn('set-staff-active', adminToken, { staffId: member.id, active: false, terminalId: 'test' });
     expect(status).toBe(200);
     expect(json).toEqual({ ok: true, changed: true });
 
-    const { data } = await db.from('profiles').select('is_active, deleted_at').eq('id', cashier.id).single();
+    const { data } = await db.from('profiles').select('is_active, deleted_at').eq('id', member.id).single();
     expect(data.is_active).toBe(false);
     expect(data.deleted_at).not.toBeNull();
   });
 
-  it('hides the deactivated cashier from the directory, PIN checks and sign-in', async () => {
-    expect(await inDirectory(cashier.id)).toBe(false);
+  it('hides the deactivated member from the directory, PIN checks and sign-in', async () => {
+    expect(await inDirectory(member.id)).toBe(false);
 
-    // The admin session (its token, no second sign-in) checks the cashier's PIN.
+    // The admin session (its token, no second sign-in) checks the member's PIN.
     const { data: verify, error: verifyErr } = await createClient(url!, anonKey!, {
       auth: { persistSession: false },
       global: { headers: { Authorization: `Bearer ${adminToken}` } },
-    }).rpc('verify_staff_pin', { p_pin: cashier.pin, p_staff_id: cashier.id, p_required_action: 'create_order' });
+    }).rpc('verify_staff_pin', { p_pin: member.pin, p_staff_id: member.id, p_required_action: 'create_order' });
     expect(verifyErr).toBeNull();
     expect((verify as any).ok).toBe(false);
 
-    const { status, json } = await signIn(cashier, cashier.pin);
+    const { status, json } = await signIn(member, member.pin);
     expect(status).toBe(401);
     expect(json.error).toBe('INVALID_CREDENTIALS');
   });
 
-  it('strips every role from the session the cashier already holds', async () => {
-    const { data: role, error: roleErr } = await cashierClient.rpc('get_user_role');
+  it('strips every role from the session the member already holds', async () => {
+    const { data: role, error: roleErr } = await memberClient.rpc('get_user_role');
     expect(roleErr).toBeNull();
     expect(role).toBeNull();
 
-    // A role-gated RPC refuses the caller.
-    const { error: gated } = await cashierClient.rpc('force_pin_change', { p_staff_id: admin.id });
+    // The role-gated RPC that answered the same session while active now refuses it.
+    const { error: gated } = await memberClient.rpc('force_pin_change', { p_staff_id: changer.id });
     expect(gated).not.toBeNull();
 
+    // The own-PIN RPC refuses too, and the record keeps its PIN.
+    const { error: ownPin } = await memberClient.rpc('clear_must_change_pin', { p_new_pin: otherPin(member.pin) });
+    expect(ownPin).not.toBeNull();
+    const { data: kept } = await db.from('profiles').select('pin').eq('id', member.id).single();
+    expect(kept.pin).toBe(member.pin);
+
+    // Opening a caja is refused and leaves no session behind.
+    const { error: cajaErr } = await memberClient.rpc('caja_open', { p_opening_cash: 0, p_opened_by: member.id, p_terminal_id: 'test' });
+    expect(cajaErr).not.toBeNull();
+    const { count: opened } = await db.from('caja_sessions').select('id', { count: 'exact', head: true }).eq('opened_by', member.id);
+    expect(opened).toBe(0);
+
     // A read gated through get_user_role() returns nothing.
-    const { data: rows, error: readErr } = await cashierClient.from('caja_sessions').select('id').limit(1);
+    const { data: rows, error: readErr } = await memberClient.from('caja_sessions').select('id').limit(1);
     expect(readErr).toBeNull();
     expect(rows).toEqual([]);
   });
 
   it('reports no change on a repeated deactivation and refuses a self target', async () => {
-    const again = await callFn('set-staff-active', adminToken, { staffId: cashier.id, active: false });
+    const again = await callFn('set-staff-active', adminToken, { staffId: member.id, active: false });
     expect(again.status).toBe(200);
     expect(again.json).toEqual({ ok: true, changed: false });
 
@@ -169,7 +187,7 @@ describe.skipIf(skip)('staff lifecycle', () => {
     expect(unknown.json.error).toBe('NOT_FOUND');
 
     // No user session at all (anon key as bearer).
-    const noSession = await callFn('set-staff-active', anonKey!, { staffId: cashier.id, active: false });
+    const noSession = await callFn('set-staff-active', anonKey!, { staffId: member.id, active: false });
     expect(noSession.status).toBe(401);
   });
 
@@ -178,17 +196,17 @@ describe.skipIf(skip)('staff lifecycle', () => {
   // the RPC body.
   it.skip('refuses to deactivate the last active admin (covered by the catalog assertion)', () => {});
 
-  it('reactivates the cashier so the directory and sign-in work again', async () => {
-    const { status, json } = await callFn('set-staff-active', adminToken, { staffId: cashier.id, active: true });
+  it('reactivates the member so the directory and sign-in work again', async () => {
+    const { status, json } = await callFn('set-staff-active', adminToken, { staffId: member.id, active: true });
     expect(status).toBe(200);
     expect(json).toEqual({ ok: true, changed: true });
 
-    expect(await inDirectory(cashier.id)).toBe(true);
-    const { data } = await db.from('profiles').select('is_active, deleted_at').eq('id', cashier.id).single();
+    expect(await inDirectory(member.id)).toBe(true);
+    const { data } = await db.from('profiles').select('is_active, deleted_at').eq('id', member.id).single();
     expect(data.is_active).toBe(true);
     expect(data.deleted_at).toBeNull();
 
-    const signedIn = await signIn(cashier, cashier.pin);
+    const signedIn = await signIn(member, member.pin);
     expect(signedIn.status).toBe(200);
   });
 
