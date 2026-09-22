@@ -56,6 +56,8 @@ export const AuditActionSchema = z.enum([
   'staff.role_change',
   'staff.create',
   'staff.locale_change',
+  'staff.deactivate',
+  'staff.reactivate',
   // Settings
   'settings.update',
   // Tip distribution (dropped Phase 1, D-21 — kept for migration-history audit)
