@@ -78,5 +78,13 @@ BEGIN
                  AND prosrc LIKE '%role_permissions%' AND prosrc LIKE '%p_required_action%') THEN
     RAISE EXCEPTION 'verify_staff_pin does not apply the role_permissions rule for p_required_action';
   END IF;
+
+  -- 6. The transfer confirmation and dispute prompts' actions have their
+  --    role_permissions rows (manager and admin), so a p_required_action
+  --    check against them is passable for the roles the RPCs already allow.
+  IF NOT EXISTS (SELECT 1 FROM role_permissions WHERE role = 'manager' AND action = 'confirm_transfer_payment')
+     OR NOT EXISTS (SELECT 1 FROM role_permissions WHERE role = 'admin' AND action = 'dispute_transfer_payment') THEN
+    RAISE EXCEPTION 'transfer prompt permissions missing';
+  END IF;
 END $$;
 SELECT 'verify-staff-pin-checks: ok' AS result;

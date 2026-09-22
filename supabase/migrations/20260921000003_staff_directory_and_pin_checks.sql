@@ -6,6 +6,10 @@
 --    Locks are time-based and expire on their own.
 -- 3. verify_staff_pin: PIN check for signed-in callers.
 -- 4. staff_pin_holder: staff-management helper for the reset dialog.
+-- 5. role_permissions seed: the transfer confirmation and dispute prompts'
+--    actions, missing since Phase 23, needed now that verify_staff_pin's
+--    p_required_action rule enforces role_permissions as the sole source
+--    of truth for eligibility.
 --
 -- Additive: no existing object changes.
 
@@ -193,5 +197,14 @@ $$;
 
 REVOKE ALL ON FUNCTION public.staff_pin_holder(text, uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.staff_pin_holder(text, uuid) TO authenticated, service_role;
+
+-- Permissions the transfer confirmation and dispute prompts check; the same
+-- roles the RPCs already require.
+INSERT INTO role_permissions (role, action) VALUES
+  ('manager', 'confirm_transfer_payment'),
+  ('admin', 'confirm_transfer_payment'),
+  ('manager', 'dispute_transfer_payment'),
+  ('admin', 'dispute_transfer_payment')
+ON CONFLICT (role, action) DO NOTHING;
 
 NOTIFY pgrst, 'reload schema';
