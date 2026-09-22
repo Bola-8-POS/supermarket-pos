@@ -335,9 +335,9 @@ export function RefundSheet({ open, paymentId, onOpenChange }: RefundSheetProps)
         open={pinOpen}
         onOpenChange={setPinOpen}
         requiredAction="process_refund"
-        onSuccess={staff => {
+        onSuccess={(_staff, enteredPin) => {
           setPinOpen(false);
-          void handleSubmitRefund(staff.pin);
+          void handleSubmitRefund(enteredPin);
         }}
       />
     </>

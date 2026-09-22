@@ -66,14 +66,14 @@ vi.mock('@features/manager-pin-gate', () => ({
   ManagerPinDialog: (props: {
     open: boolean;
     requiredAction: string;
-    onSuccess: (staff: typeof mockAuthorizingManager) => void;
+    onSuccess: (staff: typeof mockAuthorizingManager, enteredPin: string) => void;
   }) =>
     props.open
       ? createElement(
           'button',
           {
             onClick: () => {
-              props.onSuccess(mockAuthorizingManager);
+              props.onSuccess(mockAuthorizingManager, mockAuthorizingManager.pin);
             },
             'data-required-action': props.requiredAction,
           },
@@ -330,9 +330,7 @@ beforeEach(() => {
     currentStaff: {
       id: staffId,
       name: 'Test Manager',
-      email: 'manager@test.dev',
       role: 'manager',
-      pin: '123456',
       isActive: true,
       mustChangePin: false,
       locale: 'es-MX',

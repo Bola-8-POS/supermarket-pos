@@ -481,9 +481,9 @@ export function EditPaidTabDialog({ open, tabId, onOpenChange }: EditPaidTabDial
         open={pinOpen}
         onOpenChange={setPinOpen}
         requiredAction="edit_paid_tab"
-        onSuccess={staff => {
+        onSuccess={(_staff, enteredPin) => {
           setPinOpen(false);
-          void handleSubmit(staff.pin);
+          void handleSubmit(enteredPin);
         }}
       />
     </>

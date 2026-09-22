@@ -139,7 +139,9 @@
     "incorrectPin": "PIN incorrecto. Pide a un gerente que ingrese su PIN.",
     "title": "Se requiere acceso de gerente",
     "description": "Se requiere un PIN de gerente o administrador para acceder a esta sección.",
-    "pinLabel": "Ingresa el PIN de gerente"
+    "pinLabel": "Ingresa el PIN de gerente",
+    "lockedOut": "Demasiados intentos. Intenta de nuevo en {{seconds}} s.",
+    "needsConnection": "No se puede verificar el PIN sin conexión. Intenta de nuevo."
   },
   "applyPromotion": {
     "label": "Aplicar promoción",
@@ -151,7 +153,9 @@
   "idleLock": {
     "title": "Pantalla bloqueada",
     "description": "Ingresa el PIN de cualquier empleado para desbloquear.",
-    "incorrectPin": "PIN incorrecto. Intenta de nuevo."
+    "incorrectPin": "PIN incorrecto. Intenta de nuevo.",
+    "lockedOut": "Demasiados intentos. Intenta de nuevo en {{seconds}} s.",
+    "offlineOnlySameUser": "Sin conexión: solo puede desbloquear quien inició sesión."
   },
   "printPrecheque": {
     "barFallback": "Barra",

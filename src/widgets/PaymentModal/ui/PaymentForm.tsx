@@ -1445,21 +1445,21 @@ export function PaymentForm({
           if (!open) setPinPurpose(null);
         }}
         requiredAction="apply_custom_discount"
-        onSuccess={staff => {
+        onSuccess={(_staff, enteredPin) => {
           setPinDialogOpen(false);
           setManagerOverride(true);
-          setAuthorizingManagerPin(staff.pin);
+          setAuthorizingManagerPin(enteredPin);
           if (pinPurpose === 'discount') {
             setDiscountExpanded(true);
           } else if (pinPurpose === 'below_cost') {
             // Resubmit the SAME payment attempt (idempotencyKeyRef is
             // untouched on a failed attempt) with managerOverride: true —
-            // a retry, not a new sale. staff.pin is passed explicitly
+            // a retry, not a new sale. The typed PIN is passed explicitly
             // (not read from state) since this fires in the same tick as
             // setAuthorizingManagerPin above, before React commits it.
             void (isSplitMode
-              ? handleSplitPrimary(true, staff.pin)
-              : handlePrimary(true, staff.pin));
+              ? handleSplitPrimary(true, enteredPin)
+              : handlePrimary(true, enteredPin));
           }
           setPinPurpose(null);
         }}

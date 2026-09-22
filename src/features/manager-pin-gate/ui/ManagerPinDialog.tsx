@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { verifyStaffPin } from '@entities/staff/model/pinVerification';
 import { useStaffList } from '@entities/staff/model/queries';
 import type { Staff } from '@shared/lib/domain';
 import { canAccess } from '@shared/lib/rbac';
@@ -21,15 +22,10 @@ export interface ManagerPinDialogProps {
   onOpenChange: (open: boolean) => void;
   requiredAction: StaffAction;
   /**
-   * Called with the matched staff member whenever a PIN comparison succeeds.
-   * Widened from `() => void` in Phase 27 Plan 08 (G-27-13) — additive and
-   * backward compatible: TypeScript always allows a callback with fewer
-   * declared params to satisfy this prop, so existing `() => {...}`
-   * consumers keep compiling unmodified. Callers that need to know WHICH
-   * staff authorized (e.g. threading their PIN server-side for an
-   * independent re-verification) can now read it from this argument.
+   * Called with the matched staff member and the PIN as typed, so callers
+   * that re-verify on the server can forward it.
    */
-  onSuccess: (staff: Staff) => void;
+  onSuccess: (staff: Staff, enteredPin: string) => void;
 }
 
 export function ManagerPinDialog({
@@ -41,6 +37,7 @@ export function ManagerPinDialog({
   const { t } = useTranslation('featOrders');
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
   const { data: staffList, isIdleOrLoading } = useStaffList();
 
   // This dialog stays mounted across open/close cycles (every caller renders
@@ -77,13 +74,27 @@ export function ManagerPinDialog({
     [staffList, requiredAction]
   );
 
-  function handlePinComplete(enteredPin: string) {
-    const match = eligibleStaff.find(s => s.pin === enteredPin);
-    if (match) {
-      onSuccess(match);
-    } else {
-      setError(t('managerPinGate.incorrectPin'));
+  async function handlePinComplete(enteredPin: string): Promise<void> {
+    setBusy(true);
+    try {
+      const res = await verifyStaffPin(enteredPin);
+      if (res.ok) {
+        const match = eligibleStaff.find(s => res.matches.some(m => m.id === s.id));
+        if (match) {
+          onSuccess(match, enteredPin);
+          return;
+        }
+        setError(t('managerPinGate.incorrectPin'));
+      } else if (res.code === 'LOCKED') {
+        setError(t('managerPinGate.lockedOut', { seconds: res.retryAfter }));
+      } else if (res.code === 'UNAVAILABLE') {
+        setError(t('managerPinGate.needsConnection'));
+      } else {
+        setError(t('managerPinGate.incorrectPin'));
+      }
       setPin('');
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -100,10 +111,12 @@ export function ManagerPinDialog({
         <PINKeypad
           value={pin}
           onChange={setPin}
-          onComplete={handlePinComplete}
+          onComplete={p => {
+            void handlePinComplete(p);
+          }}
           label={t('managerPinGate.pinLabel')}
           error={error}
-          isLoading={isIdleOrLoading}
+          isLoading={isIdleOrLoading || busy}
         />
 
         <AlertDialogFooter>

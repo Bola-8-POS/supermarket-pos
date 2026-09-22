@@ -1,7 +1,9 @@
-import { render, screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { findStaffPinHolder } from '@entities/staff/model/pinVerification';
 import type { Staff } from '@shared/lib/domain';
+import { renderWithProviders } from '@shared/lib/test-utils';
 
 // ---------------------------------------------------------------------------
 // jsdom polyfills — mirrors EditLocaleDialog.test.tsx's setup.
@@ -33,27 +35,15 @@ vi.mock('react-i18next', () => ({
 const targetStaff: Staff = {
   id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
   name: 'Target Alex',
-  email: 'target@b.dev',
   role: 'cashier',
-  pin: '111111',
   isActive: true,
   mustChangePin: false,
   locale: 'es-MX',
 };
 
-const collisionStaff: Staff = {
-  id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-  name: 'Collision Sam',
-  email: 'sam@b.dev',
-  role: 'admin',
-  pin: '222222',
-  isActive: true,
-  mustChangePin: false,
-  locale: 'es-MX',
-};
-
-vi.mock('@entities/staff/model/queries', () => ({
-  useStaffList: () => ({ data: [targetStaff, collisionStaff] }),
+vi.mock('@entities/staff/model/pinVerification', () => ({
+  verifyStaffPin: vi.fn(),
+  findStaffPinHolder: vi.fn(),
 }));
 
 vi.mock('../model/useAdminResetPin', () => ({
@@ -73,11 +63,13 @@ describe('AdminResetPinDialog', () => {
     toastErrorMock.mockReset();
     toastSuccessMock.mockReset();
     tMock.mockClear();
+    vi.mocked(findStaffPinHolder).mockReset();
+    vi.mocked(findStaffPinHolder).mockResolvedValue(null);
   });
 
   it('disables submit until both PIN fields are valid 6-digit matches', async () => {
     const user = userEvent.setup();
-    render(<AdminResetPinDialog staff={targetStaff} open onOpenChange={vi.fn()} />);
+    renderWithProviders(<AdminResetPinDialog staff={targetStaff} open onOpenChange={vi.fn()} />);
 
     const submitBtn = screen.getByRole('button', { name: 'resetPin.submit' });
     expect(submitBtn).toBeDisabled();
@@ -89,32 +81,47 @@ describe('AdminResetPinDialog', () => {
     expect(submitBtn).not.toBeDisabled();
   });
 
-  it('renders the collision warning when the new PIN matches another ACTIVE staff member (excluding the target itself)', async () => {
+  it('renders the collision warning with the name findStaffPinHolder resolves for a complete six-digit PIN', async () => {
     const user = userEvent.setup();
-    render(<AdminResetPinDialog staff={targetStaff} open onOpenChange={vi.fn()} />);
+    vi.mocked(findStaffPinHolder).mockResolvedValue('Jamie');
+    renderWithProviders(<AdminResetPinDialog staff={targetStaff} open onOpenChange={vi.fn()} />);
 
-    // collisionStaff.pin === '222222'
     await user.type(screen.getByLabelText('resetPin.newPinLabel'), '222222');
     await user.type(screen.getByLabelText('resetPin.confirmPinLabel'), '222222');
 
-    expect(tMock).toHaveBeenCalledWith('resetPin.collisionWarning', { name: collisionStaff.name });
+    await waitFor(() => {
+      expect(tMock).toHaveBeenCalledWith('resetPin.collisionWarning', { name: 'Jamie' });
+    });
+    expect(findStaffPinHolder).toHaveBeenCalledWith('222222', targetStaff.id);
     expect(screen.getByRole('button', { name: 'resetPin.submit' })).not.toBeDisabled();
   });
 
-  it('does NOT warn when the entered PIN matches the TARGET staff member\'s own current PIN', async () => {
+  it('does NOT warn when findStaffPinHolder resolves null', async () => {
     const user = userEvent.setup();
-    render(<AdminResetPinDialog staff={targetStaff} open onOpenChange={vi.fn()} />);
+    vi.mocked(findStaffPinHolder).mockResolvedValue(null);
+    renderWithProviders(<AdminResetPinDialog staff={targetStaff} open onOpenChange={vi.fn()} />);
 
-    // targetStaff.pin === '111111' — this is the target's own current PIN, not a collision.
     await user.type(screen.getByLabelText('resetPin.newPinLabel'), '111111');
     await user.type(screen.getByLabelText('resetPin.confirmPinLabel'), '111111');
 
+    await waitFor(() => {
+      expect(findStaffPinHolder).toHaveBeenCalled();
+    });
     expect(tMock).not.toHaveBeenCalledWith('resetPin.collisionWarning', expect.anything());
+  });
+
+  it('does not call findStaffPinHolder for a PIN shorter than 6 digits', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<AdminResetPinDialog staff={targetStaff} open onOpenChange={vi.fn()} />);
+
+    await user.type(screen.getByLabelText('resetPin.newPinLabel'), '12345');
+
+    expect(findStaffPinHolder).not.toHaveBeenCalled();
   });
 
   it('clicking the dialog submit button never calls the mutation directly — it only opens the confirm gate', async () => {
     const user = userEvent.setup();
-    render(<AdminResetPinDialog staff={targetStaff} open onOpenChange={vi.fn()} />);
+    renderWithProviders(<AdminResetPinDialog staff={targetStaff} open onOpenChange={vi.fn()} />);
 
     await user.type(screen.getByLabelText('resetPin.newPinLabel'), '333333');
     await user.type(screen.getByLabelText('resetPin.confirmPinLabel'), '333333');

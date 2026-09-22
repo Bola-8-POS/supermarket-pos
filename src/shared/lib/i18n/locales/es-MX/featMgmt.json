@@ -275,6 +275,8 @@
   },
   "clockInStaff": {
     "incorrectPin": "PIN incorrecto. Intenta de nuevo.",
+    "lockedOut": "Demasiados intentos. Intenta de nuevo en {{seconds}} s.",
+    "needsConnection": "No se puede verificar el PIN sin conexión. Intenta de nuevo.",
     "clockedIn": "{{name}} entró a turno.",
     "dialogTitle": "Entrada de turno",
     "dialogDescription": "Verifica el PIN e ingresa el fondo de caja inicial para {{name}}.",

@@ -144,9 +144,9 @@ export function ReopenTabDialog({ open, tabId, onOpenChange }: ReopenTabDialogPr
         open={pinOpen}
         onOpenChange={setPinOpen}
         requiredAction="reopen_tab"
-        onSuccess={(staff) => {
+        onSuccess={(_staff, enteredPin) => {
           setPinOpen(false);
-          void handleSubmitReopen(staff.pin);
+          void handleSubmitReopen(enteredPin);
         }}
       />
     </>

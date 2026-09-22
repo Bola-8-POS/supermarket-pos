@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { checkOfflineUnlock } from '@entities/staff/model/offlineUnlock';
+import { verifyStaffPin } from '@entities/staff/model/pinVerification';
 import { useStaffList } from '@entities/staff/model/queries';
+import { useStaffStore } from '@entities/staff/model/store';
+import { isOnline } from '@shared/lib/connectivity';
 import type { Staff } from '@shared/lib/domain';
 import {
   AlertDialog,
@@ -25,15 +29,16 @@ export interface IdleLockOverlayProps {
  *    Escape is explicitly prevented below; Radix's AlertDialogContent
  *    already blocks outside-pointer dismissal by design.
  *
- * PIN comparison is a pure client-side string match against the fetched
- * staff list -- this handler MUST NEVER call any Supabase Auth sign-in/update
- * method (RESEARCH.md Pitfall 1), or a cross-staff unlock would silently swap
- * the active auth session, violating D-04.
+ * The PIN is checked on the server (verifyStaffPin). This handler MUST
+ * NEVER call a Supabase Auth sign-in/update method, or a cross-staff unlock
+ * would swap the active auth session (D-04). Offline, only the signed-in
+ * staff member can unlock, against the in-memory check set at sign-in.
  */
 export function IdleLockOverlay({ open, onUnlock }: IdleLockOverlayProps) {
   const { t } = useTranslation('featOrders');
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
   const { data: staffList, isIdleOrLoading } = useStaffList();
 
   // Same render-time-reset pattern as ManagerPinDialog: this overlay stays
@@ -49,15 +54,39 @@ export function IdleLockOverlay({ open, onUnlock }: IdleLockOverlayProps) {
     }
   }
 
-  function handlePinComplete(enteredPin: string) {
-    const match = (staffList ?? []).find(s => s.pin === enteredPin);
-    if (match) {
+  async function handlePinComplete(enteredPin: string): Promise<void> {
+    setBusy(true);
+    try {
+      const res = isOnline()
+        ? await verifyStaffPin(enteredPin)
+        : ({ ok: false, code: 'UNAVAILABLE', retryAfter: 0 } as const);
+
+      if (res.ok) {
+        const match = (staffList ?? []).find(s => res.matches.some(m => m.id === s.id));
+        if (match) {
+          setPin('');
+          setError('');
+          onUnlock(match);
+          return;
+        }
+        setError(t('idleLock.incorrectPin'));
+      } else if (res.code === 'UNAVAILABLE') {
+        const me = useStaffStore.getState().currentStaff;
+        if (me && (await checkOfflineUnlock(me.id, enteredPin))) {
+          setPin('');
+          setError('');
+          onUnlock(me);
+          return;
+        }
+        setError(t('idleLock.offlineOnlySameUser'));
+      } else if (res.code === 'LOCKED') {
+        setError(t('idleLock.lockedOut', { seconds: res.retryAfter }));
+      } else {
+        setError(t('idleLock.incorrectPin'));
+      }
       setPin('');
-      setError('');
-      onUnlock(match);
-    } else {
-      setError(t('idleLock.incorrectPin'));
-      setPin('');
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -80,9 +109,11 @@ export function IdleLockOverlay({ open, onUnlock }: IdleLockOverlayProps) {
         <PINKeypad
           value={pin}
           onChange={setPin}
-          onComplete={handlePinComplete}
+          onComplete={p => {
+            void handlePinComplete(p);
+          }}
           error={error}
-          isLoading={isIdleOrLoading}
+          isLoading={isIdleOrLoading || busy}
         />
       </AlertDialogContent>
     </AlertDialog>

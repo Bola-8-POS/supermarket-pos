@@ -139,7 +139,9 @@
     "incorrectPin": "Incorrect PIN. Ask a manager to enter their PIN.",
     "title": "Manager Access Required",
     "description": "A manager or admin PIN is required to access this section.",
-    "pinLabel": "Enter manager PIN"
+    "pinLabel": "Enter manager PIN",
+    "lockedOut": "Too many attempts. Try again in {{seconds}} s.",
+    "needsConnection": "Cannot check the PIN without a connection. Try again."
   },
   "applyPromotion": {
     "label": "Apply Promotion",
@@ -151,7 +153,9 @@
   "idleLock": {
     "title": "Screen Locked",
     "description": "Enter any staff member's PIN to unlock.",
-    "incorrectPin": "Incorrect PIN. Try again."
+    "incorrectPin": "Incorrect PIN. Try again.",
+    "lockedOut": "Too many attempts. Try again in {{seconds}} s.",
+    "offlineOnlySameUser": "No connection: only the signed-in staff member can unlock."
   },
   "printPrecheque": {
     "barFallback": "Bar",

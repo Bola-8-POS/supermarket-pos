@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import { verifyStaffPin } from '@entities/staff/model/pinVerification';
 import { useMutationClockIn } from '@entities/staff/model/queries';
 import { useStaffStore } from '@entities/staff/model/store';
 import type { Staff } from '@shared/lib/domain';
@@ -46,14 +47,21 @@ export function ClockInModal({ open, onOpenChange, staff }: ClockInModalProps) {
 
   if (!staff) return null;
 
-  const handlePinComplete = (entered: string) => {
-    if (entered === staff.pin) {
+  const handlePinComplete = async (entered: string): Promise<void> => {
+    const res = await verifyStaffPin(entered, staff.id);
+    if (res.ok) {
       setPhase('opening_cash');
       setOpeningCash(0);
+      return;
+    }
+    if (res.code === 'LOCKED') {
+      setPinError(t('clockInStaff.lockedOut', { seconds: res.retryAfter }));
+    } else if (res.code === 'UNAVAILABLE') {
+      setPinError(t('clockInStaff.needsConnection'));
     } else {
       setPinError(t('clockInStaff.incorrectPin'));
-      setPin('');
     }
+    setPin('');
   };
 
   const handleOpeningConfirm = async (): Promise<void> => {
@@ -96,7 +104,9 @@ export function ClockInModal({ open, onOpenChange, staff }: ClockInModalProps) {
                 setPin(v);
                 if (pinError) setPinError('');
               }}
-              onComplete={handlePinComplete}
+              onComplete={p => {
+                void handlePinComplete(p);
+              }}
               label={t('clockInStaff.enterPinLabel')}
               error={pinError}
             />

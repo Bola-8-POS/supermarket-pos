@@ -2,7 +2,10 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { verifyStaffPin } from '@entities/staff/model/pinVerification';
 import { useStaffList } from '@entities/staff/model/queries';
+import type { Staff } from '@shared/lib/domain';
+import type { StaffAction } from '@shared/lib/rbac';
 import { renderWithProviders } from '@shared/lib/test-utils';
 
 import { ManagerPinDialog } from './ManagerPinDialog';
@@ -11,22 +14,27 @@ vi.mock('@entities/staff/model/queries', () => ({
   useStaffList: vi.fn(),
 }));
 
-const mockManager = {
+vi.mock('@entities/staff/model/pinVerification', () => ({
+  verifyStaffPin: vi.fn(),
+  findStaffPinHolder: vi.fn(),
+}));
+
+const mockManager: Staff = {
   id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
   name: 'Test Manager',
-  email: 'manager@example.com',
-  role: 'manager' as const,
-  pin: '789012',
+  role: 'manager',
   isActive: true,
+  mustChangePin: false,
+  locale: 'es-MX',
 };
 
-const mockCashier = {
+const mockCashier: Staff = {
   id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
   name: 'Test Cashier',
-  email: 'cashier@example.com',
-  role: 'cashier' as const,
-  pin: '123456',
+  role: 'cashier',
   isActive: true,
+  mustChangePin: false,
+  locale: 'es-MX',
 };
 
 describe('ManagerPinDialog', () => {
@@ -42,7 +50,8 @@ describe('ManagerPinDialog', () => {
     overrides: {
       open?: boolean;
       onOpenChange?: (open: boolean) => void;
-      onSuccess?: () => void;
+      onSuccess?: (staff: Staff, enteredPin: string) => void;
+      requiredAction?: StaffAction;
     } = {}
   ) {
     const onOpenChange = overrides.onOpenChange ?? vi.fn();
@@ -51,11 +60,20 @@ describe('ManagerPinDialog', () => {
       <ManagerPinDialog
         open={overrides.open ?? true}
         onOpenChange={onOpenChange}
-        requiredAction="view_reports"
+        requiredAction={overrides.requiredAction ?? 'process_refund'}
         onSuccess={onSuccess}
       />
     );
     return { onOpenChange, onSuccess };
+  }
+
+  async function typePin(user: ReturnType<typeof userEvent.setup>, pin: string) {
+    const dialog = screen.getByRole('alertdialog');
+    for (const ch of pin) {
+      await user.click(
+        within(dialog).getByRole('button', { name: ch === '0' ? 'Key 0' : `Key ${ch}` })
+      );
+    }
   }
 
   it('renders dialog with title when open', () => {
@@ -70,69 +88,119 @@ describe('ManagerPinDialog', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
-  it('entering correct manager PIN calls onSuccess', async () => {
+  it('a match with an eligible role calls onSuccess with the matched staff and the typed PIN', async () => {
     const user = userEvent.setup();
+    vi.mocked(verifyStaffPin).mockResolvedValue({
+      ok: true,
+      matches: [{ id: mockManager.id, name: mockManager.name, role: mockManager.role }],
+    });
     const { onSuccess } = renderDialog();
 
-    const dialog = screen.getByRole('alertdialog');
-    for (const ch of '789012') {
-      await user.click(
-        within(dialog).getByRole('button', { name: ch === '0' ? 'Key 0' : `Key ${ch}` })
-      );
-    }
+    await typePin(user, '789012');
 
     await waitFor(() => {
-      expect(onSuccess).toHaveBeenCalledOnce();
+      expect(onSuccess).toHaveBeenCalledWith(mockManager, '789012');
     });
   });
 
-  // Phase 27 Plan 08 (G-27-13): onSuccess widened from () => void to
-  // (staff: Staff) => void — callers need to know WHICH staff matched so
-  // they can thread that staff's PIN to a server-side re-verification.
-  it('entering correct manager PIN calls onSuccess with the matched staff object', async () => {
+  it('matches containing only a non-eligible role show the incorrect-PIN error and do not call onSuccess', async () => {
     const user = userEvent.setup();
+    vi.mocked(verifyStaffPin).mockResolvedValue({
+      ok: true,
+      matches: [{ id: mockCashier.id, name: mockCashier.name, role: mockCashier.role }],
+    });
     const { onSuccess } = renderDialog();
 
-    const dialog = screen.getByRole('alertdialog');
-    for (const ch of '789012') {
-      await user.click(
-        within(dialog).getByRole('button', { name: ch === '0' ? 'Key 0' : `Key ${ch}` })
-      );
-    }
-
-    await waitFor(() => {
-      expect(onSuccess).toHaveBeenCalledWith(mockManager);
-    });
-  });
-
-  it('entering cashier PIN does not grant access — shows error', async () => {
-    const user = userEvent.setup();
-    renderDialog();
+    await typePin(user, '123456');
 
     const dialog = screen.getByRole('alertdialog');
-    for (const ch of '123456') {
-      await user.click(
-        within(dialog).getByRole('button', { name: ch === '0' ? 'Key 0' : `Key ${ch}` })
-      );
-    }
-
     await waitFor(() => {
       expect(within(dialog).getByText(/Incorrect PIN/i)).toBeInTheDocument();
+    });
+    expect(onSuccess).not.toHaveBeenCalled();
+  });
+
+  it('two matches where only the second is eligible calls onSuccess with the eligible one', async () => {
+    const user = userEvent.setup();
+    vi.mocked(verifyStaffPin).mockResolvedValue({
+      ok: true,
+      matches: [
+        { id: 'cccccccc-cccc-cccc-cccc-cccccccccccc', name: 'Someone Else', role: 'cashier' },
+        { id: mockManager.id, name: mockManager.name, role: mockManager.role },
+      ],
+    });
+    const { onSuccess } = renderDialog();
+
+    await typePin(user, '555555');
+
+    await waitFor(() => {
+      expect(onSuccess).toHaveBeenCalledWith(mockManager, '555555');
+    });
+  });
+
+  it('INVALID_PIN shows the incorrect-PIN error', async () => {
+    const user = userEvent.setup();
+    vi.mocked(verifyStaffPin).mockResolvedValue({
+      ok: false,
+      code: 'INVALID_PIN',
+      retryAfter: 0,
+    });
+    renderDialog();
+
+    await typePin(user, '000000');
+
+    const dialog = screen.getByRole('alertdialog');
+    await waitFor(() => {
+      expect(within(dialog).getByText(/Incorrect PIN/i)).toBeInTheDocument();
+    });
+  });
+
+  it('LOCKED shows the lockout message with the retry-after seconds', async () => {
+    const user = userEvent.setup();
+    vi.mocked(verifyStaffPin).mockResolvedValue({
+      ok: false,
+      code: 'LOCKED',
+      retryAfter: 30,
+    });
+    renderDialog();
+
+    await typePin(user, '000000');
+
+    const dialog = screen.getByRole('alertdialog');
+    await waitFor(() => {
+      expect(within(dialog).getByText(/Try again in 30 s/i)).toBeInTheDocument();
+    });
+  });
+
+  it('UNAVAILABLE shows the connection-required message', async () => {
+    const user = userEvent.setup();
+    vi.mocked(verifyStaffPin).mockResolvedValue({
+      ok: false,
+      code: 'UNAVAILABLE',
+      retryAfter: 0,
+    });
+    renderDialog();
+
+    await typePin(user, '000000');
+
+    const dialog = screen.getByRole('alertdialog');
+    await waitFor(() => {
+      expect(within(dialog).getByText(/Cannot check the PIN without a connection/i)).toBeInTheDocument();
     });
   });
 
   it('resets pin and error when dialog closes and reopens', async () => {
     const user = userEvent.setup();
     const onOpenChange = vi.fn();
+    vi.mocked(verifyStaffPin).mockResolvedValue({
+      ok: false,
+      code: 'INVALID_PIN',
+      retryAfter: 0,
+    });
     renderDialog({ onOpenChange });
 
     const dialog = screen.getByRole('alertdialog');
-    // Enter wrong PIN to trigger error
-    for (const ch of '123456') {
-      await user.click(
-        within(dialog).getByRole('button', { name: ch === '0' ? 'Key 0' : `Key ${ch}` })
-      );
-    }
+    await typePin(user, '123456');
     await waitFor(() => {
       expect(within(dialog).getByText(/Incorrect PIN/i)).toBeInTheDocument();
     });

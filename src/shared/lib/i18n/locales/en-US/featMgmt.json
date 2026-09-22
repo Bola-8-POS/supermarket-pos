@@ -275,6 +275,8 @@
   },
   "clockInStaff": {
     "incorrectPin": "Incorrect PIN. Try again.",
+    "lockedOut": "Too many attempts. Try again in {{seconds}} s.",
+    "needsConnection": "Cannot check the PIN without a connection. Try again.",
     "clockedIn": "{{name}} is clocked in.",
     "dialogTitle": "Clock in",
     "dialogDescription": "Verify PIN and enter opening drawer float for {{name}}.",

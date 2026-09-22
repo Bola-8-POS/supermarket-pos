@@ -1,8 +1,9 @@
+import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { ManagerPinDialog } from '@features/manager-pin-gate';
-import { useStaffList } from '@entities/staff/model/queries';
+import { findStaffPinHolder } from '@entities/staff/model/pinVerification';
 import { PinSchema, type Staff } from '@shared/lib/domain';
 import { logger } from '@shared/lib/logger-instance';
 import { LockedFeature } from '@shared/ui/LockedFeature';
@@ -32,7 +33,6 @@ export function AdminResetPinDialog({ staff, open, onOpenChange }: AdminResetPin
   const [confirmNewPin, setConfirmNewPin] = useState('');
   const [confirmGateOpen, setConfirmGateOpen] = useState(false);
 
-  const { data: staffList } = useStaffList();
   const mutation = useAdminResetPin();
 
   function resetForm() {
@@ -53,9 +53,18 @@ export function AdminResetPinDialog({ staff, open, onOpenChange }: AdminResetPin
     !mutation.isPending;
 
   // D-07: warn on a collision with another ACTIVE staff member's current
-  // PIN, excluding the target's own row — useStaffList() is already
-  // is_active-filtered, so inactive staff never appear here.
-  const collision = (staffList ?? []).find(s => s.pin === newPin && s.id !== staff?.id);
+  // PIN, excluding the target's own row — findStaffPinHolder is already
+  // is_active-filtered on the server, so inactive staff never appear here.
+  const pinComplete = PinSchema.safeParse(newPin).success;
+  const { data: collisionName } = useQuery({
+    // The PIN is part of the key only in memory and is dropped at once (gcTime 0).
+    // eslint-disable-next-line i18next/no-literal-string -- query-key namespace strings, not UI copy.
+    queryKey: ['staff', 'pinHolder', staff?.id ?? null, newPin],
+    queryFn: () => findStaffPinHolder(newPin, staff?.id),
+    enabled: open && pinComplete,
+    gcTime: 0,
+    staleTime: 0,
+  });
 
   function handleSubmitClick() {
     if (!canSubmit) return;
@@ -124,9 +133,9 @@ export function AdminResetPinDialog({ staff, open, onOpenChange }: AdminResetPin
                   setConfirmNewPin(e.target.value);
                 }}
               />
-              {collision && newPin.length === 6 && (
+              {collisionName && newPin.length === 6 && (
                 <p className="text-sm text-muted-foreground">
-                  {t('resetPin.collisionWarning', { name: collision.name })}
+                  {t('resetPin.collisionWarning', { name: collisionName })}
                 </p>
               )}
             </div>
