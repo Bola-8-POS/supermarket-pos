@@ -128,6 +128,7 @@ describe('payment-processor', () => {
       amount: 1,
       managerOverride: true,
       managerPin: '345678',
+      approverId: '3a7c9e21-5f2b-4d81-9c3a-6e408f17b2d5',
     });
     const rappiTuple = spy.mock.calls[0];
     if (rappiTuple === undefined) throw new Error('expected call');
@@ -135,6 +136,34 @@ describe('payment-processor', () => {
       method: 'rappi',
       managerOverride: true,
       managerPin: '345678',
+      approverId: '3a7c9e21-5f2b-4d81-9c3a-6e408f17b2d5',
+    });
+  });
+
+  it('processCashPayment forwards approverId with the manager PIN', async () => {
+    const spy = vi.spyOn(contracts, 'callProcessPayment').mockResolvedValue(
+      ok({
+        paymentId: 'pay-id',
+        receiptData: receipt,
+        idempotent: false,
+      })
+    );
+
+    await processCashPayment('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 36, 40, {
+      scope: 'all',
+      type: 'percent',
+      value: 10,
+      amount: 4,
+      managerOverride: true,
+      managerPin: '345678',
+      approverId: '3a7c9e21-5f2b-4d81-9c3a-6e408f17b2d5',
+    });
+    const tuple = spy.mock.calls[0];
+    if (tuple === undefined) throw new Error('expected call');
+    expect(tuple[0]).toMatchObject({
+      managerOverride: true,
+      managerPin: '345678',
+      approverId: '3a7c9e21-5f2b-4d81-9c3a-6e408f17b2d5',
     });
   });
 
@@ -329,6 +358,7 @@ describe('payment-processor', () => {
         amount: 1.25,
         managerOverride: true,
         managerPin: '789012',
+        approverId: '3a7c9e21-5f2b-4d81-9c3a-6e408f17b2d5',
       });
 
       const tuple = spy.mock.calls[0];
@@ -340,6 +370,7 @@ describe('payment-processor', () => {
         discountAmount: 1.25,
         managerOverride: true,
         managerPin: '789012',
+        approverId: '3a7c9e21-5f2b-4d81-9c3a-6e408f17b2d5',
       });
     });
 

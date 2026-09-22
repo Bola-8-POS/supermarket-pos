@@ -28,6 +28,8 @@ export interface DiscountInfo {
    * than trusting the currently logged-in staff's own session identity.
    */
   managerPin: string | undefined;
+  /** Id of the staff member the manager prompt matched; sent with the PIN so the server checks both. */
+  approverId: string | undefined;
 }
 
 export type CashPaymentResult = {
@@ -67,6 +69,7 @@ export async function processCashPayment(
     discountAmount: discountInfo?.amount,
     managerOverride: discountInfo?.managerOverride,
     managerPin: discountInfo?.managerPin,
+    approverId: discountInfo?.approverId,
     expectedVersion,
   });
 
@@ -110,6 +113,7 @@ async function processReferencedPayment(
     discountAmount: discountInfo?.amount,
     managerOverride: discountInfo?.managerOverride,
     managerPin: discountInfo?.managerPin,
+    approverId: discountInfo?.approverId,
     expectedVersion,
   });
 
@@ -194,6 +198,7 @@ export async function processSplitPayment(
     discountAmount: discountInfo?.amount,
     managerOverride: discountInfo?.managerOverride,
     managerPin: discountInfo?.managerPin,
+    approverId: discountInfo?.approverId,
   });
 
   if (!result.ok) {

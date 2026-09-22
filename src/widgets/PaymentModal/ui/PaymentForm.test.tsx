@@ -485,6 +485,7 @@ describe('PaymentForm — discount section', () => {
     expect(call[3]).toMatchObject({
       managerOverride: true,
       managerPin: mockAuthorizingManager.pin,
+      approverId: mockAuthorizingManager.id,
     });
   });
 
@@ -724,6 +725,7 @@ describe('PaymentForm — below-cost override retry', () => {
     expect(secondCall![3]).toMatchObject({
       managerOverride: true,
       managerPin: mockAuthorizingManager.pin,
+      approverId: mockAuthorizingManager.id,
     });
 
     await waitFor(() => {
