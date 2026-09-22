@@ -30,6 +30,7 @@ export function PINLoginForm() {
   const [confirmPin, setConfirmPin] = useState('');
   const [pinChangeError, setPinChangeError] = useState('');
   const [isSubmittingNewPin, setIsSubmittingNewPin] = useState(false);
+  const [isSigningIn, setIsSigningIn] = useState(false);
   const [signedInPin, setSignedInPin] = useState('');
   const navigate = useNavigate();
   const clockInMutation = useMutationClockIn();
@@ -75,40 +76,45 @@ export function PINLoginForm() {
   };
 
   const handlePinComplete = async (enteredPin: string): Promise<void> => {
-    const result = await callStaffSignIn({ staffId: selectedStaff.id, pin: enteredPin });
-    if (!result.ok) {
-      if (result.error.message === 'LOCKED') {
-        setError(t('pinLoginForm.lockedOut', { seconds: Number(result.error.details ?? 0) }));
-      } else if (result.error.message === 'INVALID_CREDENTIALS') {
-        setError(t('pinLoginForm.incorrectPin'));
-      } else {
-        logger.error('login.staff_sign_in_failed', { message: result.error.message });
-        setError(t('pinLoginForm.signInFailed'));
+    setIsSigningIn(true);
+    try {
+      const result = await callStaffSignIn({ staffId: selectedStaff.id, pin: enteredPin });
+      if (!result.ok) {
+        if (result.error.message === 'LOCKED') {
+          setError(t('pinLoginForm.lockedOut', { seconds: Number(result.error.details ?? 0) }));
+        } else if (result.error.message === 'INVALID_CREDENTIALS') {
+          setError(t('pinLoginForm.incorrectPin'));
+        } else {
+          logger.error('login.staff_sign_in_failed', { message: result.error.message });
+          setError(t('pinLoginForm.signInFailed'));
+        }
+        setPin('');
+        return;
       }
-      setPin('');
-      return;
+
+      const { error: sessionError } = await supabase.auth.setSession({
+        access_token: result.data.accessToken,
+        refresh_token: result.data.refreshToken,
+      });
+      if (sessionError) {
+        logger.error('login.set_session_failed', { message: sessionError.message });
+        setError(t('pinLoginForm.signInFailed'));
+        setPin('');
+        return;
+      }
+
+      setSignedInPin(enteredPin);
+      await rememberOfflineUnlock(selectedStaff.id, enteredPin);
+
+      if (result.data.mustChangePin) {
+        setPhase('forced_pin_change');
+        return;
+      }
+
+      await proceedAfterAuth();
+    } finally {
+      setIsSigningIn(false);
     }
-
-    const { error: sessionError } = await supabase.auth.setSession({
-      access_token: result.data.accessToken,
-      refresh_token: result.data.refreshToken,
-    });
-    if (sessionError) {
-      logger.error('login.set_session_failed', { message: sessionError.message });
-      setError(t('pinLoginForm.signInFailed'));
-      setPin('');
-      return;
-    }
-
-    setSignedInPin(enteredPin);
-    await rememberOfflineUnlock(selectedStaff.id, enteredPin);
-
-    if (result.data.mustChangePin) {
-      setPhase('forced_pin_change');
-      return;
-    }
-
-    await proceedAfterAuth();
   };
 
   const resetForcedPinChangeFields = (): void => {
@@ -217,6 +223,7 @@ export function PINLoginForm() {
             }}
             label={t('pinLoginForm.enterPinLabel')}
             error={error}
+            isLoading={isSigningIn}
           />
         </div>
       )}

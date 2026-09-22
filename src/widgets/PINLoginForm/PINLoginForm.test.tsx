@@ -156,6 +156,31 @@ describe('PINLoginForm', () => {
     });
   });
 
+  it('disables the keypad Backspace button while callStaffSignIn is pending', async () => {
+    let resolveSignIn: ((value: ReturnType<typeof ok>) => void) | undefined;
+    mockCallStaffSignIn.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolveSignIn = resolve;
+        })
+    );
+
+    const user = userEvent.setup();
+    renderLoginForm();
+
+    await enterDigits(user, randomPin());
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Backspace' })).toBeDisabled();
+    });
+
+    resolveSignIn?.(ok({ accessToken: 'a', refreshToken: 'r', mustChangePin: false }));
+
+    await waitFor(() => {
+      expect(mockSetSession).toHaveBeenCalled();
+    });
+  });
+
   it('on a wrong PIN, shows the incorrect-PIN message and never sets a session', async () => {
     mockCallStaffSignIn.mockResolvedValueOnce(
       err({ code: 'AUTH_REQUIRED', message: 'INVALID_CREDENTIALS', details: '0' })

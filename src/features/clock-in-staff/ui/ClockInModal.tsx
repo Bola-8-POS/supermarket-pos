@@ -31,6 +31,7 @@ export function ClockInModal({ open, onOpenChange, staff }: ClockInModalProps) {
   const [pinError, setPinError] = useState('');
   const [openingCash, setOpeningCash] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [pinBusy, setPinBusy] = useState(false);
 
   const clockIn = useMutationClockIn();
   const currentStaffId = useStaffStore(s => s.currentStaff?.id);
@@ -42,26 +43,32 @@ export function ClockInModal({ open, onOpenChange, staff }: ClockInModalProps) {
       setPinError('');
       setOpeningCash(0);
       setBusy(false);
+      setPinBusy(false);
     }
   }, [open]);
 
   if (!staff) return null;
 
   const handlePinComplete = async (entered: string): Promise<void> => {
-    const res = await verifyStaffPin(entered, staff.id);
-    if (res.ok) {
-      setPhase('opening_cash');
-      setOpeningCash(0);
-      return;
+    setPinBusy(true);
+    try {
+      const res = await verifyStaffPin(entered, staff.id);
+      if (res.ok) {
+        setPhase('opening_cash');
+        setOpeningCash(0);
+        return;
+      }
+      if (res.code === 'LOCKED') {
+        setPinError(t('clockInStaff.lockedOut', { seconds: res.retryAfter }));
+      } else if (res.code === 'UNAVAILABLE') {
+        setPinError(t('clockInStaff.needsConnection'));
+      } else {
+        setPinError(t('clockInStaff.incorrectPin'));
+      }
+      setPin('');
+    } finally {
+      setPinBusy(false);
     }
-    if (res.code === 'LOCKED') {
-      setPinError(t('clockInStaff.lockedOut', { seconds: res.retryAfter }));
-    } else if (res.code === 'UNAVAILABLE') {
-      setPinError(t('clockInStaff.needsConnection'));
-    } else {
-      setPinError(t('clockInStaff.incorrectPin'));
-    }
-    setPin('');
   };
 
   const handleOpeningConfirm = async (): Promise<void> => {
@@ -109,6 +116,7 @@ export function ClockInModal({ open, onOpenChange, staff }: ClockInModalProps) {
               }}
               label={t('clockInStaff.enterPinLabel')}
               error={pinError}
+              isLoading={pinBusy}
             />
           </div>
         )}

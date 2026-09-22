@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { toast } from 'sonner';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { verifyStaffPin } from '@entities/staff/model/pinVerification';
+import { verifyStaffPin, type PinCheck } from '@entities/staff/model/pinVerification';
 import { useStaffStore } from '@entities/staff/model/store';
 import type { Staff } from '@shared/lib/domain';
 import { renderWithProviders } from '@shared/lib/test-utils';
@@ -111,5 +111,35 @@ describe('ClockInModal', () => {
     });
     expect(toast.success).toHaveBeenCalled();
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('disables the keypad Backspace button while verifyStaffPin is pending, then advances once it resolves', async () => {
+    const user = userEvent.setup();
+    let resolveVerify: ((value: PinCheck) => void) | undefined;
+    vi.mocked(verifyStaffPin).mockImplementation(
+      () =>
+        new Promise<PinCheck>(resolve => {
+          resolveVerify = resolve;
+        })
+    );
+
+    renderWithProviders(<ClockInModal open onOpenChange={vi.fn()} staff={staff} />);
+
+    for (const digit of '123456') {
+      await user.click(screen.getByRole('button', { name: `Key ${digit}` }));
+    }
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Backspace' })).toBeDisabled();
+    });
+
+    resolveVerify?.({
+      ok: true,
+      matches: [{ id: staff.id, name: staff.name, role: staff.role }],
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    });
   });
 });
