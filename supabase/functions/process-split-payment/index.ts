@@ -50,6 +50,7 @@ const BodySchema = z
     discountAmount: z.number().nonnegative().multipleOf(0.01).nullable().optional(),
     managerOverride: z.boolean().nullable().optional(),
     managerPin: z.string().nullable().optional(),
+    approverId: z.string().uuid().nullable().optional(),
   })
   .superRefine((data, ctx) => {
     const legsTotal = data.legs.reduce((sum, leg) => sum + leg.amount, 0);
@@ -188,6 +189,7 @@ Deno.serve(async (req: Request) => {
     // DISCOUNT_REQUIRES_MANAGER check (CR-01, Phase 27 code review).
     p_manager_override: body.managerOverride ?? false,
     p_manager_pin: body.managerPin ?? null,
+    p_approver_id: body.approverId ?? null,
   });
 
   if (rpcError) {

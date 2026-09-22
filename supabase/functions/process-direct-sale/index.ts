@@ -53,6 +53,7 @@ const BodySchema = z
     // p_manager_pin so the server independently re-derives the authorizing
     // staff from the PIN itself, never from the caller's own identity.
     managerPin: z.string().optional(),
+    approverId: z.string().uuid().optional(),
   })
   .superRefine((data, ctx) => {
     if ((data.method == null) === (data.legs == null)) {
@@ -346,6 +347,7 @@ Deno.serve(async (req: Request) => {
     p_customer_phone: body.data.customerPhone ?? null,
     p_manager_override: body.data.managerOverride ?? false,
     p_manager_pin: body.data.managerPin ?? null,
+    p_approver_id: body.data.approverId ?? null,
     p_terminal_id: body.data.terminalId ?? null,
   });
   if (error)

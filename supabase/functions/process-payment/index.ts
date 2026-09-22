@@ -22,6 +22,7 @@ const BodySchema = z
     discountAmount: z.number().nonnegative().multipleOf(0.01).optional(),
     managerOverride: z.boolean().optional(),
     managerPin: z.string().optional(),
+    approverId: z.string().uuid().optional(),
   })
   .superRefine((data, ctx) => {
     if (data.method === 'cash' && data.tenderedAmount == null) {
@@ -166,6 +167,7 @@ Deno.serve(async (req: Request) => {
     // (CR-01, Phase 27 code review).
     p_manager_override: body.managerOverride ?? false,
     p_manager_pin: body.managerPin ?? null,
+    p_approver_id: body.approverId ?? null,
   });
 
   if (rpcError) {

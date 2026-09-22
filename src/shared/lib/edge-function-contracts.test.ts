@@ -6,7 +6,9 @@ import {
   mapAdminResetPinEdgeError,
   mapStaffSignInEdgeError,
   AgentProxyRequestSchema,
+  ProcessDirectSaleRequestSchema,
   ProcessPaymentRequestSchema,
+  ProcessSplitPaymentRequestSchema,
   ReceiptDataSchema,
   SendReceiptEmailRequestSchema,
 } from './edge-function-contracts';
@@ -308,6 +310,66 @@ describe('ProcessPaymentRequestSchema', () => {
       expectedVersion: 1.5,
     });
     expect(r.success).toBe(false);
+  });
+
+  it('accepts an approverId uuid next to managerPin and rejects a non-uuid', () => {
+    const ok = ProcessPaymentRequestSchema.safeParse({
+      ...baseValidRequest(),
+      managerOverride: true,
+      managerPin: '000000',
+      approverId: '3a7c9e21-5f2b-4d81-9c3a-6e408f17b2d5',
+    });
+    expect(ok.success).toBe(true);
+    const bad = ProcessPaymentRequestSchema.safeParse({ ...baseValidRequest(), approverId: 'not-a-uuid' });
+    expect(bad.success).toBe(false);
+  });
+});
+
+describe('ProcessDirectSaleRequestSchema', () => {
+  it('accepts an approverId uuid next to managerPin and rejects a non-uuid', () => {
+    const baseDirectSaleRequest = {
+      items: [{ productId: tabId, quantity: 1, unitPrice: 10 }],
+      shiftId: tabId,
+      cajaSessionId: tabId,
+      idempotencyKey: 'direct_sale_abc',
+      method: 'cash' as const,
+      tenderedAmount: 20,
+    };
+    const ok = ProcessDirectSaleRequestSchema.safeParse({
+      ...baseDirectSaleRequest,
+      managerOverride: true,
+      managerPin: '000000',
+      approverId: '3a7c9e21-5f2b-4d81-9c3a-6e408f17b2d5',
+    });
+    expect(ok.success).toBe(true);
+    const bad = ProcessDirectSaleRequestSchema.safeParse({
+      ...baseDirectSaleRequest,
+      approverId: 'not-a-uuid',
+    });
+    expect(bad.success).toBe(false);
+  });
+});
+
+describe('ProcessSplitPaymentRequestSchema', () => {
+  it('accepts an approverId uuid next to managerPin and rejects a non-uuid', () => {
+    const baseSplitPaymentRequest = {
+      tabId,
+      legs: [{ method: 'cash' as const, amount: 10, tenderedAmount: 10 }],
+      expectedTotal: 10,
+      idempotencyKey: 'split_abc',
+    };
+    const ok = ProcessSplitPaymentRequestSchema.safeParse({
+      ...baseSplitPaymentRequest,
+      managerOverride: true,
+      managerPin: '000000',
+      approverId: '3a7c9e21-5f2b-4d81-9c3a-6e408f17b2d5',
+    });
+    expect(ok.success).toBe(true);
+    const bad = ProcessSplitPaymentRequestSchema.safeParse({
+      ...baseSplitPaymentRequest,
+      approverId: 'not-a-uuid',
+    });
+    expect(bad.success).toBe(false);
   });
 });
 

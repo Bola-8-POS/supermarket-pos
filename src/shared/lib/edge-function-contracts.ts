@@ -123,6 +123,8 @@ export const ProcessPaymentRequestSchema = z
     managerOverride: z.boolean().optional(),
     /** Phase 27 Plan 08/09 (G-27-13): the entered PIN of the staff who authorized managerOverride — the RPC re-derives the authorizing identity from this PIN independently, never from the caller's own staff id. */
     managerPin: z.string().optional(),
+    /** Id of the staff member who approved the override, as matched by the manager prompt; the RPC checks it together with the PIN. */
+    approverId: UuidSchema.optional(),
     /** Phase 15 gap-closure (D-02): cached tab.version for optimistic-concurrency guard. */
     expectedVersion: z.number().int().nonnegative().optional(),
   })
@@ -741,6 +743,8 @@ export const ProcessDirectSaleRequestSchema = z
     managerOverride: z.boolean().optional(),
     /** Phase 27 Plan 08 (G-27-13): the entered PIN of the staff who authorized managerOverride — forwarded to process_direct_sale_atomic for independent server-side re-verification. */
     managerPin: z.string().optional(),
+    /** Id of the staff member who approved the override, as matched by the manager prompt; the RPC checks it together with the PIN. */
+    approverId: UuidSchema.optional(),
   })
   .superRefine((data, ctx) => {
     if ((data.method == null) === (data.legs == null)) {
@@ -975,6 +979,8 @@ export const ProcessSplitPaymentRequestSchema = z
     managerOverride: z.boolean().optional(),
     /** Phase 27 Plan 08/09 (G-27-13): the entered PIN of the staff who authorized managerOverride — the RPC re-derives the authorizing identity from this PIN independently, never from the caller's own staff id. */
     managerPin: z.string().optional(),
+    /** Id of the staff member who approved the override, as matched by the manager prompt; the RPC checks it together with the PIN. */
+    approverId: UuidSchema.optional(),
   })
   .superRefine((data, ctx) => {
     const legsTotal = data.legs.reduce((sum, leg) => sum + leg.amount, 0);
