@@ -88,7 +88,10 @@ Deno.serve(async (req) => {
     return json({ error: 'INVALID_CREDENTIALS', retryAfter: typeof wait === 'number' ? wait : 0 }, 401)
   }
 
-  await admin.rpc('pin_attempt_record', { p_key: key, p_success: true })
+  const { error: resetError } = await admin.rpc('pin_attempt_record', { p_key: key, p_success: true })
+  if (resetError) {
+    console.error('staff-sign-in: attempt reset failed', resetError.message)
+  }
   return json({
     accessToken: session.access_token,
     refreshToken: session.refresh_token,

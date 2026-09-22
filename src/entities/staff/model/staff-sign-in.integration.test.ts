@@ -23,6 +23,7 @@ describe.skipIf(skip)('staff-sign-in', () => {
   const staff = { id: '', email: `${TAG}${stamp}@test.local`, pin: randomPin() };
   const locked = { id: '', email: `${TAG}l_${stamp}@test.local`, pin: randomPin() };
   const parallel = { id: '', email: `${TAG}p_${stamp}@test.local`, pin: randomPin() };
+  const unknownStaffId = crypto.randomUUID();
 
   async function call(body: unknown): Promise<{ status: number; json: any }> {
     const res = await fetch(`${url}/functions/v1/staff-sign-in`, {
@@ -61,6 +62,7 @@ describe.skipIf(skip)('staff-sign-in', () => {
     await removeStaff(staff);
     await removeStaff(locked);
     await removeStaff(parallel);
+    await db.from('pin_attempts').delete().like('attempt_key', `login:${unknownStaffId}:%`);
   });
 
   it('returns a working session for the right PIN', async () => {
@@ -79,7 +81,7 @@ describe.skipIf(skip)('staff-sign-in', () => {
     const wrong = await call({ staffId: staff.id, pin: wrongPin });
     expect(wrong.status).toBe(401);
     expect(wrong.json.error).toBe('INVALID_CREDENTIALS');
-    const unknown = await call({ staffId: crypto.randomUUID(), pin: wrongPin });
+    const unknown = await call({ staffId: unknownStaffId, pin: wrongPin });
     expect(unknown.status).toBe(401);
     expect(unknown.json.error).toBe('INVALID_CREDENTIALS');
     expect(JSON.stringify(wrong.json)).not.toContain('@');
