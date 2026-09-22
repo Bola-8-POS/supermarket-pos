@@ -37,6 +37,10 @@ export function DeactivateStaffDialog({ staff, open, onOpenChange }: DeactivateS
 
     const result = await mutation.mutateAsync({ staffId: staff.id });
 
+    // The gate does not close itself; close it before reporting the outcome
+    // so a refusal never leaves it open with a filled keypad.
+    setConfirmGateOpen(false);
+
     if (!result.ok) {
       logger.error('deactivate-staff.submit.failed', { message: result.error.message });
       if (result.error.code === 'STAFF_LAST_ADMIN') {

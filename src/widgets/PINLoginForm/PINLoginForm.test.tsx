@@ -49,11 +49,13 @@ vi.mock('@shared/lib/supabase', () => ({
 // Staff PIN checks and the forced PIN change run server-side — mock the
 // edge-function client and the offline-unlock cache the login form calls
 // after sign-in.
-const { mockCallStaffSignIn, mockCallChangeOwnPin, mockRememberOfflineUnlock } = vi.hoisted(() => ({
-  mockCallStaffSignIn: vi.fn(),
-  mockCallChangeOwnPin: vi.fn(),
-  mockRememberOfflineUnlock: vi.fn().mockResolvedValue(undefined),
-}));
+const { mockCallStaffSignIn, mockCallChangeOwnPin, mockRememberOfflineUnlock, mockClearOfflineUnlock } =
+  vi.hoisted(() => ({
+    mockCallStaffSignIn: vi.fn(),
+    mockCallChangeOwnPin: vi.fn(),
+    mockRememberOfflineUnlock: vi.fn().mockResolvedValue(undefined),
+    mockClearOfflineUnlock: vi.fn(),
+  }));
 
 vi.mock('@shared/lib/edge-function-contracts', () => ({
   callStaffSignIn: mockCallStaffSignIn,
@@ -62,7 +64,10 @@ vi.mock('@shared/lib/edge-function-contracts', () => ({
 
 vi.mock('@entities/staff/model/offlineUnlock', async importOriginal => {
   const actual = await importOriginal();
-  return Object.assign({}, actual, { rememberOfflineUnlock: mockRememberOfflineUnlock });
+  return Object.assign({}, actual, {
+    rememberOfflineUnlock: mockRememberOfflineUnlock,
+    clearOfflineUnlock: mockClearOfflineUnlock,
+  });
 });
 
 const randomPin = (): string => String(100000 + Math.floor(Math.random() * 900000));
@@ -102,6 +107,8 @@ describe('PINLoginForm', () => {
       ok({ accessToken: 'a', refreshToken: 'r', mustChangePin: false })
     );
     useStaffStore.getState().logout();
+    // logout() clears the offline unlock cache itself; count only the form's own calls.
+    mockClearOfflineUnlock.mockClear();
     useLoginUiStore.getState().clearSelection();
     useLoginUiStore.getState().setSelectedStaff(mockStaff[0]!);
   });
@@ -340,6 +347,8 @@ describe('PINLoginForm', () => {
       await waitFor(() => {
         expect(mockRememberOfflineUnlock).toHaveBeenCalledWith(mockStaff[0]!.id, newPin);
       });
+      expect(mockRememberOfflineUnlock).toHaveBeenCalledTimes(2); // sign-in, then the new PIN
+      expect(mockClearOfflineUnlock).not.toHaveBeenCalled();
       await waitFor(() => {
         expect(
           screen.getByText(
@@ -364,10 +373,27 @@ describe('PINLoginForm', () => {
       expect(mockRememberOfflineUnlock).toHaveBeenCalledTimes(1); // sign-in only
     });
 
-    it('on any other change-own-pin failure, shows could-not-set-PIN and does not remember the new PIN', async () => {
+    it('on a partial failure, reports it, does not remember the new PIN and clears the offline unlock cache', async () => {
       mockCallChangeOwnPin.mockResolvedValueOnce(
         err({ code: 'PIN_CHANGE_PARTIAL_FAILURE', message: 'PARTIAL_FAILURE: sync' })
       );
+
+      const user = userEvent.setup();
+      await completeForcedChange(user, randomPin());
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            "Your PIN change partially failed — the credential changed but the staff record didn't sync. Ask an admin to reset your PIN before signing in again."
+          )
+        ).toBeInTheDocument();
+      });
+      expect(mockRememberOfflineUnlock).toHaveBeenCalledTimes(1); // sign-in only
+      expect(mockClearOfflineUnlock).toHaveBeenCalledTimes(1);
+    });
+
+    it('on any other change-own-pin failure, shows could-not-set-PIN, does not remember the new PIN and keeps the cache', async () => {
+      mockCallChangeOwnPin.mockResolvedValueOnce(err({ code: 'SUPABASE_ERROR', message: 'boom' }));
 
       const user = userEvent.setup();
       await completeForcedChange(user, randomPin());
@@ -378,6 +404,7 @@ describe('PINLoginForm', () => {
         ).toBeInTheDocument();
       });
       expect(mockRememberOfflineUnlock).toHaveBeenCalledTimes(1); // sign-in only
+      expect(mockClearOfflineUnlock).not.toHaveBeenCalled();
     });
   });
 

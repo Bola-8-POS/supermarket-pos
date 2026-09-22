@@ -114,6 +114,10 @@ describe('DeactivateStaffDialog', () => {
     });
     expect(toastSuccessMock).not.toHaveBeenCalled();
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    // The manager gate closes on a refusal; only the confirm dialog stays.
+    await waitFor(() => {
+      expect(screen.queryByRole('alertdialog', { hidden: true })).not.toBeInTheDocument();
+    });
   });
 
   it('shows the partial-failure message on STAFF_DEACTIVATE_PARTIAL_FAILURE', async () => {

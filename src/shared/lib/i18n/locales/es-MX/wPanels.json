@@ -15,6 +15,7 @@
     "pinsDontMatch": "Los PIN no coinciden. Inténtalo de nuevo.",
     "choosePinDifferent": "Elige un PIN diferente al actual.",
     "couldNotSetPin": "No se pudo establecer tu nuevo PIN. Inténtalo de nuevo.",
+    "pinChangePartialFailure": "El cambio de PIN falló parcialmente — la credencial cambió pero el registro del personal no se sincronizó. Pide a un administrador que restablezca tu PIN antes de volver a iniciar sesión.",
     "couldNotFinishPin": "No se pudo terminar de establecer tu nuevo PIN. Inténtalo de nuevo.",
     "enterPinLabel": "Ingresa el PIN",
     "setNewPinTitle": "Establece un nuevo PIN",

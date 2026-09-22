@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useLoginUiStore } from '@entities/staff/model/loginUiStore';
-import { rememberOfflineUnlock } from '@entities/staff/model/offlineUnlock';
+import { clearOfflineUnlock, rememberOfflineUnlock } from '@entities/staff/model/offlineUnlock';
 import { useMutationClockIn } from '@entities/staff/model/queries';
 import { useStaffStore } from '@entities/staff/model/store';
 import { callChangeOwnPin, callStaffSignIn } from '@shared/lib/edge-function-contracts';
@@ -142,11 +142,19 @@ export function PINLoginForm() {
       const result = await callChangeOwnPin({ newPin, terminalId: getTerminalId() });
       if (!result.ok) {
         logger.error('login.forced_pin_change.failed', { message: result.error.message });
-        setPinChangeError(
-          result.error.code === 'PIN_SAME'
-            ? t('pinLoginForm.choosePinDifferent')
-            : t('pinLoginForm.couldNotSetPin')
-        );
+        if (result.error.code === 'PIN_CHANGE_PARTIAL_FAILURE') {
+          // The sign-in credential changed but the staff record did not
+          // follow: the remembered PIN no longer matches what signs in, so
+          // stop offering it offline and tell the staff member what to do.
+          clearOfflineUnlock();
+          setPinChangeError(t('pinLoginForm.pinChangePartialFailure'));
+        } else {
+          setPinChangeError(
+            result.error.code === 'PIN_SAME'
+              ? t('pinLoginForm.choosePinDifferent')
+              : t('pinLoginForm.couldNotSetPin')
+          );
+        }
         resetForcedPinChangeFields();
         return;
       }

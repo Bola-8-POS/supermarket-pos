@@ -15,6 +15,7 @@
     "pinsDontMatch": "PINs don't match. Try again.",
     "choosePinDifferent": "Choose a PIN different from your current one.",
     "couldNotSetPin": "Could not set your new PIN. Please try again.",
+    "pinChangePartialFailure": "Your PIN change partially failed — the credential changed but the staff record didn't sync. Ask an admin to reset your PIN before signing in again.",
     "couldNotFinishPin": "Could not finish setting your new PIN. Please try again.",
     "enterPinLabel": "Enter PIN",
     "setNewPinTitle": "Set a new PIN",
