@@ -12,14 +12,32 @@ describe('verifyStaffPin', () => {
     const id = '11111111-1111-4111-8111-111111111111';
     rpc.mockResolvedValue({ data: { ok: true, matches: [{ id, name: 'A', role: 'manager' }] }, error: null });
     const res = await verifyStaffPin('000000');
-    expect(rpc).toHaveBeenCalledWith('verify_staff_pin', { p_pin: '000000', p_staff_id: null });
+    expect(rpc).toHaveBeenCalledWith('verify_staff_pin', {
+      p_pin: '000000',
+      p_staff_id: null,
+      p_required_action: null,
+    });
     expect(res).toEqual({ ok: true, matches: [{ id, name: 'A', role: 'manager' }] });
   });
 
   it('passes the staff id through', async () => {
     rpc.mockResolvedValue({ data: { ok: false, code: 'INVALID_PIN', retry_after: 0 }, error: null });
     await verifyStaffPin('000000', 'abc');
-    expect(rpc).toHaveBeenCalledWith('verify_staff_pin', { p_pin: '000000', p_staff_id: 'abc' });
+    expect(rpc).toHaveBeenCalledWith('verify_staff_pin', {
+      p_pin: '000000',
+      p_staff_id: 'abc',
+      p_required_action: null,
+    });
+  });
+
+  it('passes the required action through', async () => {
+    rpc.mockResolvedValue({ data: { ok: false, code: 'INVALID_PIN', retry_after: 0 }, error: null });
+    await verifyStaffPin('000000', undefined, 'process_refund');
+    expect(rpc).toHaveBeenCalledWith('verify_staff_pin', {
+      p_pin: '000000',
+      p_staff_id: null,
+      p_required_action: 'process_refund',
+    });
   });
 
   it('maps a lock', async () => {

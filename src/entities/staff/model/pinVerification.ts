@@ -28,13 +28,16 @@ const UNAVAILABLE: PinCheck = { ok: false, code: 'UNAVAILABLE', retryAfter: 0 };
 /**
  * Checks a typed PIN on the server. With `staffId` the PIN must belong to that
  * staff member; without it every active staff member holding the PIN is
- * returned and the caller applies its own role rule. The PIN is never logged.
+ * returned and the caller applies its own role rule. With `requiredAction`,
+ * only a match whose role holds that action clears the caller's attempt
+ * counter. The PIN is never logged.
  */
-export async function verifyStaffPin(pin: string, staffId?: string): Promise<PinCheck> {
+export async function verifyStaffPin(pin: string, staffId?: string, requiredAction?: string): Promise<PinCheck> {
   try {
     const { data, error } = await (supabase as any).rpc('verify_staff_pin', {
       p_pin: pin,
       p_staff_id: staffId ?? null,
+      p_required_action: requiredAction ?? null,
     });
     if (error) {
       logger.warn('staff.pin_check.unavailable', { message: String(error.message) });

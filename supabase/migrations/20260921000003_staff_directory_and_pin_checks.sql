@@ -33,7 +33,7 @@ RETURNS integer
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
   SELECT COALESCE((
     SELECT CEIL(EXTRACT(EPOCH FROM (a.locked_until - now())))::integer
@@ -50,7 +50,7 @@ CREATE FUNCTION public.pin_attempt_record(p_key text, p_success boolean)
 RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_count integer;
@@ -87,7 +87,7 @@ CREATE FUNCTION public.pin_attempt_begin(p_key text)
 RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_wait integer;
@@ -113,11 +113,13 @@ GRANT EXECUTE ON FUNCTION public.pin_attempt_begin(text) TO service_role;
 -- that staff member; without it, every active staff member holding the PIN
 -- is returned (name order) and the caller applies its own role rule.
 -- A wrong PIN is returned, not raised, so the counted attempt is kept.
-CREATE FUNCTION public.verify_staff_pin(p_pin text, p_staff_id uuid DEFAULT NULL)
+-- With p_required_action, only staff whose role holds that action count as
+-- a match; the attempt is cleared only on a match the caller may use.
+CREATE FUNCTION public.verify_staff_pin(p_pin text, p_staff_id uuid DEFAULT NULL, p_required_action text DEFAULT NULL)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_uid     uuid := auth.uid();
@@ -141,7 +143,10 @@ BEGIN
   WHERE p.is_active = true
     AND p_pin ~ '^\d{6}$'
     AND p.pin = p_pin
-    AND (p_staff_id IS NULL OR p.id = p_staff_id);
+    AND (p_staff_id IS NULL OR p.id = p_staff_id)
+    AND (p_required_action IS NULL OR EXISTS (
+      SELECT 1 FROM role_permissions rp WHERE rp.role = p.role AND rp.action = p_required_action
+    ));
 
   IF v_matches IS NULL THEN
     RETURN jsonb_build_object('ok', false, 'code', 'INVALID_PIN', 'retry_after', pin_attempt_retry_after(v_key));
@@ -152,8 +157,8 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.verify_staff_pin(text, uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.verify_staff_pin(text, uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.verify_staff_pin(text, uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.verify_staff_pin(text, uuid, text) TO authenticated, service_role;
 
 -- Name of an active staff member who already uses p_pin (NULL when free).
 -- Staff managers only; used for the duplicate warning when a PIN is reset.
@@ -162,7 +167,7 @@ RETURNS text
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_name text;

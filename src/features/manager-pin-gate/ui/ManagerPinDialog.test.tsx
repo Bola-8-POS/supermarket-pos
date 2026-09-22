@@ -103,6 +103,21 @@ describe('ManagerPinDialog', () => {
     });
   });
 
+  it('checks the PIN with the dialog required action as the third argument', async () => {
+    const user = userEvent.setup();
+    vi.mocked(verifyStaffPin).mockResolvedValue({
+      ok: true,
+      matches: [{ id: mockManager.id, name: mockManager.name, role: mockManager.role }],
+    });
+    renderDialog({ requiredAction: 'manage_staff' });
+
+    await typePin(user, '789012');
+
+    await waitFor(() => {
+      expect(verifyStaffPin).toHaveBeenCalledWith('789012', undefined, 'manage_staff');
+    });
+  });
+
   it('matches containing only a non-eligible role show the incorrect-PIN error and do not call onSuccess', async () => {
     const user = userEvent.setup();
     vi.mocked(verifyStaffPin).mockResolvedValue({
@@ -152,6 +167,23 @@ describe('ManagerPinDialog', () => {
     const dialog = screen.getByRole('alertdialog');
     await waitFor(() => {
       expect(within(dialog).getByText(/Incorrect PIN/i)).toBeInTheDocument();
+    });
+  });
+
+  it('INVALID_PIN with a retry-after already armed shows the lockout message', async () => {
+    const user = userEvent.setup();
+    vi.mocked(verifyStaffPin).mockResolvedValue({
+      ok: false,
+      code: 'INVALID_PIN',
+      retryAfter: 30,
+    });
+    renderDialog();
+
+    await typePin(user, '000000');
+
+    const dialog = screen.getByRole('alertdialog');
+    await waitFor(() => {
+      expect(within(dialog).getByText(/Try again in 30 s/i)).toBeInTheDocument();
     });
   });
 

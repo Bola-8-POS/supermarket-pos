@@ -77,15 +77,16 @@ export function ManagerPinDialog({
   async function handlePinComplete(enteredPin: string): Promise<void> {
     setBusy(true);
     try {
-      const res = await verifyStaffPin(enteredPin);
+      const res = await verifyStaffPin(enteredPin, undefined, requiredAction);
       if (res.ok) {
+        // The server already applies the role rule; this filter is a second guard.
         const match = eligibleStaff.find(s => res.matches.some(m => m.id === s.id));
         if (match) {
           onSuccess(match, enteredPin);
           return;
         }
         setError(t('managerPinGate.incorrectPin'));
-      } else if (res.code === 'LOCKED') {
+      } else if (res.code === 'LOCKED' || (res.code === 'INVALID_PIN' && res.retryAfter > 0)) {
         setError(t('managerPinGate.lockedOut', { seconds: res.retryAfter }));
       } else if (res.code === 'UNAVAILABLE') {
         setError(t('managerPinGate.needsConnection'));

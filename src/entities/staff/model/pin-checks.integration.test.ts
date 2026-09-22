@@ -110,6 +110,54 @@ describe.skipIf(skip)('staff directory and PIN checks', () => {
     await db.from('pin_attempts').delete().eq('attempt_key', `caller:${admin.id}`);
   });
 
+  it('does not clear the counter on a match the caller may not use', async () => {
+    const requiredAction = 'process_refund'; // cashier lacks it, admin/manager hold it
+    const wrong = await unusedPin();
+    for (let i = 0; i < 4; i++) {
+      const { data, error } = await cashier.client.rpc('verify_staff_pin', { p_pin: wrong });
+      expect(error).toBeNull();
+      expect(data.ok).toBe(false);
+    }
+
+    const { data: ineligible, error: ineligibleErr } = await cashier.client.rpc('verify_staff_pin', {
+      p_pin: cashier.pin,
+      p_required_action: requiredAction,
+    });
+    expect(ineligibleErr).toBeNull();
+    expect(ineligible).toMatchObject({ ok: false, code: 'INVALID_PIN' });
+
+    const { data: locked, error: lockedErr } = await cashier.client.rpc('verify_staff_pin', { p_pin: wrong });
+    expect(lockedErr).toBeNull();
+    expect(locked).toMatchObject({ ok: false, code: 'LOCKED' });
+    expect(locked.retry_after).toBeGreaterThan(0);
+
+    await db.from('pin_attempts').delete().eq('attempt_key', `caller:${cashier.id}`);
+  });
+
+  it('clears the counter on a match the caller may use', async () => {
+    const requiredAction = 'process_refund'; // admin holds it
+    const wrong = await unusedPin();
+    for (let i = 0; i < 4; i++) {
+      const { data, error } = await admin.client.rpc('verify_staff_pin', { p_pin: wrong });
+      expect(error).toBeNull();
+      expect(data.ok).toBe(false);
+    }
+
+    const { data: eligible, error: eligibleErr } = await admin.client.rpc('verify_staff_pin', {
+      p_pin: admin.pin,
+      p_required_action: requiredAction,
+    });
+    expect(eligibleErr).toBeNull();
+    expect(eligible.ok).toBe(true);
+    expect(eligible.matches).toEqual([{ id: admin.id, name: admin.name, role: 'admin' }]);
+
+    const { data: afterClear, error: afterClearErr } = await admin.client.rpc('verify_staff_pin', { p_pin: wrong });
+    expect(afterClearErr).toBeNull();
+    expect(afterClear).toMatchObject({ ok: false, code: 'INVALID_PIN' });
+
+    await db.from('pin_attempts').delete().eq('attempt_key', `caller:${admin.id}`);
+  });
+
   it('locks the caller after repeated wrong PINs, even for the right PIN', async () => {
     const wrong = await unusedPin();
     let last: any = null;

@@ -56,22 +56,27 @@ BEGIN
      OR NOT has_function_privilege('service_role', 'public.pin_attempt_begin(text)', 'EXECUTE') THEN
     RAISE EXCEPTION 'the service role cannot call the attempt helpers';
   END IF;
-  IF has_function_privilege('anon', 'public.verify_staff_pin(text, uuid)', 'EXECUTE')
-     OR NOT has_function_privilege('authenticated', 'public.verify_staff_pin(text, uuid)', 'EXECUTE')
+  IF has_function_privilege('anon', 'public.verify_staff_pin(text, uuid, text)', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.verify_staff_pin(text, uuid, text)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.staff_pin_holder(text, uuid)', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.staff_pin_holder(text, uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'verify_staff_pin or staff_pin_holder privileges are wrong';
   END IF;
 
   -- 5. The check counts the attempt up front through the serialized helper,
-  --    not with a separate call made after the PIN is verified.
-  IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE oid = 'public.verify_staff_pin(text, uuid)'::regprocedure
+  --    not with a separate call made after the PIN is verified, and applies
+  --    the role rule when a required action is given.
+  IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE oid = 'public.verify_staff_pin(text, uuid, text)'::regprocedure
                  AND prosrc LIKE '%pin_attempt_begin%') THEN
     RAISE EXCEPTION 'verify_staff_pin does not use pin_attempt_begin';
   END IF;
-  IF EXISTS (SELECT 1 FROM pg_proc WHERE oid = 'public.verify_staff_pin(text, uuid)'::regprocedure
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE oid = 'public.verify_staff_pin(text, uuid, text)'::regprocedure
              AND prosrc ~ 'pin_attempt_record\s*\(\s*v_key\s*,\s*false') THEN
     RAISE EXCEPTION 'verify_staff_pin still records a failure directly instead of counting it up front';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE oid = 'public.verify_staff_pin(text, uuid, text)'::regprocedure
+                 AND prosrc LIKE '%role_permissions%' AND prosrc LIKE '%p_required_action%') THEN
+    RAISE EXCEPTION 'verify_staff_pin does not apply the role_permissions rule for p_required_action';
   END IF;
 END $$;
 SELECT 'verify-staff-pin-checks: ok' AS result;
