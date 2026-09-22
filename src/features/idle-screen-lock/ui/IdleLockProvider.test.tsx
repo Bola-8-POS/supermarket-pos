@@ -31,9 +31,7 @@ vi.mock('./IdleLockOverlay', () => ({
 const fakeStaff: Staff = {
   id: 'staff-1',
   name: 'Test Admin',
-  email: 'admin@example.com',
   role: 'admin',
-  pin: '0000',
   isActive: true,
   mustChangePin: false,
   locale: 'es-MX',

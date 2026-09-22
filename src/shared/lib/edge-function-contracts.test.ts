@@ -4,6 +4,7 @@ import {
   AdminResetPinRequestSchema,
   AdminResetPinSuccessSchema,
   mapAdminResetPinEdgeError,
+  mapStaffSignInEdgeError,
   AgentProxyRequestSchema,
   ProcessPaymentRequestSchema,
   ReceiptDataSchema,
@@ -408,5 +409,30 @@ describe('AdminResetPinRequestSchema / AdminResetPinSuccessSchema / mapAdminRese
 
   it('maps a plain 500 (not PARTIAL_FAILURE-prefixed) to SUPABASE_ERROR — proves the prefix match is not a blanket 500 catch', () => {
     expect(mapAdminResetPinEdgeError(500, 'some other db error').code).toBe('SUPABASE_ERROR');
+  });
+});
+
+describe('mapStaffSignInEdgeError', () => {
+  it('maps 429 to AUTH_FORBIDDEN/LOCKED, carrying retryAfter as details', () => {
+    expect(mapStaffSignInEdgeError(429, 'LOCKED', 42)).toEqual({
+      code: 'AUTH_FORBIDDEN',
+      message: 'LOCKED',
+      details: '42',
+    });
+  });
+
+  it('maps 401 to AUTH_REQUIRED/INVALID_CREDENTIALS, carrying retryAfter as details', () => {
+    expect(mapStaffSignInEdgeError(401, 'INVALID_CREDENTIALS', 0)).toEqual({
+      code: 'AUTH_REQUIRED',
+      message: 'INVALID_CREDENTIALS',
+      details: '0',
+    });
+  });
+
+  it('maps anything else to SUPABASE_ERROR using the edge code as the message', () => {
+    expect(mapStaffSignInEdgeError(503, 'UNAVAILABLE', 0)).toEqual({
+      code: 'SUPABASE_ERROR',
+      message: 'UNAVAILABLE',
+    });
   });
 });

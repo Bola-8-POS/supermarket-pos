@@ -234,9 +234,7 @@ describe('PaymentModal', () => {
       currentStaff: {
         id: staffId,
         name: 'Cashier',
-        email: 'cashier@test.dev',
         role: 'manager',
-        pin: '123456',
         isActive: true,
         mustChangePin: false,
         locale: 'es-MX',
@@ -403,9 +401,7 @@ describe('PaymentModal', () => {
       currentStaff: {
         id: staffId,
         name: 'B',
-        email: 'b@b.dev',
         role: 'cashier',
-        pin: '123456',
         isActive: true,
         mustChangePin: false,
         locale: 'es-MX',

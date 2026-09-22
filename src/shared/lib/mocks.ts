@@ -66,35 +66,24 @@ type Scenario = {
 
 type StaffRole = 'cashier' | 'manager' | 'admin' | 'kitchen';
 
-const staffRoleDefaults: Record<
-  StaffRole,
-  Pick<Staff, 'name' | 'email' | 'pin' | 'role' | 'mustChangePin'>
-> = {
+const staffRoleDefaults: Record<StaffRole, Pick<Staff, 'name' | 'role' | 'mustChangePin'>> = {
   cashier: {
     name: 'Alex Rivera',
-    email: 'alex.rivera@ball8.bar',
-    pin: '123456',
     role: 'cashier',
     mustChangePin: false,
   },
   manager: {
     name: 'Jordan Kim',
-    email: 'jordan.kim@ball8.bar',
-    pin: '234567',
     role: 'manager',
     mustChangePin: false,
   },
   admin: {
     name: 'Sam Patel',
-    email: 'sam.patel@ball8.bar',
-    pin: '345678',
     role: 'admin',
     mustChangePin: false,
   },
   kitchen: {
     name: 'Chef Maria',
-    email: 'maria.kitchen@ball8.bar',
-    pin: '456789',
     role: 'kitchen',
     mustChangePin: false,
   },

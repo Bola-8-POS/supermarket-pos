@@ -10,9 +10,7 @@ import { ClockOutDialog } from './ClockOutDialog';
 const staff: Staff = {
   id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
   name: 'Pat',
-  email: 'pat@bar.dev',
   role: 'cashier',
-  pin: '123456',
   isActive: true,
   mustChangePin: false,
   locale: 'es-MX',

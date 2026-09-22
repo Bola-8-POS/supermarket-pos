@@ -33,19 +33,23 @@ export const staffKeys = {
   staffMetrics: (from: string, to: string) => [...staffKeys.all, 'staffMetrics', from, to] as const,
 };
 
-export function mapStaffRow(row: Tables<'profiles'>): Result<Staff> {
+/** Row shape of the `staff_directory` view (not in the generated types yet). */
+export interface StaffDirectoryRow {
+  id: string;
+  name: string;
+  role: Tables<'profiles'>['role'];
+  is_active: boolean;
+  must_change_pin: boolean;
+  locale: string;
+}
+
+export function mapStaffRow(row: StaffDirectoryRow): Result<Staff> {
   try {
-    const email =
-      row.email && row.email.length > 0
-        ? row.email
-        : (`noreply+${row.id.replace(/-/g, '')}@example.com` as const);
     return ok(
       StaffSchema.parse({
         id: row.id,
         name: row.name,
-        email,
         role: row.role,
-        pin: row.pin,
         isActive: row.is_active,
         mustChangePin: row.must_change_pin,
         locale: row.locale,
@@ -80,9 +84,15 @@ export function useStaffList() {
   const query = useQuery({
     queryKey: staffKeys.list(),
     queryFn: async (): Promise<Result<Staff[]>> => {
-      const res = await supabaseQuery(() =>
-        supabase.from('profiles').select('*').eq('is_active', true).order('name')
+      /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return --
+         staff_directory is not in the generated types yet (repo-wide cast pattern). */
+      const res = await supabaseQuery<StaffDirectoryRow[]>(() =>
+        (supabase as any)
+          .from('staff_directory')
+          .select('id, name, role, is_active, must_change_pin, locale')
+          .order('name')
       );
+      /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return */
 
       if (!res.ok) {
         logger.error('staff.list.fetch_failed', { message: res.error.message });

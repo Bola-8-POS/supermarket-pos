@@ -142,9 +142,7 @@ describe('useMutationClockIn', () => {
       currentStaff: {
         id: STAFF_ID,
         name: 'Alex Martinez',
-        email: 'alex@barpos.dev',
         role: 'cashier',
-        pin: '123456',
         isActive: true,
         mustChangePin: false,
         locale: 'es-MX',
@@ -205,9 +203,7 @@ describe('useMutationClockIn', () => {
       currentStaff: {
         id: STAFF_ID, // current user is STAFF_ID
         name: 'Alex Martinez',
-        email: 'alex@barpos.dev',
         role: 'cashier',
-        pin: '123456',
         isActive: true,
         mustChangePin: false,
         locale: 'es-MX',
@@ -271,9 +267,7 @@ describe('useMutationClockOut', () => {
       currentStaff: {
         id: STAFF_ID,
         name: 'Alex Martinez',
-        email: 'alex@barpos.dev',
         role: 'cashier',
-        pin: '123456',
         isActive: true,
         mustChangePin: false,
         locale: 'es-MX',

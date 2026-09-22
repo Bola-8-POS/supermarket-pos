@@ -164,9 +164,7 @@ async function scanAndFlush(code: string) {
 const mockStaff: Staff = {
   id: 'staff-1',
   name: 'Test Cashier',
-  email: 'cashier@example.com',
   role: 'cashier',
-  pin: '123456',
   isActive: true,
   mustChangePin: false,
   locale: 'es-MX',

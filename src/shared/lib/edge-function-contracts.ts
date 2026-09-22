@@ -501,6 +501,83 @@ export async function callAdminResetPin(
 }
 
 // ============================================================================
+// STAFF SIGN-IN
+// ============================================================================
+
+export const StaffSignInRequestSchema = z.object({
+  staffId: UuidSchema,
+  pin: PinSchema,
+});
+
+export type StaffSignInRequest = z.infer<typeof StaffSignInRequestSchema>;
+
+export const StaffSignInSuccessSchema = z.object({
+  accessToken: z.string().min(1),
+  refreshToken: z.string().min(1),
+  mustChangePin: z.boolean(),
+});
+
+export type StaffSignInSuccess = z.infer<typeof StaffSignInSuccessSchema>;
+
+/** Exported for unit tests. `details` carries the seconds to wait, as text. */
+export function mapStaffSignInEdgeError(status: number, code: string, retryAfter: number): AppError {
+  const details = String(retryAfter);
+  if (status === 429) return { code: 'AUTH_FORBIDDEN', message: 'LOCKED', details };
+  if (status === 401) return { code: 'AUTH_REQUIRED', message: 'INVALID_CREDENTIALS', details };
+  return { code: 'SUPABASE_ERROR', message: code };
+}
+
+/**
+ * Calls the staff-sign-in edge function. Nobody is signed in yet, so the
+ * request goes through `functions.invoke`, which sends the project's public key.
+ */
+export async function callStaffSignIn(
+  request: StaffSignInRequest
+): Promise<Result<StaffSignInSuccess, AppError>> {
+  try {
+    const validatedRequest = StaffSignInRequestSchema.parse(request);
+
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- supabase.functions.invoke payload
+    const { data, error } = await supabase.functions.invoke<unknown>('staff-sign-in', {
+      body: validatedRequest,
+    });
+
+    if (error) {
+      const context: unknown = (error as { context?: unknown }).context;
+      const body: unknown = context instanceof Response ? await context.json().catch(() => null) : null;
+      const status = context instanceof Response ? context.status : 0;
+      const code =
+        body !== null && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
+          ? body.error
+          : getInvokeErrorMessage(error, 'Could not sign in');
+      const retryAfter =
+        body !== null && typeof body === 'object' && 'retryAfter' in body && typeof body.retryAfter === 'number'
+          ? body.retryAfter
+          : 0;
+      return err(mapStaffSignInEdgeError(status, code, retryAfter));
+    }
+
+    const success = StaffSignInSuccessSchema.safeParse(data);
+    if (!success.success) {
+      return err({
+        code: 'VALIDATION_ERROR',
+        message: 'Unexpected response from staff service',
+        details: success.error.message,
+      });
+    }
+    return ok(success.data);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return err({ code: 'VALIDATION_ERROR', message: 'Invalid request data', details: error.message });
+    }
+    return err({
+      code: 'UNKNOWN_ERROR',
+      message: error instanceof Error ? error.message : 'Unknown error occurred',
+    });
+  }
+}
+
+// ============================================================================
 // AGENT PROXY (Phase 06, SEC-01)
 // ============================================================================
 

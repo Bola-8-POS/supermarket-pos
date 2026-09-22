@@ -4,6 +4,7 @@ import type { Staff, Shift } from '@shared/lib/domain';
 import i18n, { i18nReady } from '@shared/lib/i18n';
 import { logger } from '@shared/lib/logger-instance';
 import { supabase } from '@shared/lib/supabase';
+import { clearOfflineUnlock } from './offlineUnlock';
 /* eslint-disable i18next/no-literal-string -- zustand persist store name below
    is a localStorage key, not UI copy. */
 
@@ -82,6 +83,7 @@ export const useStaffStore = create<StaffStore>()(
       },
 
       logout: () => {
+        clearOfflineUnlock();
         logger.info('staff.loggedOut');
         void supabase.auth.signOut();
         set({
@@ -120,6 +122,16 @@ export const useStaffStore = create<StaffStore>()(
       }),
       // No onRehydrateStorage here — see the onFinishHydration registration
       // below, right after `useStaffStore` is assigned, for why.
+      version: 1,
+      // v0 persisted the whole staff record; v1 keeps display fields only.
+      migrate: persisted => {
+        const state = persisted as { currentStaff?: Record<string, unknown> | null } | null;
+        if (state?.currentStaff) {
+          delete state.currentStaff['pin'];
+          delete state.currentStaff['email'];
+        }
+        return state as never;
+      },
     }
   )
 );

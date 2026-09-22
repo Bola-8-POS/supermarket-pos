@@ -47,9 +47,7 @@ vi.mock('@shared/lib/connectivity', () => ({
 const staff: Staff = {
   id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
   name: 'Ana Cashier',
-  email: 'ana@example.com',
   role: 'cashier',
-  pin: '0000',
   isActive: true,
   mustChangePin: false,
   locale: 'es-MX',

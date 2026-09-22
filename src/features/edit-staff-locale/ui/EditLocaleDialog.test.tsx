@@ -49,9 +49,7 @@ import { EditLocaleDialog } from './EditLocaleDialog';
 const targetStaff: Staff = {
   id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
   name: 'Alex',
-  email: 'a@b.dev',
   role: 'cashier',
-  pin: '123456',
   isActive: true,
   mustChangePin: false,
   locale: 'es-MX',

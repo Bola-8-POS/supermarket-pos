@@ -32,9 +32,7 @@ vi.mock('@entities/staff', async importOriginal => {
 const STAFF: Staff = {
   id: 'staff-1111-1111-1111-111111111111',
   name: 'Ana García',
-  email: 'ana@example.com',
   role: 'manager',
-  pin: '0000',
   isActive: true,
   mustChangePin: false,
   locale: 'es-MX',

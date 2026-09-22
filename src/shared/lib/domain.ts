@@ -360,9 +360,7 @@ export type ProductUpdate = z.infer<typeof ProductUpdateSchema>;
 export const StaffSchema = z.object({
   id: UuidSchema,
   name: z.string().min(1).max(100),
-  email: z.email(),
   role: UserRoleSchema,
-  pin: PinSchema,
   isActive: z.boolean(),
   mustChangePin: z.boolean(),
   /** D-02: defaults to es-MX for new/unset profiles. Drives i18n.changeLanguage() on login/rehydrate. */

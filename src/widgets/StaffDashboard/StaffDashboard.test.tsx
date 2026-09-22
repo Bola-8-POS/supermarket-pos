@@ -9,9 +9,7 @@ import { StaffDashboard } from './StaffDashboard';
 const staffOpen: Staff = {
   id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
   name: 'Alex',
-  email: 'a@b.dev',
   role: 'cashier',
-  pin: '123456',
   isActive: true,
   mustChangePin: false,
   locale: 'es-MX',
@@ -20,9 +18,7 @@ const staffOpen: Staff = {
 const staffClosed: Staff = {
   id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
   name: 'Jamie',
-  email: 'j@b.dev',
   role: 'manager',
-  pin: '654321',
   isActive: true,
   mustChangePin: false,
   locale: 'es-MX',
