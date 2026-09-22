@@ -272,6 +272,7 @@ describe.skipIf(skip)('edit_paid_tab RPC (integration)', () => {
       p_notes: null,
       p_reason: 'Integration test: quantity correction',
       p_manager_pin: managerPin,
+      p_approver_id: managerId,
     });
 
     expect(error).toBeNull();
@@ -303,6 +304,7 @@ describe.skipIf(skip)('edit_paid_tab RPC (integration)', () => {
       p_notes: null,
       p_reason: 'Integration test: stale version',
       p_manager_pin: managerPin,
+      p_approver_id: managerId,
     });
 
     expect(error).not.toBeNull();
@@ -312,7 +314,7 @@ describe.skipIf(skip)('edit_paid_tab RPC (integration)', () => {
   it('SC-1: AUTH_FORBIDDEN is returned when the caller is not manager/admin role', async () => {
     const seed = await seedPaidTab(10.0, 1);
 
-    const { error } = await bartenderClient.rpc('edit_paid_tab', {
+    const { data, error } = await bartenderClient.rpc('edit_paid_tab', {
       p_tab_id: seed.tabId,
       p_expected_version: seed.version,
       p_order_item_patches: [{ id: seed.orderItemId, op: 'update', notes: 'unauthorized attempt' }],
@@ -320,8 +322,9 @@ describe.skipIf(skip)('edit_paid_tab RPC (integration)', () => {
       p_reason: 'Integration test: forbidden caller',
     });
 
-    expect(error).not.toBeNull();
-    expect((error.message as string)).toContain('AUTH_FORBIDDEN');
+    expect(error).toBeNull();
+    expect(data.ok).toBe(false);
+    expect(data.code).toBe('AUTH_FORBIDDEN');
   });
 
   it('SC-5: TAB_NOT_EDITABLE is returned when the tab is status=open (a reopened sale, not paid/closed)', async () => {
@@ -344,6 +347,7 @@ describe.skipIf(skip)('edit_paid_tab RPC (integration)', () => {
       p_notes: null,
       p_reason: 'Integration test: reopened tab',
       p_manager_pin: managerPin,
+      p_approver_id: managerId,
     });
 
     expect(error).toBeNull();
@@ -363,6 +367,7 @@ describe.skipIf(skip)('edit_paid_tab RPC (integration)', () => {
       p_notes: null,
       p_reason: 'Integration test: whitelist enforcement',
       p_manager_pin: managerPin,
+      p_approver_id: managerId,
     });
 
     expect(error).toBeNull();
@@ -389,6 +394,7 @@ describe.skipIf(skip)('edit_paid_tab RPC (integration)', () => {
       p_notes: null,
       p_reason: 'Integration test: caja offset (price correction)',
       p_manager_pin: managerPin,
+      p_approver_id: managerId,
     });
 
     expect(error).toBeNull();
@@ -419,6 +425,7 @@ describe.skipIf(skip)('edit_paid_tab RPC (integration)', () => {
       p_notes: 'edited via integration test',
       p_reason: reason,
       p_manager_pin: managerPin,
+      p_approver_id: managerId,
     });
 
     expect(error).toBeNull();
@@ -470,6 +477,7 @@ describe.skipIf(skip)('edit_paid_tab RPC (integration)', () => {
       p_notes: null,
       p_reason: 'Integration test: CR-01 quantity decrease restores inventory',
       p_manager_pin: managerPin,
+      p_approver_id: managerId,
     });
 
     expect(error).toBeNull();
@@ -520,6 +528,7 @@ describe.skipIf(skip)('edit_paid_tab RPC (integration)', () => {
       p_notes: null,
       p_reason: 'Integration test: CR-01 quantity increase depletes inventory',
       p_manager_pin: managerPin,
+      p_approver_id: managerId,
     });
 
     expect(error).toBeNull();
@@ -570,6 +579,7 @@ describe.skipIf(skip)('edit_paid_tab RPC (integration)', () => {
       p_notes: null,
       p_reason: 'Integration test: CR-01 soft-delete restores inventory',
       p_manager_pin: managerPin,
+      p_approver_id: managerId,
     });
 
     expect(error).toBeNull();
@@ -673,6 +683,7 @@ describe.skipIf(skip)('edit_paid_tab RPC (integration)', () => {
           p_notes: null,
           p_reason: 'Integration test: terminal-anchored edit',
           p_manager_pin: managerPin,
+          p_approver_id: managerId,
         });
 
         expect(error).toBeNull();
@@ -715,6 +726,7 @@ describe.skipIf(skip)('edit_paid_tab RPC (integration)', () => {
           p_notes: null,
           p_reason: 'Integration test: terminal-anchored edit no open caja',
           p_manager_pin: managerPin,
+          p_approver_id: managerId,
         });
 
         expect(error).not.toBeNull();

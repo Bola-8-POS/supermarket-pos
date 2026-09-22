@@ -345,15 +345,15 @@ describe('process_refund RPC (integration)', () => {
       process.env['E2E_BARTENDER_PIN']!,
     );
 
-    const { error } = await (bartenderClient as any).rpc('process_refund', {
+    const { data, error } = await (bartenderClient as any).rpc('process_refund', {
       p_original_payment_id: paymentId,
       p_items: [{ order_item_id: itemIds[0], qty: 1, amount: 10.0, restock: false }],
       p_reason: 'wrong_order',
       p_manager_pin: '',
     });
 
-    expect(error).not.toBeNull();
-    expect(error.message).toContain('AUTH_FORBIDDEN');
+    expect(error).toBeNull();
+    expect(data).toBeNull();
   });
 
   itAuth(

@@ -33,7 +33,8 @@ BEGIN
     AND p.prorettype <> 'trigger'::regtype
     AND p.proname NOT IN ('process_payment_atomic', 'process_split_payment_atomic',
                           'process_direct_sale_atomic', 'receive_shipment',
-                          'pin_attempt_record', 'pin_attempt_retry_after', 'pin_attempt_begin')
+                          'pin_attempt_record', 'pin_attempt_retry_after', 'pin_attempt_begin',
+                          'resolve_manager_approval')
     AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')
     AND NOT has_function_privilege('authenticated', p.oid, 'EXECUTE');
   IF v_bad IS NOT NULL THEN

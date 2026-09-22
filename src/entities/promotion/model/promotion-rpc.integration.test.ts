@@ -541,6 +541,7 @@ describe('process_direct_sale_atomic — promotions + floor guard (integration)'
           p_tendered_amount: amount,
           p_manager_override: true,
           p_manager_pin: staffPin,
+          p_approver_id: staffId,
         } as never);
 
         expect(error).toBeNull();

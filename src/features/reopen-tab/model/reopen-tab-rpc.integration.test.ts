@@ -302,6 +302,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
         p_expected_version: seed.version,
         p_reason: 'Integration test SC-1 happy path',
         p_manager_pin: managerPin,
+        p_approver_id: managerId,
       });
 
       expect(error).toBeNull();
@@ -340,6 +341,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
       p_expected_version: seed.version + 99,
       p_reason: 'Integration test: stale version',
       p_manager_pin: managerPin,
+      p_approver_id: managerId,
     });
 
     expect(error).not.toBeNull();
@@ -349,14 +351,15 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
   it('SC-1: AUTH_FORBIDDEN is returned when the caller is not manager/admin role (bartender)', async () => {
     const seed = await seedTab({ unitPrice: 10.0 });
 
-    const { error } = await bartenderClient.rpc('reopen_tab', {
+    const { data, error } = await bartenderClient.rpc('reopen_tab', {
       p_tab_id: seed.tabId,
       p_expected_version: seed.version,
       p_reason: 'Integration test: forbidden caller',
     });
 
-    expect(error).not.toBeNull();
-    expect(error.message as string).toContain('AUTH_FORBIDDEN');
+    expect(error).toBeNull();
+    expect(data.ok).toBe(false);
+    expect(data.code).toBe('AUTH_FORBIDDEN');
   });
 
   // ── SC-3: reopen cap + window ──────────────────────────────────────────────
@@ -372,6 +375,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
         p_expected_version: bumpedVersion,
         p_reason: 'Integration test: cap exceeded',
         p_manager_pin: managerPin,
+        p_approver_id: managerId,
       });
 
       expect(error).toBeNull();
@@ -399,6 +403,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
       p_expected_version: bumpedVersion,
       p_reason: 'Integration test: window expired',
       p_manager_pin: managerPin,
+      p_approver_id: managerId,
     });
 
     expect(error).toBeNull();
@@ -458,6 +463,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
         p_expected_version: seed.version,
         p_reason: 'Integration test: split sibling void',
         p_manager_pin: managerPin,
+        p_approver_id: managerId,
       });
 
       expect(error).toBeNull();
@@ -495,6 +501,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
         p_expected_version: seedWithPayment.version,
         p_reason: 'Integration test: caja offset nonzero',
         p_manager_pin: managerPin,
+        p_approver_id: managerId,
       });
       expect(errA).toBeNull();
       expect(dataA.ok).toBe(true);
@@ -516,6 +523,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
         p_expected_version: seedNoPayment.version,
         p_reason: 'Integration test: caja offset zero',
         p_manager_pin: managerPin,
+        p_approver_id: managerId,
       });
       expect(errB).toBeNull();
       expect(dataB.ok).toBe(true);
@@ -543,6 +551,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
         p_expected_version: seed.version,
         p_reason: reason,
         p_manager_pin: managerPin,
+        p_approver_id: managerId,
       });
 
       expect(error).toBeNull();
@@ -593,6 +602,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
         p_expected_version: seed.version,
         p_reason: 'Integration test: double-count regression',
         p_manager_pin: managerPin,
+        p_approver_id: managerId,
       });
       expect(reopenErr).toBeNull();
       expect(reopenData.ok).toBe(true);
@@ -663,6 +673,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
         p_expected_version: seed.version,
         p_reason: 'Integration test: CR-01 first reopen',
         p_manager_pin: managerPin,
+        p_approver_id: managerId,
       });
       expect(reopen1Err).toBeNull();
       expect(reopen1.ok).toBe(true);
@@ -709,6 +720,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
         p_expected_version: tabAfterRepay?.version as number,
         p_reason: 'Integration test: CR-01 second reopen',
         p_manager_pin: managerPin,
+        p_approver_id: managerId,
       });
       expect(reopen2Err).toBeNull();
       expect(reopen2.ok).toBe(true);
@@ -789,6 +801,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
           p_expected_version: bumpedVersion,
           p_reason: 'Integration test: terminal-anchored reopen',
           p_manager_pin: managerPin,
+          p_approver_id: managerId,
         });
 
         expect(error).toBeNull();
@@ -828,6 +841,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
           p_expected_version: bumpedVersion,
           p_reason: 'Integration test: terminal-anchored reopen no open caja',
           p_manager_pin: managerPin,
+          p_approver_id: managerId,
         });
 
         expect(error).not.toBeNull();
