@@ -17,6 +17,7 @@ const baseInput: ReopenTabInput = {
   expectedVersion: 1,
   reason: 'Customer requested correction',
   managerPin: '1234',
+  approverId: '3a7c9e21-5f2b-4d81-9c3a-6e408f17b2d5',
 };
 
 function makeWrapper(queryClient: QueryClient) {
@@ -51,6 +52,40 @@ describe('useReopenTab', () => {
   afterEach(() => {
     vi.clearAllMocks();
     queryClient.clear();
+  });
+
+  it('calls supabase.rpc with the manager PIN and approver id', async () => {
+    mockedRpc.mockResolvedValue({ data: { ok: true }, error: null } as never);
+
+    const wrapper = makeWrapper(queryClient);
+    const { result } = renderHook(() => useReopenTab(), { wrapper });
+
+    await result.current.mutateAsync(baseInput);
+
+    expect(mockedRpc).toHaveBeenCalledWith('reopen_tab', {
+      p_tab_id: baseInput.tabId,
+      p_expected_version: baseInput.expectedVersion,
+      p_reason: baseInput.reason,
+      p_manager_pin: baseInput.managerPin,
+      p_approver_id: baseInput.approverId,
+    });
+  });
+
+  it('returns AUTH_FORBIDDEN when the RPC payload reports the approval was refused', async () => {
+    mockedRpc.mockResolvedValue({
+      data: { ok: false, code: 'AUTH_FORBIDDEN' },
+      error: null,
+    } as never);
+
+    const wrapper = makeWrapper(queryClient);
+    const { result } = renderHook(() => useReopenTab(), { wrapper });
+
+    const res = await result.current.mutateAsync(baseInput);
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.code).toBe('AUTH_FORBIDDEN');
+    }
   });
 
   it('returns a translated generic message when the RPC call itself throws an unmapped Postgres exception', async () => {

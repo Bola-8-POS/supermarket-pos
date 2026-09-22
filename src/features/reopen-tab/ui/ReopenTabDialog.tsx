@@ -47,7 +47,7 @@ export function ReopenTabDialog({ open, tabId, onOpenChange }: ReopenTabDialogPr
 
   const isValid = reason.trim() !== "" && !mutation.isPending;
 
-  async function handleSubmitReopen(pin: string) {
+  async function handleSubmitReopen(pin: string, approverId: string) {
     if (!tab) return;
 
     const result = await mutation.mutateAsync({
@@ -55,6 +55,7 @@ export function ReopenTabDialog({ open, tabId, onOpenChange }: ReopenTabDialogPr
       expectedVersion: tab.version ?? 0,
       reason,
       managerPin: pin,
+      approverId,
     });
 
     if (!result.ok) {
@@ -144,9 +145,9 @@ export function ReopenTabDialog({ open, tabId, onOpenChange }: ReopenTabDialogPr
         open={pinOpen}
         onOpenChange={setPinOpen}
         requiredAction="reopen_tab"
-        onSuccess={(_staff, enteredPin) => {
+        onSuccess={(staff, enteredPin) => {
           setPinOpen(false);
-          void handleSubmitReopen(enteredPin);
+          void handleSubmitReopen(enteredPin, staff.id);
         }}
       />
     </>

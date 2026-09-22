@@ -27,6 +27,7 @@ const baseInput: ProcessRefundInput = {
 const baseMutationInput: ProcessRefundMutationInput = {
   ...baseInput,
   managerPin: '1234',
+  approverId: '3a7c9e21-5f2b-4d81-9c3a-6e408f17b2d5',
 };
 
 function makeWrapper(queryClient: QueryClient) {
@@ -162,6 +163,21 @@ describe('useProcessRefund', () => {
       p_items: baseInput.items,
       p_reason: baseInput.reason,
       p_manager_pin: baseMutationInput.managerPin,
+      p_approver_id: baseMutationInput.approverId,
     });
+  });
+
+  it('returns AUTH_FORBIDDEN when the RPC returns null (approval refused)', async () => {
+    mockedRpc.mockResolvedValue({ data: null, error: null } as never);
+
+    const wrapper = makeWrapper(queryClient);
+    const { result } = renderHook(() => useProcessRefund(), { wrapper });
+
+    const res = await result.current.mutateAsync(baseMutationInput);
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.code).toBe('AUTH_FORBIDDEN');
+    }
   });
 });

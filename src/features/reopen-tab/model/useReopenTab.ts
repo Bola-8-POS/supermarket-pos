@@ -6,7 +6,11 @@
  * parseSupabaseError — same convention as useEditPaidTab, so the dialog's
  * handleVersionError() works unmodified. NO_OPEN_CAJA (P0A02) and
  * AUTH_FORBIDDEN (P0A01) are custom SQLSTATEs parseSupabaseError doesn't know
- * about, so those two are still detected via error.message.
+ * about, so NO_OPEN_CAJA is still detected via error.message; a refused
+ * approval is now returned in the response body as `{ ok: false, code:
+ * 'AUTH_FORBIDDEN' | 'PIN_LOCKED' }` instead of being raised, with the
+ * message-based AUTH_FORBIDDEN branch kept only for older databases that
+ * still raise it.
  * REOPEN_CAP_EXCEEDED / REOPEN_WINDOW_EXPIRED / TAB_NOT_REOPENABLE are
  * returned by the RPC as a normal `{ ok: false }` payload (not raised
  * exceptions), so they're checked on the response body, not on the error —
@@ -27,6 +31,8 @@ export interface ReopenTabInput {
   expectedVersion: number;
   reason: string;
   managerPin: string;
+  /** Id of the staff member the manager prompt matched; the RPC checks it together with the PIN. */
+  approverId: string;
 }
 
 export interface ReopenTabRpcResult {
@@ -34,6 +40,7 @@ export interface ReopenTabRpcResult {
   code?: string;
   message?: string;
   voidedPaymentTotal?: number;
+  retryAfter?: number;
 }
 
 export function useReopenTab() {
@@ -41,12 +48,16 @@ export function useReopenTab() {
   return useMutation({
     mutationFn: async (input: ReopenTabInput): Promise<Result<ReopenTabRpcResult>> => {
       const rpcRes = await supabaseMutation(() =>
-        supabase.rpc('reopen_tab', {
+        /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return --
+           supabase.types.ts lags behind the schema for p_approver_id (repo-wide cast pattern). */
+        (supabase as any).rpc('reopen_tab', {
           p_tab_id: input.tabId,
           p_expected_version: input.expectedVersion,
           p_reason: input.reason,
           p_manager_pin: input.managerPin,
+          p_approver_id: input.approverId,
         })
+        /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return */
       );
 
       if (!rpcRes.ok) {
@@ -77,6 +88,15 @@ export function useReopenTab() {
 
       const result = rpcRes.data as ReopenTabRpcResult | null;
       if (!result || !result.ok) {
+        if (result?.code === 'AUTH_FORBIDDEN') {
+          return err({ code: 'AUTH_FORBIDDEN' as AppErrorCode, message: i18n.t('featOrders:reopenTab.authForbidden') });
+        }
+        if (result?.code === 'PIN_LOCKED') {
+          return err({
+            code: 'AUTH_FORBIDDEN' as AppErrorCode,
+            message: i18n.t('featOrders:managerPinGate.lockedOut', { seconds: (result as { retryAfter?: number }).retryAfter ?? 0 }),
+          });
+        }
         if (result?.code === 'REOPEN_CAP_EXCEEDED') {
           return err({
             code: 'VALIDATION_ERROR' as AppErrorCode,

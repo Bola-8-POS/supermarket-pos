@@ -6,10 +6,13 @@
  * parseSupabaseError — the same convention useMutationUpdateTabStatus/
  * useMutationCloseCaja already rely on for handleVersionError() to work.
  * NO_OPEN_CAJA (P0A02) and AUTH_FORBIDDEN (P0A01) are custom SQLSTATEs
- * parseSupabaseError doesn't know about, so those two are still detected via
- * error.message. TAB_NOT_EDITABLE is returned by the RPC as a normal
- * `{ ok: false }` payload (not a raised exception), so it's checked on the
- * response body, not on the error.
+ * parseSupabaseError doesn't know about, so NO_OPEN_CAJA is still detected
+ * via error.message; a refused approval is now returned in the response
+ * body as `{ ok: false, code: 'AUTH_FORBIDDEN' | 'PIN_LOCKED' }` instead of
+ * being raised, with the message-based AUTH_FORBIDDEN branch kept only for
+ * older databases that still raise it. TAB_NOT_EDITABLE is returned by the
+ * RPC as a normal `{ ok: false }` payload (not a raised exception), so it's
+ * checked on the response body, not on the error.
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
@@ -43,6 +46,8 @@ export interface EditPaidTabInput {
   notes: string | undefined;
   reason: string;
   managerPin: string;
+  /** Id of the staff member the manager prompt matched; the RPC checks it together with the PIN. */
+  approverId: string;
 }
 
 export interface EditPaidTabRpcResult {
@@ -52,6 +57,7 @@ export interface EditPaidTabRpcResult {
   newTotal?: number;
   delta?: number;
   cajaAdjustmentRecorded?: boolean;
+  retryAfter?: number;
 }
 
 export function useEditPaidTab() {
@@ -59,14 +65,18 @@ export function useEditPaidTab() {
   return useMutation({
     mutationFn: async (input: EditPaidTabInput): Promise<Result<EditPaidTabRpcResult>> => {
       const rpcRes = await supabaseMutation(() =>
-        supabase.rpc('edit_paid_tab', {
+        /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return --
+           supabase.types.ts lags behind the schema for p_approver_id (repo-wide cast pattern). */
+        (supabase as any).rpc('edit_paid_tab', {
           p_tab_id: input.tabId,
           p_expected_version: input.expectedVersion,
           p_order_item_patches: input.orderItemPatches as unknown as Json,
           p_notes: input.notes ?? '',
           p_reason: input.reason,
           p_manager_pin: input.managerPin,
+          p_approver_id: input.approverId,
         })
+        /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return */
       );
 
       if (!rpcRes.ok) {
@@ -97,6 +107,15 @@ export function useEditPaidTab() {
 
       const result = rpcRes.data as EditPaidTabRpcResult | null;
       if (!result || !result.ok) {
+        if (result?.code === 'AUTH_FORBIDDEN') {
+          return err({ code: 'AUTH_FORBIDDEN' as AppErrorCode, message: i18n.t('featOrders:editPaidTab.authForbidden') });
+        }
+        if (result?.code === 'PIN_LOCKED') {
+          return err({
+            code: 'AUTH_FORBIDDEN' as AppErrorCode,
+            message: i18n.t('featOrders:managerPinGate.lockedOut', { seconds: (result as { retryAfter?: number }).retryAfter ?? 0 }),
+          });
+        }
         if (result?.code === 'TAB_NOT_EDITABLE') {
           return err({
             code: 'VALIDATION_ERROR' as AppErrorCode,

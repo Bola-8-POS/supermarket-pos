@@ -28,6 +28,8 @@ export type { ProcessRefundInput };
  */
 export interface ProcessRefundMutationInput extends ProcessRefundInput {
   managerPin: string;
+  /** Id of the staff member the manager prompt matched; the RPC checks it together with the PIN. */
+  approverId: string;
 }
 
 export function useProcessRefund() {
@@ -42,12 +44,16 @@ export function useProcessRefund() {
         });
       }
       const rpcRes = await supabaseMutation(() =>
-        supabase.rpc('process_refund', {
+        /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return --
+           supabase.types.ts lags behind the schema for p_approver_id (repo-wide cast pattern). */
+        (supabase as any).rpc('process_refund', {
           p_original_payment_id: parsed.data.originalPaymentId,
           p_items: parsed.data.items,
           p_reason: parsed.data.reason,
           p_manager_pin: input.managerPin,
+          p_approver_id: input.approverId,
         })
+        /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return */
       );
       if (!rpcRes.ok) {
         if (rpcRes.error.message.includes('REFUND_EXCEEDS_ORIGINAL')) {
@@ -66,15 +72,17 @@ export function useProcessRefund() {
         });
       }
       if (rpcRes.data === null) {
+        // The RPC returns NULL (rather than raising) when the approval is
+        // refused, so the attempt count still gets recorded server-side.
         return err({
-          code: 'SUPABASE_ERROR' as AppErrorCode,
-          message: i18n.t('featOrders:processRefund.genericError'),
+          code: 'AUTH_FORBIDDEN' as AppErrorCode,
+          message: i18n.t('featOrders:processRefund.authForbidden'),
         });
       }
       void qc.invalidateQueries({ queryKey: refundKeys.lists() });
       void qc.invalidateQueries({ queryKey: refundKeys.byPayment(input.originalPaymentId) });
       void qc.invalidateQueries({ queryKey: tabKeys.lists() });
-      return ok(rpcRes.data);
+      return ok(rpcRes.data as string);
     },
   });
 }
