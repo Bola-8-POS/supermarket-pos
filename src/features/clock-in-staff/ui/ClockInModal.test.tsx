@@ -71,6 +71,22 @@ describe('ClockInModal', () => {
     expect(verifyStaffPin).toHaveBeenCalledWith('999999', staff.id);
   });
 
+  it('shows the lockout message when INVALID_PIN arrives with a retry-after already armed', async () => {
+    const user = userEvent.setup();
+    vi.mocked(verifyStaffPin).mockResolvedValue({
+      ok: false,
+      code: 'INVALID_PIN',
+      retryAfter: 30,
+    });
+    renderWithProviders(<ClockInModal open onOpenChange={vi.fn()} staff={staff} />);
+
+    for (const digit of '999999') {
+      await user.click(screen.getByRole('button', { name: `Key ${digit}` }));
+    }
+
+    expect(await screen.findByText(/Try again in 30 s/i)).toBeInTheDocument();
+  });
+
   it('advances to opening cash and completes clock-in', async () => {
     const user = userEvent.setup();
     const onOpenChange = vi.fn();

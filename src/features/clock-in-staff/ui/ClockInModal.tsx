@@ -58,7 +58,7 @@ export function ClockInModal({ open, onOpenChange, staff }: ClockInModalProps) {
         setOpeningCash(0);
         return;
       }
-      if (res.code === 'LOCKED') {
+      if (res.code === 'LOCKED' || (res.code === 'INVALID_PIN' && res.retryAfter > 0)) {
         setPinError(t('clockInStaff.lockedOut', { seconds: res.retryAfter }));
       } else if (res.code === 'UNAVAILABLE') {
         setPinError(t('clockInStaff.needsConnection'));

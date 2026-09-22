@@ -79,7 +79,10 @@ export function IdleLockOverlay({ open, onUnlock }: IdleLockOverlayProps) {
           return;
         }
         setError(t('idleLock.offlineOnlySameUser'));
-      } else if (res.code === 'LOCKED') {
+      } else if (res.code === 'LOCKED' || res.retryAfter > 0) {
+        // Only 'INVALID_PIN' and 'LOCKED' remain here ('UNAVAILABLE' is
+        // handled above), so a positive retryAfter means a match just armed
+        // the lock on this same call.
         setError(t('idleLock.lockedOut', { seconds: res.retryAfter }));
       } else {
         setError(t('idleLock.incorrectPin'));

@@ -111,6 +111,24 @@ describe('IdleLockOverlay', () => {
     });
   });
 
+  it('online + INVALID_PIN with a retry-after already armed shows the lockout message', async () => {
+    const user = userEvent.setup();
+    vi.mocked(isOnline).mockReturnValue(true);
+    vi.mocked(verifyStaffPin).mockResolvedValue({
+      ok: false,
+      code: 'INVALID_PIN',
+      retryAfter: 30,
+    });
+    renderOverlay();
+
+    await typePin(user, '777777');
+
+    const dialog = screen.getByRole('alertdialog');
+    await waitFor(() => {
+      expect(within(dialog).getByText(/Try again in 30 s/i)).toBeInTheDocument();
+    });
+  });
+
   it('online + LOCKED shows the lockout message with the retry-after seconds', async () => {
     const user = userEvent.setup();
     vi.mocked(isOnline).mockReturnValue(true);
