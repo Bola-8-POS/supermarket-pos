@@ -70,6 +70,7 @@ type RpcResult = {
   paymentIds?: string[];
   code?: string;
   message?: string;
+  retryAfter?: number;
 };
 
 const corsHeaders = {
@@ -206,7 +207,11 @@ Deno.serve(async (req: Request) => {
   if (!rpc || typeof rpc !== 'object' || rpc.ok !== true || !rpc.paymentGroupId) {
     const code = rpc?.code ?? 'PAYMENT_FAILED';
     const message = rpc?.message ?? 'Split payment failed';
-    return jsonResponse({ success: false, error: { code, message } }, statusForCode(code));
+    const retryAfter = typeof rpc?.retryAfter === 'number' ? rpc.retryAfter : undefined;
+    return jsonResponse(
+      { success: false, error: { code, message, ...(retryAfter !== undefined ? { retryAfter } : {}) } },
+      statusForCode(code)
+    );
   }
 
   const paymentGroupId = rpc.paymentGroupId;

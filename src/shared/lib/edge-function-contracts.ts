@@ -19,6 +19,7 @@ import {
   UserRoleSchema,
   LocaleSchema,
 } from './domain';
+import i18n from './i18n';
 import { logger } from './logger';
 import { ok, err, inventoryNegativeError, type Result } from './result';
 import { supabase, getCachedAccessToken } from './supabase';
@@ -150,6 +151,8 @@ export type ProcessPaymentRequest = z.infer<typeof ProcessPaymentRequestSchema>;
 const ProcessPaymentErrorBodySchema = z.object({
   code: z.string(),
   message: z.string(),
+  /** Seconds until the caller's attempt budget unlocks, present only on `PIN_LOCKED`. */
+  retryAfter: z.number().int().nonnegative().optional(),
 });
 
 /** Successful payload after {@link callProcessPayment} unwraps the edge envelope. */
@@ -169,11 +172,21 @@ export const ProcessPaymentEnvelopeSchema = z.object({
   error: ProcessPaymentErrorBodySchema.optional(),
 });
 
-function mapProcessPaymentEdgeError(code: string | undefined, message: string): AppError {
+/** Exported so it's directly unit-testable — mirrors mapAdminResetPinEdgeError's convention. */
+export function mapProcessPaymentEdgeError(
+  code: string | undefined,
+  message: string,
+  retryAfter?: number
+): AppError {
   if (code === 'DIRECT_SALE_FAILED' && message.startsWith('INVENTORY_NEGATIVE:')) {
     return inventoryNegativeError(message.slice('INVENTORY_NEGATIVE:'.length).trim());
   }
   switch (code) {
+    case 'PIN_LOCKED':
+      return {
+        code: 'AUTH_FORBIDDEN',
+        message: i18n.t('featOrders:managerPinGate.lockedOut', { seconds: retryAfter ?? 0 }),
+      };
     case 'POOL_SESSION_ACTIVE':
       return { code: 'SESSION_STILL_RUNNING', message };
     case 'TAB_NOT_OPEN':
@@ -244,17 +257,18 @@ export async function callProcessPayment(
     const data: unknown = await response.json().catch(() => null);
 
     if (!response.ok) {
-      // Edge function envelope: { success: false, error: { code, message } }
+      // Edge function envelope: { success: false, error: { code, message, retryAfter? } }
       const edgeErr =
         data !== null && typeof data === 'object' && 'error' in data
-          ? (data as { error: { code?: unknown; message?: unknown } }).error
+          ? (data as { error: { code?: unknown; message?: unknown; retryAfter?: unknown } }).error
           : null;
       const edgeCode = typeof edgeErr?.code === 'string' ? edgeErr.code : undefined;
       const edgeMsg =
         typeof edgeErr?.message === 'string'
           ? edgeErr.message
           : `Payment service error (${String(response.status)})`;
-      return err(mapProcessPaymentEdgeError(edgeCode, edgeMsg));
+      const edgeRetryAfter = typeof edgeErr?.retryAfter === 'number' ? edgeErr.retryAfter : undefined;
+      return err(mapProcessPaymentEdgeError(edgeCode, edgeMsg, edgeRetryAfter));
     }
 
     const envelope = ProcessPaymentEnvelopeSchema.safeParse(data);
@@ -270,7 +284,7 @@ export async function callProcessPayment(
     if (!body.success || body.paymentId == null || body.receiptData == null) {
       const e = body.error;
       return err(
-        mapProcessPaymentEdgeError(e?.code, e?.message ?? 'Payment could not be completed.')
+        mapProcessPaymentEdgeError(e?.code, e?.message ?? 'Payment could not be completed.', e?.retryAfter)
       );
     }
 
@@ -834,7 +848,11 @@ export async function callProcessDirectSale(
         envelope.success ? undefined : envelope.error
       );
       return err(
-        mapProcessPaymentEdgeError(edge?.code, edge?.message ?? 'Payment could not be completed.')
+        mapProcessPaymentEdgeError(
+          edge?.code,
+          edge?.message ?? 'Payment could not be completed.',
+          edge?.retryAfter
+        )
       );
     }
     const result = ProcessDirectSaleSuccessSchema.safeParse(envelope.data);
@@ -1011,11 +1029,21 @@ export const ProcessSplitPaymentEnvelopeSchema = z.object({
   paymentIds: z.array(UuidSchema).optional(),
   receipts: z.array(ReceiptDataSchema).optional(),
   idempotent: z.boolean().optional(),
-  error: z.object({ code: z.string(), message: z.string() }).optional(),
+  error: ProcessPaymentErrorBodySchema.optional(),
 });
 
-function mapProcessSplitPaymentEdgeError(code: string | undefined, message: string): AppError {
+/** Exported so it's directly unit-testable — mirrors mapAdminResetPinEdgeError's convention. */
+export function mapProcessSplitPaymentEdgeError(
+  code: string | undefined,
+  message: string,
+  retryAfter?: number
+): AppError {
   switch (code) {
+    case 'PIN_LOCKED':
+      return {
+        code: 'AUTH_FORBIDDEN',
+        message: i18n.t('featOrders:managerPinGate.lockedOut', { seconds: retryAfter ?? 0 }),
+      };
     case 'POOL_SESSION_ACTIVE':
       return { code: 'SESSION_STILL_RUNNING', message };
     case 'TAB_NOT_OPEN':
@@ -1076,17 +1104,18 @@ export async function callProcessSplitPayment(
     const data: unknown = await response.json().catch(() => null);
 
     if (!response.ok) {
-      // Edge function envelope: { success: false, error: { code, message } }
+      // Edge function envelope: { success: false, error: { code, message, retryAfter? } }
       const edgeErr =
         data !== null && typeof data === 'object' && 'error' in data
-          ? (data as { error: { code?: unknown; message?: unknown } }).error
+          ? (data as { error: { code?: unknown; message?: unknown; retryAfter?: unknown } }).error
           : null;
       const edgeCode = typeof edgeErr?.code === 'string' ? edgeErr.code : undefined;
       const edgeMsg =
         typeof edgeErr?.message === 'string'
           ? edgeErr.message
           : `Payment service error (${String(response.status)})`;
-      return err(mapProcessSplitPaymentEdgeError(edgeCode, edgeMsg));
+      const edgeRetryAfter = typeof edgeErr?.retryAfter === 'number' ? edgeErr.retryAfter : undefined;
+      return err(mapProcessSplitPaymentEdgeError(edgeCode, edgeMsg, edgeRetryAfter));
     }
 
     const envelope = ProcessSplitPaymentEnvelopeSchema.safeParse(data);
@@ -1102,7 +1131,11 @@ export async function callProcessSplitPayment(
     if (!body.success || body.paymentGroupId == null) {
       const e = body.error;
       return err(
-        mapProcessSplitPaymentEdgeError(e?.code, e?.message ?? 'Payment could not be completed.')
+        mapProcessSplitPaymentEdgeError(
+          e?.code,
+          e?.message ?? 'Payment could not be completed.',
+          e?.retryAfter
+        )
       );
     }
 

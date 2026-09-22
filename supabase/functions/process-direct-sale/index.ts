@@ -82,6 +82,7 @@ type RpcResult = {
   paymentIds?: string[];
   code?: string;
   message?: string;
+  retryAfter?: number;
 };
 
 const corsHeaders = {
@@ -357,10 +358,15 @@ Deno.serve(async (req: Request) => {
     );
   const rpc = data as RpcResult;
   if (!rpc?.ok || !rpc.tabId || (body.data.legs ? !rpc.paymentIds?.length : !rpc.paymentId)) {
+    const retryAfter = typeof rpc?.retryAfter === 'number' ? rpc.retryAfter : undefined;
     return jsonResponse(
       {
         success: false,
-        error: { code: rpc?.code ?? 'PAYMENT_FAILED', message: rpc?.message ?? 'Payment failed' },
+        error: {
+          code: rpc?.code ?? 'PAYMENT_FAILED',
+          message: rpc?.message ?? 'Payment failed',
+          ...(retryAfter !== undefined ? { retryAfter } : {}),
+        },
       },
       409
     );

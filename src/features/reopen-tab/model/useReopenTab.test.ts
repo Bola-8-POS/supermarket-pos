@@ -88,6 +88,24 @@ describe('useReopenTab', () => {
     }
   });
 
+  it('returns AUTH_FORBIDDEN with the wait time when the caller\'s attempt budget is locked', async () => {
+    mockedRpc.mockResolvedValue({
+      data: { ok: false, code: 'PIN_LOCKED', retryAfter: 30 },
+      error: null,
+    } as never);
+
+    const wrapper = makeWrapper(queryClient);
+    const { result } = renderHook(() => useReopenTab(), { wrapper });
+
+    const res = await result.current.mutateAsync(baseInput);
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.code).toBe('AUTH_FORBIDDEN');
+      expect(res.error.message).toContain('30');
+    }
+  });
+
   it('returns a translated generic message when the RPC call itself throws an unmapped Postgres exception', async () => {
     mockedRpc.mockResolvedValue({
       data: null,

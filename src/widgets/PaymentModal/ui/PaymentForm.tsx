@@ -472,7 +472,7 @@ export function PaymentForm({
     /**
      * Mirrors `overrideManagerOverride` for the authorizing PIN (Phase 27
      * Plan 08, G-27-13) — same same-tick-stale-state problem: the below-cost
-     * retry path calls `onSuccess` -> `setAuthorizingManagerPin(...)` ->
+     * retry path calls `onSuccess` -> `setAuthorizingManager(...)` ->
      * resubmit in the same tick, before React commits the new state.
      */
     overrideManager?: { id: string; pin: string }

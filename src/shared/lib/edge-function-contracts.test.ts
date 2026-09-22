@@ -4,9 +4,12 @@ import {
   AdminResetPinRequestSchema,
   AdminResetPinSuccessSchema,
   mapAdminResetPinEdgeError,
+  mapProcessPaymentEdgeError,
+  mapProcessSplitPaymentEdgeError,
   mapStaffSignInEdgeError,
   AgentProxyRequestSchema,
   ProcessDirectSaleRequestSchema,
+  ProcessPaymentEnvelopeSchema,
   ProcessPaymentRequestSchema,
   ProcessSplitPaymentRequestSchema,
   ReceiptDataSchema,
@@ -496,5 +499,32 @@ describe('mapStaffSignInEdgeError', () => {
       code: 'SUPABASE_ERROR',
       message: 'UNAVAILABLE',
     });
+  });
+});
+
+describe('mapProcessPaymentEdgeError — PIN_LOCKED', () => {
+  it('maps a PIN_LOCKED refusal to an AUTH_FORBIDDEN message carrying the wait time', () => {
+    const error = mapProcessPaymentEdgeError('PIN_LOCKED', 'Too many attempts', 30);
+    expect(error.code).toBe('AUTH_FORBIDDEN');
+    expect(error.message).toContain('30');
+  });
+});
+
+describe('mapProcessSplitPaymentEdgeError — PIN_LOCKED', () => {
+  it('maps a PIN_LOCKED refusal to an AUTH_FORBIDDEN message carrying the wait time', () => {
+    const error = mapProcessSplitPaymentEdgeError('PIN_LOCKED', 'Too many attempts', 30);
+    expect(error.code).toBe('AUTH_FORBIDDEN');
+    expect(error.message).toContain('30');
+  });
+});
+
+describe('ProcessPaymentEnvelopeSchema — retryAfter', () => {
+  it('parses an error envelope that carries retryAfter', () => {
+    const r = ProcessPaymentEnvelopeSchema.safeParse({
+      success: false,
+      error: { code: 'PIN_LOCKED', message: 'Too many attempts', retryAfter: 30 },
+    });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.error?.retryAfter).toBe(30);
   });
 });

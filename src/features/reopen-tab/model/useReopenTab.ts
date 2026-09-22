@@ -94,7 +94,7 @@ export function useReopenTab() {
         if (result?.code === 'PIN_LOCKED') {
           return err({
             code: 'AUTH_FORBIDDEN' as AppErrorCode,
-            message: i18n.t('featOrders:managerPinGate.lockedOut', { seconds: (result as { retryAfter?: number }).retryAfter ?? 0 }),
+            message: i18n.t('featOrders:managerPinGate.lockedOut', { seconds: result.retryAfter ?? 0 }),
           });
         }
         if (result?.code === 'REOPEN_CAP_EXCEEDED') {
