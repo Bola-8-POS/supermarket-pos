@@ -378,6 +378,12 @@ verify_jwt = true
 [functions.staff-sign-in]
 verify_jwt = true
 
+[functions.set-staff-active]
+verify_jwt = true
+
+[functions.change-own-pin]
+verify_jwt = true
+
 [edge_runtime]
 enabled = true
 # Supported request policies: `oneshot`, `per_worker`.
