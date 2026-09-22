@@ -150,7 +150,7 @@ describe('IdleLockOverlay', () => {
   it('offline + checkOfflineUnlock resolves true unlocks with the signed-in staff member without calling verifyStaffPin', async () => {
     const user = userEvent.setup();
     vi.mocked(isOnline).mockReturnValue(false);
-    vi.mocked(checkOfflineUnlock).mockResolvedValue(true);
+    vi.mocked(checkOfflineUnlock).mockResolvedValue({ ok: true });
     const { onUnlock } = renderOverlay();
 
     await typePin(user, '444444');
@@ -165,7 +165,7 @@ describe('IdleLockOverlay', () => {
   it('offline + checkOfflineUnlock resolves false shows the offline-only-same-user message', async () => {
     const user = userEvent.setup();
     vi.mocked(isOnline).mockReturnValue(false);
-    vi.mocked(checkOfflineUnlock).mockResolvedValue(false);
+    vi.mocked(checkOfflineUnlock).mockResolvedValue({ ok: false, retryAfter: 0 });
     renderOverlay();
 
     await typePin(user, '555555');
@@ -186,7 +186,7 @@ describe('IdleLockOverlay', () => {
       code: 'UNAVAILABLE',
       retryAfter: 0,
     });
-    vi.mocked(checkOfflineUnlock).mockResolvedValue(true);
+    vi.mocked(checkOfflineUnlock).mockResolvedValue({ ok: true });
     const { onUnlock } = renderOverlay();
 
     await typePin(user, '666666');
@@ -195,5 +195,20 @@ describe('IdleLockOverlay', () => {
       expect(onUnlock).toHaveBeenCalledWith(currentStaff);
     });
     expect(checkOfflineUnlock).toHaveBeenCalledWith(currentStaff.id, '666666');
+  });
+
+  it('offline + a locked offline check shows the lockout message with the wait', async () => {
+    const user = userEvent.setup();
+    vi.mocked(isOnline).mockReturnValue(false);
+    vi.mocked(checkOfflineUnlock).mockResolvedValue({ ok: false, retryAfter: 30 });
+    renderOverlay();
+
+    await typePin(user, '555555');
+
+    const dialog = screen.getByRole('alertdialog');
+    await waitFor(() => {
+      expect(within(dialog).getByText(/Try again in 30 s/i)).toBeInTheDocument();
+    });
+    expect(verifyStaffPin).not.toHaveBeenCalled();
   });
 });

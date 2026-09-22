@@ -72,13 +72,18 @@ export function IdleLockOverlay({ open, onUnlock }: IdleLockOverlayProps) {
         setError(t('idleLock.incorrectPin'));
       } else if (res.code === 'UNAVAILABLE') {
         const me = useStaffStore.getState().currentStaff;
-        if (me && (await checkOfflineUnlock(me.id, enteredPin))) {
+        const offline = me ? await checkOfflineUnlock(me.id, enteredPin) : ({ ok: false, retryAfter: 0 } as const);
+        if (offline.ok && me) {
           setPin('');
           setError('');
           onUnlock(me);
           return;
         }
-        setError(t('idleLock.offlineOnlySameUser'));
+        setError(
+          !offline.ok && offline.retryAfter > 0
+            ? t('idleLock.lockedOut', { seconds: offline.retryAfter })
+            : t('idleLock.offlineOnlySameUser')
+        );
       } else if (res.code === 'LOCKED' || res.retryAfter > 0) {
         // Only 'INVALID_PIN' and 'LOCKED' remain here ('UNAVAILABLE' is
         // handled above), so a positive retryAfter means a match just armed
