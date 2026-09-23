@@ -15,10 +15,16 @@ DECLARE
   v_bad      text;
   v_count    bigint;
 BEGIN
-  -- 1. anon has no access to profiles and no policy names it.
+  -- 1. anon has no access to profiles, at table level or on any column
+  --    (DELETE has no column form), and no policy names it.
   FOREACH v_priv IN ARRAY ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE'] LOOP
     IF has_table_privilege('anon', v_tbl, v_priv) THEN
       RAISE EXCEPTION 'anon still holds % on profiles', v_priv;
+    END IF;
+  END LOOP;
+  FOREACH v_priv IN ARRAY ARRAY['SELECT', 'INSERT', 'UPDATE', 'REFERENCES'] LOOP
+    IF has_any_column_privilege('anon', v_tbl, v_priv) THEN
+      RAISE EXCEPTION 'anon still holds % on a profiles column', v_priv;
     END IF;
   END LOOP;
   IF EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'profiles' AND 'anon' = ANY (roles)) THEN
@@ -26,7 +32,7 @@ BEGIN
   END IF;
 
   -- 2. authenticated reads the listed columns only, writes role and locale
-  --    only, and holds no table-level INSERT or DELETE.
+  --    only, and holds no INSERT (table level or any column) or DELETE.
   FOREACH v_col IN ARRAY ARRAY['pin', 'email'] LOOP
     FOREACH v_priv IN ARRAY ARRAY['SELECT', 'INSERT', 'UPDATE', 'REFERENCES'] LOOP
       IF has_column_privilege('authenticated', v_tbl, v_col, v_priv) THEN
@@ -46,7 +52,8 @@ BEGIN
   IF v_bad IS NOT NULL THEN
     RAISE EXCEPTION 'authenticated UPDATE column grants are wrong on: %', v_bad;
   END IF;
-  IF has_table_privilege('authenticated', v_tbl, 'INSERT') OR has_table_privilege('authenticated', v_tbl, 'DELETE') THEN
+  IF has_table_privilege('authenticated', v_tbl, 'INSERT') OR has_table_privilege('authenticated', v_tbl, 'DELETE')
+     OR has_any_column_privilege('authenticated', v_tbl, 'INSERT') THEN
     RAISE EXCEPTION 'authenticated still holds INSERT or DELETE on profiles';
   END IF;
 

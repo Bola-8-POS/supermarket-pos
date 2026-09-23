@@ -7,9 +7,9 @@
 --    list reads staff_directory, which is owned by postgres and unaffected.
 -- 2. clear_must_change_pin is retired: change-own-pin replaced it.
 -- 3. Every SECURITY DEFINER function in public pins search_path.
--- 4. staff_pin_holder spends one of the caller's attempts per lookup (the
---    same key verify_staff_pin uses, so the next manager prompt success
---    clears it).
+-- 4. staff_pin_holder counts each lookup against its own attempt key
+--    (holder:<caller>), separate from the manager prompt's caller: key, so
+--    the lookup goes quiet after five calls without affecting the prompt.
 
 DROP POLICY IF EXISTS "profiles_select_anon" ON public.profiles;
 REVOKE ALL ON TABLE public.profiles FROM PUBLIC, anon, authenticated;
@@ -35,7 +35,8 @@ END $$;
 
 -- Name of an active staff member who already uses p_pin (NULL when free).
 -- Staff managers only; used for the duplicate warning when a PIN is reset.
--- Each lookup counts against the caller's attempt budget.
+-- Each lookup counts against the lookup's own five-attempt budget (key
+-- holder:<caller>), separate from the manager prompt's budget.
 CREATE OR REPLACE FUNCTION public.staff_pin_holder(p_pin text, p_exclude_staff_id uuid DEFAULT NULL)
 RETURNS text
 LANGUAGE plpgsql
@@ -53,7 +54,7 @@ BEGIN
     RAISE EXCEPTION 'AUTH_FORBIDDEN: staff management permission required';
   END IF;
 
-  v_wait := pin_attempt_begin('caller:' || auth.uid()::text);
+  v_wait := pin_attempt_begin('holder:' || auth.uid()::text);
   IF v_wait > 0 THEN
     RAISE EXCEPTION 'PIN_LOCKED: retry after % seconds', v_wait;
   END IF;

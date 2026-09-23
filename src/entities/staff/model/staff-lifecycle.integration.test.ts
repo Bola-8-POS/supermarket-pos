@@ -151,15 +151,15 @@ describe.skipIf(skip)('staff lifecycle', () => {
     expect(roleErr).toBeNull();
     expect(role).toBeNull();
 
-    // The role-gated RPC that answered the same session while active now refuses it.
-    const { error: gated } = await memberClient.rpc('force_pin_change', { p_staff_id: changer.id });
-    expect(gated).not.toBeNull();
-
-    // The own-PIN RPC refuses too, and the record keeps its PIN.
-    const { error: ownPin } = await memberClient.rpc('clear_must_change_pin', { p_new_pin: otherPin(member.pin) });
-    expect(ownPin).not.toBeNull();
-    const { data: kept } = await db.from('profiles').select('pin').eq('id', member.id).single();
-    expect(kept.pin).toBe(member.pin);
+    // The role-gated RPC that answered the same session while active now refuses
+    // it at the caller gate, for a colleague and for the member's own record, and
+    // the member's record does not pick up the flag.
+    for (const target of [changer, member]) {
+      const { error: gated } = await memberClient.rpc('force_pin_change', { p_staff_id: target.id });
+      expect(gated?.message.startsWith('AUTH_FORBIDDEN'), `force_pin_change on ${target.name}`).toBe(true);
+    }
+    const { data: kept } = await db.from('profiles').select('must_change_pin').eq('id', member.id).single();
+    expect(kept.must_change_pin).toBe(false);
 
     // Opening a caja is refused and leaves no session behind.
     const { error: cajaErr } = await memberClient.rpc('caja_open', { p_opening_cash: 0, p_opened_by: member.id, p_terminal_id: 'test' });

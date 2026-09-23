@@ -32,7 +32,7 @@ describe.skipIf(skip)('profile privileges', () => {
   const db = createClient(url!, serviceKey!, { auth: { persistSession: false } }) as any;
   const stamp = String(Date.now());
   const cashier: Fixture = { id: '', name: `${TAG}cashier`, email: `${TAG}c_${stamp}@test.local`, role: 'cashier', pin: randomPin(), client: null };
-  // The admin's attempt budget is spent only by the last case, so it must stay untouched before that.
+  // The admin's lookup budget is spent only by the last case, so it must stay untouched before that.
   const admin: Fixture = { id: '', name: `${TAG}admin`, email: `${TAG}a_${stamp}@test.local`, role: 'admin', pin: randomPin(), client: null };
   const fixtures = [cashier, admin];
 
@@ -124,7 +124,7 @@ describe.skipIf(skip)('profile privileges', () => {
     expect(error?.code).toBe('PGRST202');
   });
 
-  it('limits the PIN holder lookup to the caller\'s attempt budget', async () => {
+  it('limits the PIN holder lookup to its own attempt budget', async () => {
     for (let i = 0; i < 5; i++) {
       const { error } = await admin.client.rpc('staff_pin_holder', { p_pin: cashier.pin, p_exclude_staff_id: null });
       expect(error, `lookup ${i + 1}`).toBeNull();
@@ -132,5 +132,10 @@ describe.skipIf(skip)('profile privileges', () => {
     const { error } = await admin.client.rpc('staff_pin_holder', { p_pin: cashier.pin, p_exclude_staff_id: null });
     expect(error).not.toBeNull();
     expect(error.message.startsWith('PIN_LOCKED')).toBe(true);
+
+    // The lookup's key is its own: the manager prompt still answers the same admin.
+    const { data: prompt, error: promptErr } = await admin.client.rpc('verify_staff_pin', { p_pin: admin.pin, p_staff_id: admin.id, p_required_action: null });
+    expect(promptErr).toBeNull();
+    expect(prompt.ok).toBe(true);
   });
 });

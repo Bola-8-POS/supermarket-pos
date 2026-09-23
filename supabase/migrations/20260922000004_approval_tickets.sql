@@ -6,7 +6,8 @@
 --    role only; the client never reads it.
 -- 2. verify_staff_pin: when called with p_required_action, a success also
 --    inserts a ticket and returns its id as approval_id. Rows older than a
---    day are removed on the way.
+--    day are removed on the way (pin_attempts gains an index on updated_at
+--    for that purge).
 -- 3. resolve_manager_approval takes the ticket id instead of a PIN: the
 --    ticket must belong to the caller and the action, be unused and under
 --    15 minutes old, and the approver must still be active and still hold
@@ -33,6 +34,9 @@ CREATE INDEX manager_approvals_created_at_idx ON public.manager_approvals (creat
 ALTER TABLE public.manager_approvals ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.manager_approvals FROM PUBLIC, anon, authenticated;
 GRANT ALL ON TABLE public.manager_approvals TO service_role;
+
+-- The purge in verify_staff_pin filters pin_attempts on updated_at.
+CREATE INDEX IF NOT EXISTS pin_attempts_updated_at_idx ON public.pin_attempts (updated_at);
 
 -- PIN check for a signed-in caller. With p_staff_id the PIN must belong to
 -- that staff member; without it, every active staff member holding the PIN
@@ -126,7 +130,7 @@ BEGIN
     AND consumed_at IS NULL
     AND created_at > now() - interval '15 minutes'
   FOR UPDATE;
-  IF v_ids IS NULL THEN
+  IF NOT FOUND THEN
     RETURN jsonb_build_object('ok', false, 'code', 'INVALID_APPROVAL');
   END IF;
 

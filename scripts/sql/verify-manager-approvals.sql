@@ -104,7 +104,8 @@ BEGIN
     RAISE EXCEPTION 'override RPC privileges wrong on: %', v_bad;
   END IF;
 
-  -- 6. The ticket table has RLS on and the client roles cannot touch it.
+  -- 6. The ticket table has RLS on and the client roles cannot touch it,
+  --    at table level or on any column (DELETE has no column form).
   IF NOT EXISTS (SELECT 1 FROM pg_class WHERE oid = 'public.manager_approvals'::regclass AND relrowsecurity) THEN
     RAISE EXCEPTION 'manager_approvals does not have row level security enabled';
   END IF;
@@ -112,6 +113,12 @@ BEGIN
     IF has_table_privilege('anon', 'public.manager_approvals', v_name)
        OR has_table_privilege('authenticated', 'public.manager_approvals', v_name) THEN
       RAISE EXCEPTION 'a client role holds % on manager_approvals', v_name;
+    END IF;
+  END LOOP;
+  FOREACH v_name IN ARRAY ARRAY['SELECT', 'INSERT', 'UPDATE', 'REFERENCES'] LOOP
+    IF has_any_column_privilege('anon', 'public.manager_approvals', v_name)
+       OR has_any_column_privilege('authenticated', 'public.manager_approvals', v_name) THEN
+      RAISE EXCEPTION 'a client role holds % on a manager_approvals column', v_name;
     END IF;
   END LOOP;
 
