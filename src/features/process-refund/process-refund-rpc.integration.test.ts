@@ -45,6 +45,9 @@ const itBartender = hasBartenderEnv ? it : it.skip;
 
 // ── Client factories ──────────────────────────────────────────────────────────
 
+/** Every account this file signed in as; their approval tickets are removed after each test. */
+const signedInUserIds = new Set<string>();
+
 function getServiceDb(): any {
   const url = process.env['VITE_SUPABASE_URL']!;
   const key = process.env['SUPABASE_SERVICE_ROLE_KEY']!;
@@ -84,11 +87,26 @@ async function getAuthClient(name: string, pin: string): Promise<SupabaseClient>
   if (authErr || !authData.session) {
     throw new Error(`getAuthClient: sign-in failed for "${name}": ${authErr?.message ?? 'no session'}`);
   }
+  signedInUserIds.add(authData.session.user.id);
 
   return createClient(url, anonKey, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { headers: { Authorization: `Bearer ${authData.session.access_token}` } },
   });
+}
+
+/**
+ * The manager prompt's server check, run with the caller's own session:
+ * returns a fresh single-use approval ticket for process_refund.
+ */
+async function approval(client: SupabaseClient, pin: string): Promise<string> {
+  const { data, error } = await (client as any).rpc('verify_staff_pin', {
+    p_pin: pin, p_staff_id: null, p_required_action: 'process_refund',
+  });
+  if (error || !data?.ok || typeof data.approval_id !== 'string') {
+    throw new Error(`approval: ${error?.message ?? JSON.stringify(data)}`);
+  }
+  return data.approval_id as string;
 }
 
 // ── Seed helpers ──────────────────────────────────────────────────────────────
@@ -251,6 +269,10 @@ describe('process_refund RPC (integration)', () => {
     if (tabId) {
       await cleanup(svc, tabId).catch(() => undefined);
     }
+    if (signedInUserIds.size > 0) {
+      const { error } = await svc.from('manager_approvals').delete().in('caller_id', [...signedInUserIds]);
+      expect(error).toBeNull();
+    }
   });
 
   itAuth('process_refund: inserts negative payment row and refund record', async () => {
@@ -272,7 +294,7 @@ describe('process_refund RPC (integration)', () => {
       p_original_payment_id: paymentId,
       p_items: refundItems,
       p_reason: 'wrong_order',
-      p_manager_pin: process.env['E2E_MANAGER_PIN']!,
+      p_approval_id: await approval(managerClient, process.env['E2E_MANAGER_PIN']!),
     });
 
     expect(error).toBeNull();
@@ -319,7 +341,7 @@ describe('process_refund RPC (integration)', () => {
       p_original_payment_id: paymentId,
       p_items: [{ order_item_id: itemIds[0], qty: 1, amount: 10.0, restock: false }],
       p_reason: 'billing_error',
-      p_manager_pin: process.env['E2E_MANAGER_PIN']!,
+      p_approval_id: await approval(managerClient, process.env['E2E_MANAGER_PIN']!),
     });
     expect(firstErr).toBeNull();
 
@@ -329,7 +351,7 @@ describe('process_refund RPC (integration)', () => {
       p_original_payment_id: paymentId,
       p_items: itemIds.map((id: string) => ({ order_item_id: id, qty: 1, amount: 10.0, restock: false })),
       p_reason: 'billing_error',
-      p_manager_pin: process.env['E2E_MANAGER_PIN']!,
+      p_approval_id: await approval(managerClient, process.env['E2E_MANAGER_PIN']!),
     });
 
     expect(error).not.toBeNull();
@@ -349,7 +371,7 @@ describe('process_refund RPC (integration)', () => {
       p_original_payment_id: paymentId,
       p_items: [{ order_item_id: itemIds[0], qty: 1, amount: 10.0, restock: false }],
       p_reason: 'wrong_order',
-      p_manager_pin: '',
+      p_approval_id: null,
     });
 
     expect(error).toBeNull();
@@ -374,7 +396,7 @@ describe('process_refund RPC (integration)', () => {
         p_original_payment_id: paymentId,
         p_items: [{ order_item_id: itemIds[0], qty: 1, amount: 10.0, restock: true }],
         p_reason: 'quality_issue',
-        p_manager_pin: process.env['E2E_MANAGER_PIN']!,
+        p_approval_id: await approval(managerClient, process.env['E2E_MANAGER_PIN']!),
       });
 
       expect(error).toBeNull();

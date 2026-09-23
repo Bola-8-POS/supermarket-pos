@@ -88,7 +88,7 @@ describe.skipIf(skip)('function privileges and audit payloads', () => {
       ],
       ['set_own_locale', { p_locale: 'es-MX' }],
       ['get_product_sales_report', { p_from: '2026-01-01T00:00:00Z', p_to: '2026-01-02T00:00:00Z' }],
-      ['process_refund', { p_original_payment_id: someId, p_items: [], p_reason: TAG, p_manager_pin: TAG }],
+      ['process_refund', { p_original_payment_id: someId, p_items: [], p_reason: TAG, p_approval_id: null }],
     ];
     for (const [fn, args] of calls) {
       const { error } = await signedOut.rpc(fn, args);

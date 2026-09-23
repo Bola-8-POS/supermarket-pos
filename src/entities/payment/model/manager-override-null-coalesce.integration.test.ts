@@ -158,7 +158,7 @@ describe('manager-override NULL-coalesce guard (CR-01 regression)', () => {
         p_discount_value: 10,
         p_discount_amount: 4.0,
         p_manager_override: null,
-        p_manager_pin: null,
+        p_approval_id: null,
       });
 
       expect(error).toBeNull();
@@ -188,7 +188,7 @@ describe('manager-override NULL-coalesce guard (CR-01 regression)', () => {
         p_discount_type: 'percent',
         p_discount_value: 10,
         p_manager_override: null,
-        p_manager_pin: null,
+        p_approval_id: null,
       });
 
       expect(error).toBeNull();

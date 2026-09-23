@@ -19,6 +19,7 @@ vi.unmock('@shared/lib/supabase');
  *
  * Run: npx vitest run src/entities/promotion/model/promotion-rpc.integration.test.ts
  */
+import { createClient } from '@supabase/supabase-js';
 import { describe, expect, it, vi } from 'vitest';
 import type { Promotion } from '@shared/lib/domain';
 import { testDb } from '@shared/lib/supabase-test-client';
@@ -52,16 +53,15 @@ function deriveTotal(subtotal: number, taxRatePercent: number, taxInclusive: boo
 
 async function getStaffAndShift(
   roles: ('cashier' | 'manager' | 'admin')[]
-): Promise<{ staffId: string; shiftId: string; staffPin: string }> {
+): Promise<{ staffId: string; shiftId: string }> {
   const { data: staff } = await testDb
     .from('profiles')
-    .select('id, pin')
+    .select('id')
     .in('role', roles)
     .limit(1)
     .single();
   if (!staff) throw new Error(`getStaffAndShift: no profile found for roles ${roles.join(',')}`);
   const staffId = staff.id as string;
-  const staffPin = staff.pin as string;
 
   const { data: existing } = await testDb
     .from('shifts')
@@ -70,7 +70,7 @@ async function getStaffAndShift(
     .is('clock_out', null)
     .limit(1)
     .maybeSingle();
-  if (existing) return { staffId, shiftId: existing.id as string, staffPin };
+  if (existing) return { staffId, shiftId: existing.id as string };
 
   const { data: newShift, error } = await testDb
     .from('shifts')
@@ -79,7 +79,73 @@ async function getStaffAndShift(
     .single();
   if (error || !newShift)
     throw new Error(`getStaffAndShift: shift create failed: ${error?.message ?? 'no row'}`);
-  return { staffId, shiftId: newShift.id as string, staffPin };
+  return { staffId, shiftId: newShift.id as string };
+}
+
+/**
+ * A tagged manager with an open shift and a signed-in session, plus a fresh
+ * single-use approval ticket for apply_custom_discount issued to that session
+ * (process_direct_sale_atomic binds the ticket to p_staff_id). The returned
+ * cleanup removes every row the fixture owns and asserts each delete.
+ */
+async function seedApprovedManager(): Promise<{
+  staffId: string;
+  shiftId: string;
+  approvalId: string;
+  cleanup: () => Promise<void>;
+}> {
+  const url = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? process.env['VITE_SUPABASE_URL'] ?? '';
+  const anonKey =
+    (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? process.env['VITE_SUPABASE_ANON_KEY'] ?? '';
+  if (!anonKey) throw new Error('seedApprovedManager: VITE_SUPABASE_ANON_KEY is required');
+  const pin = String(100000 + Math.floor(Math.random() * 900000));
+  const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const email = `__promo_rpc_manager_${stamp}@test.local`;
+
+  const { data: created, error: createErr } = await testDb.auth.admin.createUser({
+    email,
+    password: pin,
+    email_confirm: true,
+  });
+  if (createErr || !created.user) throw new Error(`seedApprovedManager: create user: ${createErr?.message}`);
+  const staffId = created.user.id;
+  const { error: profileErr } = await testDb
+    .from('profiles')
+    .upsert({ id: staffId, name: `__promo_rpc_manager_${stamp}__`, email, role: 'manager', pin, is_active: true });
+  if (profileErr) throw new Error(`seedApprovedManager: profile upsert: ${profileErr.message}`);
+  const { data: shift, error: shiftErr } = await testDb
+    .from('shifts')
+    .insert({ staff_id: staffId, opening_cash: 0 })
+    .select('id')
+    .single();
+  if (shiftErr || !shift) throw new Error(`seedApprovedManager: shift insert: ${shiftErr?.message ?? 'no row'}`);
+
+  const client = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  const { error: signInErr } = await client.auth.signInWithPassword({ email, password: pin });
+  if (signInErr) throw new Error(`seedApprovedManager: sign in: ${signInErr.message}`);
+  const { data: check, error: checkErr } = await (client as any).rpc('verify_staff_pin', {
+    p_pin: pin,
+    p_staff_id: null,
+    p_required_action: 'apply_custom_discount',
+  });
+  if (checkErr || !check?.ok || typeof check.approval_id !== 'string') {
+    throw new Error(`seedApprovedManager: approval: ${checkErr?.message ?? JSON.stringify(check)}`);
+  }
+
+  const cleanup = async (): Promise<void> => {
+    // stock_movements (written for p_staff_id by the sale) and shifts both
+    // restrict profile deletion; tickets and attempt rows are keyed by the id.
+    expect((await testDb.from('stock_movements').delete().eq('staff_id', staffId)).error).toBeNull();
+    expect((await (testDb as any).from('manager_approvals').delete().eq('caller_id', staffId)).error).toBeNull();
+    expect((await (testDb as any).from('pin_attempts').delete().like('attempt_key', `%${staffId}%`)).error).toBeNull();
+    expect((await testDb.from('shifts').delete().eq('staff_id', staffId)).error).toBeNull();
+    expect((await testDb.from('profiles').delete().eq('id', staffId)).error).toBeNull();
+    expect((await testDb.auth.admin.deleteUser(staffId)).error).toBeNull();
+    const { count } = await testDb.from('profiles').select('id', { count: 'exact', head: true }).eq('id', staffId);
+    expect(count).toBe(0);
+  };
+
+  return { staffId, shiftId: shift.id as string, approvalId: check.approval_id as string, cleanup };
 }
 
 async function getOrCreateOpenCaja(staffId: string): Promise<{ cajaId: string; created: boolean }> {
@@ -513,8 +579,11 @@ describe('process_direct_sale_atomic — promotions + floor guard (integration)'
       const costPrice = 90;
       const fixture = await seedProduct(basePrice, costPrice);
       const promotion = await seedPromotion(fixture.productId, 'fixed', 30);
-      const { staffId, shiftId, staffPin } = await getStaffAndShift(['manager', 'admin']);
-      const { cajaId } = await getOrCreateOpenCaja(staffId);
+      // The caja is opened by an existing staff member; the sale itself is
+      // made by a tagged manager whose session holds the approval ticket.
+      const { staffId: cajaStaffId } = await getStaffAndShift(['manager', 'admin']);
+      const { cajaId } = await getOrCreateOpenCaja(cajaStaffId);
+      const { staffId, shiftId, approvalId, cleanup: cleanupManager } = await seedApprovedManager();
       const { taxRatePercent, taxInclusive } = await getBillingSettings();
       const amount = deriveTotal(70, taxRatePercent, taxInclusive);
       const idKey = `promo-belowcost-override-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -540,7 +609,7 @@ describe('process_direct_sale_atomic — promotions + floor guard (integration)'
           p_amount: amount,
           p_tendered_amount: amount,
           p_manager_override: true,
-          p_manager_pin: staffPin,
+          p_approval_id: approvalId,
           p_approver_id: staffId,
         } as never);
 
@@ -551,6 +620,7 @@ describe('process_direct_sale_atomic — promotions + floor guard (integration)'
         expect(tabId).toBeTruthy();
       } finally {
         await cleanupSale(tabId, fixture, promotion.id);
+        await cleanupManager();
       }
     }
   );

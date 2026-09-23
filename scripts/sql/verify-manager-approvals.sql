@@ -29,22 +29,22 @@ BEGIN
     RAISE EXCEPTION 'payments.approved_by does not reference profiles';
   END IF;
 
-  -- 2. The approval helper exists once, is callable by the service role only and counts through the serialized helper.
+  -- 2. The approval helper exists once, is callable by the service role only, and consumes a ticket.
   IF (SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = 'resolve_manager_approval') <> 1 THEN
     RAISE EXCEPTION 'resolve_manager_approval must exist exactly once';
   END IF;
-  IF has_function_privilege('anon', 'public.resolve_manager_approval(text, uuid, text, uuid)', 'EXECUTE')
-     OR has_function_privilege('authenticated', 'public.resolve_manager_approval(text, uuid, text, uuid)', 'EXECUTE')
-     OR NOT has_function_privilege('service_role', 'public.resolve_manager_approval(text, uuid, text, uuid)', 'EXECUTE') THEN
+  IF has_function_privilege('anon', 'public.resolve_manager_approval(uuid, uuid, text, uuid)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.resolve_manager_approval(uuid, uuid, text, uuid)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.resolve_manager_approval(uuid, uuid, text, uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'resolve_manager_approval privileges are wrong';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE oid = 'public.resolve_manager_approval(text, uuid, text, uuid)'::regprocedure
-                 AND prosrc LIKE '%pin_attempt_begin%' AND prosrc LIKE '%role_permissions%') THEN
-    RAISE EXCEPTION 'resolve_manager_approval does not count attempts or apply the role rule';
+  IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE oid = 'public.resolve_manager_approval(uuid, uuid, text, uuid)'::regprocedure
+                 AND prosrc LIKE '%manager_approvals%' AND prosrc LIKE '%consumed_at%' AND prosrc LIKE '%role_permissions%') THEN
+    RAISE EXCEPTION 'resolve_manager_approval does not consume a ticket or apply the role rule';
   END IF;
 
-  -- 3. Each override RPC exists once, takes p_approver_id last, resolves through the helper,
-  --    no longer compares a pin column itself, and names the approver in what it records.
+  -- 3. Each override RPC exists once, takes p_approval_id (no PIN argument) and p_approver_id last,
+  --    resolves through the helper, no longer compares a pin column itself, and names the approver in what it records.
   FOREACH v_name IN ARRAY v_names LOOP
     IF (SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = v_name) <> 1 THEN
       RAISE EXCEPTION '% must exist exactly once (an extra overload breaks PostgREST)', v_name;
@@ -52,6 +52,11 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = v_name
                    AND pg_get_function_identity_arguments(oid) LIKE '%p_approver_id uuid') THEN
       RAISE EXCEPTION '% does not take p_approver_id as its last argument', v_name;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = v_name
+                   AND pg_get_function_identity_arguments(oid) LIKE '%p_approval_id uuid%'
+                   AND pg_get_function_identity_arguments(oid) NOT LIKE '%p_manager_pin%') THEN
+      RAISE EXCEPTION '% does not take p_approval_id in place of a PIN argument', v_name;
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = v_name
                    AND prosrc LIKE '%resolve_manager_approval(%') THEN
@@ -97,6 +102,23 @@ BEGIN
              AND has_function_privilege('authenticated', p.oid, 'EXECUTE')));
   IF v_bad IS NOT NULL THEN
     RAISE EXCEPTION 'override RPC privileges wrong on: %', v_bad;
+  END IF;
+
+  -- 6. The ticket table has RLS on and the client roles cannot touch it.
+  IF NOT EXISTS (SELECT 1 FROM pg_class WHERE oid = 'public.manager_approvals'::regclass AND relrowsecurity) THEN
+    RAISE EXCEPTION 'manager_approvals does not have row level security enabled';
+  END IF;
+  FOREACH v_name IN ARRAY ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE'] LOOP
+    IF has_table_privilege('anon', 'public.manager_approvals', v_name)
+       OR has_table_privilege('authenticated', 'public.manager_approvals', v_name) THEN
+      RAISE EXCEPTION 'a client role holds % on manager_approvals', v_name;
+    END IF;
+  END LOOP;
+
+  -- 7. The PIN check issues the ticket.
+  IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = 'verify_staff_pin'
+                 AND prosrc LIKE '%INSERT INTO manager_approvals%') THEN
+    RAISE EXCEPTION 'verify_staff_pin does not issue an approval ticket';
   END IF;
 END $$;
 SELECT 'verify-manager-approvals: ok' AS result;

@@ -57,10 +57,23 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
   const cleanupTabIds: string[] = [];
   const cleanupCajaEntryConcepts: string[] = [];
 
-  // Matches the manager PIN seeded by createAuthStaff('manager') below — the
-  // re-keyed AUTH_FORBIDDEN check (folded todo fix) now authorizes off
-  // profiles.pin = p_manager_pin, not the caller's own auth.uid() session.
-  const managerPin = '999903';
+  // The PINs seeded by createAuthStaff below. The RPC authorizes off an
+  // approval ticket (verify_staff_pin with p_required_action, run with the
+  // caller's session), not the caller's own auth.uid() role.
+  const randomPin = (): string => String(100000 + Math.floor(Math.random() * 900000));
+  const managerPin = randomPin();
+  const cashierPin = randomPin();
+
+  /** A fresh single-use ticket for reopen_tab, issued to the manager's session. */
+  async function approval(): Promise<string> {
+    const { data, error } = await managerClient.rpc('verify_staff_pin', {
+      p_pin: managerPin, p_staff_id: null, p_required_action: 'reopen_tab',
+    });
+    if (error || !data?.ok || typeof data.approval_id !== 'string') {
+      throw new Error(`approval: ${error?.message ?? JSON.stringify(data)}`);
+    }
+    return data.approval_id as string;
+  }
 
   async function createAuthStaff(role: 'manager' | 'cashier'): Promise<{
     id: string;
@@ -82,7 +95,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
       name: `__reopen_tab_test_${role}__`,
       email,
       role,
-      pin: role === 'manager' ? '999903' : '999904',
+      pin: role === 'manager' ? managerPin : cashierPin,
       is_active: true,
     });
     if (profileErr) throw new Error(`createAuthStaff(${role}) profile upsert: ${profileErr.message}`);
@@ -252,14 +265,32 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
     }
     await safe(db.from('audit_logs').delete().eq('actor_id', managerId));
     if (managerId) {
-      await safe(db.from('shifts').delete().eq('staff_id', managerId));
-      await safe(db.from('profiles').delete().eq('id', managerId));
-      await safe(db.auth.admin.deleteUser(managerId));
+      // Every row that references the manager through a RESTRICT / NO ACTION
+      // foreign key goes first (tickets, caja entries and sessions, stock
+      // movements, shifts), each delete asserted, so the profile really goes.
+      for (const [table, column] of [
+        ['manager_approvals', 'caller_id'],
+        ['caja_entries', 'staff_id'],
+        ['stock_movements', 'staff_id'],
+        ['caja_sessions', 'opened_by'],
+        ['shifts', 'staff_id'],
+      ] as const) {
+        expect((await db.from(table).delete().eq(column, managerId)).error, `${table} cleanup`).toBeNull();
+      }
+      expect((await db.from('pin_attempts').delete().like('attempt_key', `%${managerId}%`)).error).toBeNull();
+      expect((await db.from('profiles').delete().eq('id', managerId)).error).toBeNull();
+      expect((await db.auth.admin.deleteUser(managerId)).error).toBeNull();
     }
     if (bartenderId) {
-      await safe(db.from('profiles').delete().eq('id', bartenderId));
-      await safe(db.auth.admin.deleteUser(bartenderId));
+      expect((await db.from('pin_attempts').delete().like('attempt_key', `%${bartenderId}%`)).error).toBeNull();
+      expect((await db.from('profiles').delete().eq('id', bartenderId)).error).toBeNull();
+      expect((await db.auth.admin.deleteUser(bartenderId)).error).toBeNull();
     }
+    const { count: left } = await db
+      .from('profiles')
+      .select('id', { count: 'exact', head: true })
+      .in('id', [managerId, bartenderId].filter(Boolean));
+    expect(left).toBe(0);
   });
 
   afterEach(async () => {
@@ -301,7 +332,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
         p_tab_id: seed.tabId,
         p_expected_version: seed.version,
         p_reason: 'Integration test SC-1 happy path',
-        p_manager_pin: managerPin,
+        p_approval_id: await approval(),
         p_approver_id: managerId,
       });
 
@@ -350,7 +381,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
       p_tab_id: seed.tabId,
       p_expected_version: seed.version + 99,
       p_reason: 'Integration test: stale version',
-      p_manager_pin: managerPin,
+      p_approval_id: await approval(),
       p_approver_id: managerId,
     });
 
@@ -384,7 +415,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
         p_tab_id: seed.tabId,
         p_expected_version: bumpedVersion,
         p_reason: 'Integration test: cap exceeded',
-        p_manager_pin: managerPin,
+        p_approval_id: await approval(),
         p_approver_id: managerId,
       });
 
@@ -412,7 +443,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
       p_tab_id: seed.tabId,
       p_expected_version: bumpedVersion,
       p_reason: 'Integration test: window expired',
-      p_manager_pin: managerPin,
+      p_approval_id: await approval(),
       p_approver_id: managerId,
     });
 
@@ -472,7 +503,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
         p_tab_id: seed.tabId,
         p_expected_version: seed.version,
         p_reason: 'Integration test: split sibling void',
-        p_manager_pin: managerPin,
+        p_approval_id: await approval(),
         p_approver_id: managerId,
       });
 
@@ -510,7 +541,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
         p_tab_id: seedWithPayment.tabId,
         p_expected_version: seedWithPayment.version,
         p_reason: 'Integration test: caja offset nonzero',
-        p_manager_pin: managerPin,
+        p_approval_id: await approval(),
         p_approver_id: managerId,
       });
       expect(errA).toBeNull();
@@ -532,7 +563,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
         p_tab_id: seedNoPayment.tabId,
         p_expected_version: seedNoPayment.version,
         p_reason: 'Integration test: caja offset zero',
-        p_manager_pin: managerPin,
+        p_approval_id: await approval(),
         p_approver_id: managerId,
       });
       expect(errB).toBeNull();
@@ -560,7 +591,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
         p_tab_id: seed.tabId,
         p_expected_version: seed.version,
         p_reason: reason,
-        p_manager_pin: managerPin,
+        p_approval_id: await approval(),
         p_approver_id: managerId,
       });
 
@@ -611,7 +642,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
         p_tab_id: seed.tabId,
         p_expected_version: seed.version,
         p_reason: 'Integration test: double-count regression',
-        p_manager_pin: managerPin,
+        p_approval_id: await approval(),
         p_approver_id: managerId,
       });
       expect(reopenErr).toBeNull();
@@ -682,7 +713,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
         p_tab_id: seed.tabId,
         p_expected_version: seed.version,
         p_reason: 'Integration test: CR-01 first reopen',
-        p_manager_pin: managerPin,
+        p_approval_id: await approval(),
         p_approver_id: managerId,
       });
       expect(reopen1Err).toBeNull();
@@ -729,7 +760,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
         p_tab_id: seed.tabId,
         p_expected_version: tabAfterRepay?.version as number,
         p_reason: 'Integration test: CR-01 second reopen',
-        p_manager_pin: managerPin,
+        p_approval_id: await approval(),
         p_approver_id: managerId,
       });
       expect(reopen2Err).toBeNull();
@@ -810,7 +841,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
           p_tab_id: seed.tabId,
           p_expected_version: bumpedVersion,
           p_reason: 'Integration test: terminal-anchored reopen',
-          p_manager_pin: managerPin,
+          p_approval_id: await approval(),
           p_approver_id: managerId,
         });
 
@@ -850,7 +881,7 @@ describe.skipIf(skip)('reopen_tab RPC (integration)', () => {
           p_tab_id: seed.tabId,
           p_expected_version: bumpedVersion,
           p_reason: 'Integration test: terminal-anchored reopen no open caja',
-          p_manager_pin: managerPin,
+          p_approval_id: await approval(),
           p_approver_id: managerId,
         });
 
