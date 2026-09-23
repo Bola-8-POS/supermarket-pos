@@ -22,10 +22,10 @@ export interface ManagerPinDialogProps {
   onOpenChange: (open: boolean) => void;
   requiredAction: StaffAction;
   /**
-   * Called with the matched staff member and the PIN as typed, so callers
-   * that re-verify on the server can forward it.
+   * Called with the matched staff member and the approval ticket the server
+   * issued for this prompt; the override RPC consumes the ticket.
    */
-  onSuccess: (staff: Staff, enteredPin: string) => void;
+  onSuccess: (staff: Staff, approvalId: string) => void;
 }
 
 export function ManagerPinDialog({
@@ -81,8 +81,8 @@ export function ManagerPinDialog({
       if (res.ok) {
         // The server already applies the role rule; this filter is a second guard.
         const match = eligibleStaff.find(s => res.matches.some(m => m.id === s.id));
-        if (match) {
-          onSuccess(match, enteredPin);
+        if (match && typeof res.approvalId === 'string') {
+          onSuccess(match, res.approvalId);
           return;
         }
         setError(t('managerPinGate.incorrectPin'));

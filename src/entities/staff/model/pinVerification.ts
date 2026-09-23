@@ -6,7 +6,7 @@ import { supabase } from '@shared/lib/supabase';
 const PinMatchSchema = z.object({ id: UuidSchema, name: z.string(), role: UserRoleSchema });
 
 const PinCheckResponseSchema = z.union([
-  z.object({ ok: z.literal(true), matches: z.array(PinMatchSchema).min(1) }),
+  z.object({ ok: z.literal(true), matches: z.array(PinMatchSchema).min(1), approval_id: UuidSchema.optional() }),
   z.object({
     ok: z.literal(false),
     code: z.enum(['INVALID_PIN', 'LOCKED']),
@@ -17,7 +17,7 @@ const PinCheckResponseSchema = z.union([
 export type PinMatch = z.infer<typeof PinMatchSchema>;
 
 export type PinCheck =
-  | { ok: true; matches: PinMatch[] }
+  | { ok: true; matches: PinMatch[]; approvalId?: string }
   | { ok: false; code: 'INVALID_PIN' | 'LOCKED' | 'UNAVAILABLE'; retryAfter: number };
 
 const UNAVAILABLE: PinCheck = { ok: false, code: 'UNAVAILABLE', retryAfter: 0 };
@@ -30,7 +30,8 @@ const UNAVAILABLE: PinCheck = { ok: false, code: 'UNAVAILABLE', retryAfter: 0 };
  * staff member; without it every active staff member holding the PIN is
  * returned and the caller applies its own role rule. With `requiredAction`,
  * only a match whose role holds that action clears the caller's attempt
- * counter. The PIN is never logged.
+ * counter, and the server issues an approval ticket (`approvalId`) for the
+ * override RPC to consume. The PIN is never logged.
  */
 export async function verifyStaffPin(pin: string, staffId?: string, requiredAction?: string): Promise<PinCheck> {
   try {
@@ -49,7 +50,7 @@ export async function verifyStaffPin(pin: string, staffId?: string, requiredActi
       return UNAVAILABLE;
     }
     return parsed.data.ok
-      ? { ok: true, matches: parsed.data.matches }
+      ? { ok: true, matches: parsed.data.matches, ...(parsed.data.approval_id ? { approvalId: parsed.data.approval_id } : {}) }
       : { ok: false, code: parsed.data.code, retryAfter: parsed.data.retry_after };
   } catch (e) {
     logger.warn('staff.pin_check.unavailable', { message: e instanceof Error ? e.message : 'unknown' });

@@ -112,7 +112,7 @@ describe('payment-processor', () => {
     expect(tuple[0].idempotencyKey.startsWith('payment_uber_eats_')).toBe(true);
   });
 
-  it('processPlatformPayment forwards managerOverride/managerPin (CR-02 regression, Phase 27 code review — a discounted platform payment used to drop these fields on the floor, bypassing manager-PIN authorization)', async () => {
+  it('processPlatformPayment forwards managerOverride/approvalId (CR-02 regression, Phase 27 code review — a discounted platform payment used to drop these fields on the floor)', async () => {
     const spy = vi.spyOn(contracts, 'callProcessPayment').mockResolvedValue(
       ok({
         paymentId: 'p3',
@@ -127,7 +127,7 @@ describe('payment-processor', () => {
       value: 10,
       amount: 1,
       managerOverride: true,
-      managerPin: '345678',
+      approvalId: '5f1e2d3c-4b5a-4c6d-8e7f-9a0b1c2d3e4f',
       approverId: '3a7c9e21-5f2b-4d81-9c3a-6e408f17b2d5',
     });
     const rappiTuple = spy.mock.calls[0];
@@ -135,12 +135,12 @@ describe('payment-processor', () => {
     expect(rappiTuple[0]).toMatchObject({
       method: 'rappi',
       managerOverride: true,
-      managerPin: '345678',
+      approvalId: '5f1e2d3c-4b5a-4c6d-8e7f-9a0b1c2d3e4f',
       approverId: '3a7c9e21-5f2b-4d81-9c3a-6e408f17b2d5',
     });
   });
 
-  it('processCashPayment forwards approverId with the manager PIN', async () => {
+  it('processCashPayment forwards approverId with the approval ticket', async () => {
     const spy = vi.spyOn(contracts, 'callProcessPayment').mockResolvedValue(
       ok({
         paymentId: 'pay-id',
@@ -155,14 +155,14 @@ describe('payment-processor', () => {
       value: 10,
       amount: 4,
       managerOverride: true,
-      managerPin: '345678',
+      approvalId: '5f1e2d3c-4b5a-4c6d-8e7f-9a0b1c2d3e4f',
       approverId: '3a7c9e21-5f2b-4d81-9c3a-6e408f17b2d5',
     });
     const tuple = spy.mock.calls[0];
     if (tuple === undefined) throw new Error('expected call');
     expect(tuple[0]).toMatchObject({
       managerOverride: true,
-      managerPin: '345678',
+      approvalId: '5f1e2d3c-4b5a-4c6d-8e7f-9a0b1c2d3e4f',
       approverId: '3a7c9e21-5f2b-4d81-9c3a-6e408f17b2d5',
     });
   });
@@ -357,7 +357,7 @@ describe('payment-processor', () => {
         value: 10,
         amount: 1.25,
         managerOverride: true,
-        managerPin: '789012',
+        approvalId: '5f1e2d3c-4b5a-4c6d-8e7f-9a0b1c2d3e4f',
         approverId: '3a7c9e21-5f2b-4d81-9c3a-6e408f17b2d5',
       });
 
@@ -369,7 +369,7 @@ describe('payment-processor', () => {
         discountValue: 10,
         discountAmount: 1.25,
         managerOverride: true,
-        managerPin: '789012',
+        approvalId: '5f1e2d3c-4b5a-4c6d-8e7f-9a0b1c2d3e4f',
         approverId: '3a7c9e21-5f2b-4d81-9c3a-6e408f17b2d5',
       });
     });

@@ -5,7 +5,8 @@
  * Proves the edit_paid_tab identity-re-key fix (mirrors G-27-13/T-28-04): a
  * cashier session that gets a REAL manager to type their own PIN into
  * ManagerPinDialog now succeeds — before this plan's migration, edit_paid_tab
- * had no p_manager_pin parameter at all and authorized off the CALLER's own
+ * had no approver argument at all (today: p_approval_id, the manager
+ * prompt's approval ticket) and authorized off the CALLER's own
  * auth.uid() session role, so this exact scenario failed with AUTH_FORBIDDEN
  * despite the correct PIN being entered.
  *
@@ -170,7 +171,8 @@ test('cashier session + a genuine manager PIN succeeds on edit_paid_tab (folded 
   await expect(pinDialog).toBeVisible({ timeout: 8_000 });
 
   // The genuine manager's PIN — not the logged-in cashier's own identity.
-  // Before Task 1's fix, edit_paid_tab had no p_manager_pin parameter and
+  // Before Task 1's fix, edit_paid_tab had no approver argument (today:
+  // p_approval_id, the manager prompt's approval ticket) and
   // authorized off the CALLER's own auth.uid() session role, so this exact
   // flow failed with AUTH_FORBIDDEN despite the correct PIN being entered.
   await enterManagerPin(page, managerPin);

@@ -321,21 +321,26 @@ describe('ProcessPaymentRequestSchema', () => {
     expect(r.success).toBe(false);
   });
 
-  it('accepts an approverId uuid next to managerPin and rejects a non-uuid', () => {
+  it('accepts an approverId uuid next to approvalId and rejects a non-uuid', () => {
     const ok = ProcessPaymentRequestSchema.safeParse({
       ...baseValidRequest(),
       managerOverride: true,
-      managerPin: '000000',
+      approvalId: '5f1e2d3c-4b5a-4c6d-8e7f-9a0b1c2d3e4f',
       approverId: '3a7c9e21-5f2b-4d81-9c3a-6e408f17b2d5',
     });
     expect(ok.success).toBe(true);
     const bad = ProcessPaymentRequestSchema.safeParse({ ...baseValidRequest(), approverId: 'not-a-uuid' });
     expect(bad.success).toBe(false);
   });
+
+  it('rejects a non-uuid approvalId', () => {
+    const bad = ProcessPaymentRequestSchema.safeParse({ ...baseValidRequest(), approvalId: '000000' });
+    expect(bad.success).toBe(false);
+  });
 });
 
 describe('ProcessDirectSaleRequestSchema', () => {
-  it('accepts an approverId uuid next to managerPin and rejects a non-uuid', () => {
+  it('accepts an approverId uuid next to approvalId and rejects a non-uuid', () => {
     const baseDirectSaleRequest = {
       items: [{ productId: tabId, quantity: 1, unitPrice: 10 }],
       shiftId: tabId,
@@ -347,7 +352,7 @@ describe('ProcessDirectSaleRequestSchema', () => {
     const ok = ProcessDirectSaleRequestSchema.safeParse({
       ...baseDirectSaleRequest,
       managerOverride: true,
-      managerPin: '000000',
+      approvalId: '5f1e2d3c-4b5a-4c6d-8e7f-9a0b1c2d3e4f',
       approverId: '3a7c9e21-5f2b-4d81-9c3a-6e408f17b2d5',
     });
     expect(ok.success).toBe(true);
@@ -360,7 +365,7 @@ describe('ProcessDirectSaleRequestSchema', () => {
 });
 
 describe('ProcessSplitPaymentRequestSchema', () => {
-  it('accepts an approverId uuid next to managerPin and rejects a non-uuid', () => {
+  it('accepts an approverId uuid next to approvalId and rejects a non-uuid', () => {
     const baseSplitPaymentRequest = {
       tabId,
       legs: [{ method: 'cash' as const, amount: 10, tenderedAmount: 10 }],
@@ -370,7 +375,7 @@ describe('ProcessSplitPaymentRequestSchema', () => {
     const ok = ProcessSplitPaymentRequestSchema.safeParse({
       ...baseSplitPaymentRequest,
       managerOverride: true,
-      managerPin: '000000',
+      approvalId: '5f1e2d3c-4b5a-4c6d-8e7f-9a0b1c2d3e4f',
       approverId: '3a7c9e21-5f2b-4d81-9c3a-6e408f17b2d5',
     });
     expect(ok.success).toBe(true);

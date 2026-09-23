@@ -49,7 +49,7 @@ const BodySchema = z
     discountValue: z.number().nonnegative().nullable().optional(),
     discountAmount: z.number().nonnegative().multipleOf(0.01).nullable().optional(),
     managerOverride: z.boolean().nullable().optional(),
-    managerPin: z.string().nullable().optional(),
+    approvalId: z.string().uuid().nullable().optional(),
     approverId: z.string().uuid().nullable().optional(),
   })
   .superRefine((data, ctx) => {
@@ -189,7 +189,7 @@ Deno.serve(async (req: Request) => {
     // treats a NULL boolean as neither branch, silently skipping the
     // DISCOUNT_REQUIRES_MANAGER check (CR-01, Phase 27 code review).
     p_manager_override: body.managerOverride ?? false,
-    p_manager_pin: body.managerPin ?? null,
+    p_approval_id: body.approvalId ?? null,
     p_approver_id: body.approverId ?? null,
   });
 

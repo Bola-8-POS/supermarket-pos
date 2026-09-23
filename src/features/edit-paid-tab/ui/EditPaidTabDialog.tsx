@@ -153,7 +153,7 @@ export function EditPaidTabDialog({ open, tabId, onOpenChange }: EditPaidTabDial
     ]);
   }
 
-  async function handleSubmit(pin: string, approverId: string) {
+  async function handleSubmit(approvalId: string, approverId: string) {
     if (!tab) return;
 
     const patches: EditPaidTabPatch[] = [];
@@ -190,7 +190,7 @@ export function EditPaidTabDialog({ open, tabId, onOpenChange }: EditPaidTabDial
       orderItemPatches: patches,
       notes: tabNotes,
       reason,
-      managerPin: pin,
+      approvalId,
       approverId,
     });
 
@@ -482,9 +482,9 @@ export function EditPaidTabDialog({ open, tabId, onOpenChange }: EditPaidTabDial
         open={pinOpen}
         onOpenChange={setPinOpen}
         requiredAction="edit_paid_tab"
-        onSuccess={(staff, enteredPin) => {
+        onSuccess={(staff, approvalId) => {
           setPinOpen(false);
-          void handleSubmit(enteredPin, staff.id);
+          void handleSubmit(approvalId, staff.id);
         }}
       />
     </>

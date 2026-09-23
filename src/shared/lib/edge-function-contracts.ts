@@ -120,11 +120,11 @@ export const ProcessPaymentRequestSchema = z
     discountType: DiscountTypeSchema.optional(),
     discountValue: z.number().nonnegative().optional(),
     discountAmount: MoneySchema.optional(),
-    /** Phase 27 Plan 09 (G-27-13): live manager-PIN authorization path for `process_payment_atomic`'s DISCOUNT_REQUIRES_MANAGER guard — required (server-side, not by this schema) whenever a discount field is present. `undefined` here must reach the RPC as `false`, never `null`: a NULL boolean satisfies neither `IF p_manager_override THEN` nor `IF NOT p_manager_override THEN` in PL/pgSQL, silently skipping the guard. */
+    /** Phase 27 Plan 09 (G-27-13): live manager authorization path for `process_payment_atomic`'s DISCOUNT_REQUIRES_MANAGER guard — required (server-side, not by this schema) whenever a discount field is present. `undefined` here must reach the RPC as `false`, never `null`: a NULL boolean satisfies neither `IF p_manager_override THEN` nor `IF NOT p_manager_override THEN` in PL/pgSQL, silently skipping the guard. */
     managerOverride: z.boolean().optional(),
-    /** Phase 27 Plan 08/09 (G-27-13): the entered PIN of the staff who authorized managerOverride — the RPC re-derives the authorizing identity from this PIN independently, never from the caller's own staff id. */
-    managerPin: z.string().optional(),
-    /** Id of the staff member who approved the override, as matched by the manager prompt; the RPC checks it together with the PIN. */
+    /** Phase 27 Plan 08/09 (G-27-13): the approval ticket the manager prompt obtained for managerOverride — the RPC derives the authorizing identity from the ticket, never from the caller's own staff id. */
+    approvalId: UuidSchema.optional(),
+    /** Id of the staff member who approved the override, as matched by the manager prompt; the RPC checks it together with the ticket. */
     approverId: UuidSchema.optional(),
     /** Phase 15 gap-closure (D-02): cached tab.version for optimistic-concurrency guard. */
     expectedVersion: z.number().int().nonnegative().optional(),
@@ -862,11 +862,11 @@ export const ProcessDirectSaleRequestSchema = z
     customerPhone: z.string().min(1).max(30).optional(),
     /** Per-terminal caja isolation: forwarded as p_terminal_id so the RPC can reject a caja session belonging to another terminal. */
     terminalId: z.string().regex(TERMINAL_ID_PATTERN).optional(),
-    /** Phase 27 (PROMO-05/07): manager-PIN authorization for the ad-hoc discount and/or the below-cost floor-guard override. */
+    /** Phase 27 (PROMO-05/07): manager authorization for the ad-hoc discount and/or the below-cost floor-guard override. */
     managerOverride: z.boolean().optional(),
-    /** Phase 27 Plan 08 (G-27-13): the entered PIN of the staff who authorized managerOverride — forwarded to process_direct_sale_atomic for independent server-side re-verification. */
-    managerPin: z.string().optional(),
-    /** Id of the staff member who approved the override, as matched by the manager prompt; the RPC checks it together with the PIN. */
+    /** Phase 27 Plan 08 (G-27-13): the approval ticket the manager prompt obtained for managerOverride — forwarded to process_direct_sale_atomic, which consumes it. */
+    approvalId: UuidSchema.optional(),
+    /** Id of the staff member who approved the override, as matched by the manager prompt; the RPC checks it together with the ticket. */
     approverId: UuidSchema.optional(),
   })
   .superRefine((data, ctx) => {
@@ -1102,11 +1102,11 @@ export const ProcessSplitPaymentRequestSchema = z
     discountType: DiscountTypeSchema.optional(),
     discountValue: z.number().nonnegative().optional(),
     discountAmount: MoneySchema.optional(),
-    /** Phase 27 Plan 09 (G-27-13): live manager-PIN authorization path for `process_split_payment_atomic`'s DISCOUNT_REQUIRES_MANAGER guard — required (server-side, not by this schema) whenever a discount field is present. `undefined` here must reach the RPC as `false`, never `null`: a NULL boolean satisfies neither `IF p_manager_override THEN` nor `IF NOT p_manager_override THEN` in PL/pgSQL, silently skipping the guard. */
+    /** Phase 27 Plan 09 (G-27-13): live manager authorization path for `process_split_payment_atomic`'s DISCOUNT_REQUIRES_MANAGER guard — required (server-side, not by this schema) whenever a discount field is present. `undefined` here must reach the RPC as `false`, never `null`: a NULL boolean satisfies neither `IF p_manager_override THEN` nor `IF NOT p_manager_override THEN` in PL/pgSQL, silently skipping the guard. */
     managerOverride: z.boolean().optional(),
-    /** Phase 27 Plan 08/09 (G-27-13): the entered PIN of the staff who authorized managerOverride — the RPC re-derives the authorizing identity from this PIN independently, never from the caller's own staff id. */
-    managerPin: z.string().optional(),
-    /** Id of the staff member who approved the override, as matched by the manager prompt; the RPC checks it together with the PIN. */
+    /** Phase 27 Plan 08/09 (G-27-13): the approval ticket the manager prompt obtained for managerOverride — the RPC derives the authorizing identity from the ticket, never from the caller's own staff id. */
+    approvalId: UuidSchema.optional(),
+    /** Id of the staff member who approved the override, as matched by the manager prompt; the RPC checks it together with the ticket. */
     approverId: UuidSchema.optional(),
   })
   .superRefine((data, ctx) => {

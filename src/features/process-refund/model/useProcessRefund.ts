@@ -18,17 +18,17 @@ import { supabase } from '@shared/lib/supabase';
 export type { ProcessRefundInput };
 
 /**
- * ProcessRefundInput extended with the matched staff's PIN from
- * ManagerPinDialog's onSuccess callback — threaded through to the RPC so it
- * can independently re-derive the authorizing staff from the entered PIN
+ * ProcessRefundInput extended with the approval ticket from
+ * ManagerPinDialog's onSuccess callback — threaded through to the RPC, which
+ * consumes it to derive the authorizing staff
  * (folded todo fix, mirrors G-27-13). Not added to ProcessRefundInputSchema
  * in domain.ts: Zod's default .safeParse strips unknown keys, so this local
  * extension is sufficient and avoids touching a file another plan in this
  * wave also touches.
  */
 export interface ProcessRefundMutationInput extends ProcessRefundInput {
-  managerPin: string;
-  /** Id of the staff member the manager prompt matched; the RPC checks it together with the PIN. */
+  approvalId: string;
+  /** Id of the staff member the manager prompt matched; the RPC checks it together with the ticket. */
   approverId: string;
 }
 
@@ -50,7 +50,7 @@ export function useProcessRefund() {
           p_original_payment_id: parsed.data.originalPaymentId,
           p_items: parsed.data.items,
           p_reason: parsed.data.reason,
-          p_manager_pin: input.managerPin,
+          p_approval_id: input.approvalId,
           p_approver_id: input.approverId,
         })
         /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return */

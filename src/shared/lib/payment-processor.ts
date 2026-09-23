@@ -19,16 +19,11 @@ export interface DiscountInfo {
   type: DiscountType;
   value: number;
   amount: number;
-  /** Phase 27 (PROMO-05/07): manager-PIN authorization for the ad-hoc discount and/or the below-cost floor-guard override. */
+  /** Phase 27 (PROMO-05/07): manager authorization for the ad-hoc discount and/or the below-cost floor-guard override. */
   managerOverride: boolean;
-  /**
-   * Phase 27 Plan 08 (G-27-13): the PIN of the staff member who matched in
-   * ManagerPinDialog — threaded to the RPC so the server can independently
-   * re-verify the authorizing identity from the entered PIN itself, rather
-   * than trusting the currently logged-in staff's own session identity.
-   */
-  managerPin: string | undefined;
-  /** Id of the staff member the manager prompt matched; sent with the PIN so the server checks both. */
+  /** Approval ticket from the manager prompt; the server consumes it. */
+  approvalId: string | undefined;
+  /** Id of the staff member the manager prompt matched; sent with the ticket so the server checks both. */
   approverId: string | undefined;
 }
 
@@ -68,7 +63,7 @@ export async function processCashPayment(
     discountValue: discountInfo?.value,
     discountAmount: discountInfo?.amount,
     managerOverride: discountInfo?.managerOverride,
-    managerPin: discountInfo?.managerPin,
+    approvalId: discountInfo?.approvalId,
     approverId: discountInfo?.approverId,
     expectedVersion,
   });
@@ -112,7 +107,7 @@ async function processReferencedPayment(
     discountValue: discountInfo?.value,
     discountAmount: discountInfo?.amount,
     managerOverride: discountInfo?.managerOverride,
-    managerPin: discountInfo?.managerPin,
+    approvalId: discountInfo?.approvalId,
     approverId: discountInfo?.approverId,
     expectedVersion,
   });
@@ -197,7 +192,7 @@ export async function processSplitPayment(
     discountValue: discountInfo?.value,
     discountAmount: discountInfo?.amount,
     managerOverride: discountInfo?.managerOverride,
-    managerPin: discountInfo?.managerPin,
+    approvalId: discountInfo?.approvalId,
     approverId: discountInfo?.approverId,
   });
 

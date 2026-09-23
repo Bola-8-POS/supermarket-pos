@@ -14,14 +14,14 @@ const BodySchema = z
     rappiOrderId: z.string().max(128).nullable().optional(),
     // Phase 15 gap-closure (D-02): cached tab.version for optimistic-concurrency guard.
     expectedVersion: z.number().int().nonnegative().optional(),
-    // Phase 27 Plan 09 (G-27-13): ad-hoc discount + manager-PIN re-verification,
-    // mirroring process-direct-sale/index.ts's BodySchema shape exactly.
+    // Phase 27 Plan 09 (G-27-13): ad-hoc discount + the manager prompt's
+    // approval ticket, mirroring process-direct-sale/index.ts's BodySchema shape exactly.
     discountScope: z.enum(['all']).optional(),
     discountType: z.enum(['percent', 'fixed']).optional(),
     discountValue: z.number().nonnegative().optional(),
     discountAmount: z.number().nonnegative().multipleOf(0.01).optional(),
     managerOverride: z.boolean().optional(),
-    managerPin: z.string().optional(),
+    approvalId: z.string().uuid().optional(),
     approverId: z.string().uuid().optional(),
   })
   .superRefine((data, ctx) => {
@@ -167,7 +167,7 @@ Deno.serve(async (req: Request) => {
     // neither branch, silently skipping the DISCOUNT_REQUIRES_MANAGER check
     // (CR-01, Phase 27 code review).
     p_manager_override: body.managerOverride ?? false,
-    p_manager_pin: body.managerPin ?? null,
+    p_approval_id: body.approvalId ?? null,
     p_approver_id: body.approverId ?? null,
   });
 

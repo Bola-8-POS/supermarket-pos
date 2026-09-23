@@ -30,8 +30,8 @@ export interface ReopenTabInput {
   tabId: string;
   expectedVersion: number;
   reason: string;
-  managerPin: string;
-  /** Id of the staff member the manager prompt matched; the RPC checks it together with the PIN. */
+  approvalId: string;
+  /** Id of the staff member the manager prompt matched; the RPC checks it together with the ticket. */
   approverId: string;
 }
 
@@ -54,7 +54,7 @@ export function useReopenTab() {
           p_tab_id: input.tabId,
           p_expected_version: input.expectedVersion,
           p_reason: input.reason,
-          p_manager_pin: input.managerPin,
+          p_approval_id: input.approvalId,
           p_approver_id: input.approverId,
         })
         /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return */

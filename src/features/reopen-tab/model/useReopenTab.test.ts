@@ -16,7 +16,7 @@ const baseInput: ReopenTabInput = {
   tabId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
   expectedVersion: 1,
   reason: 'Customer requested correction',
-  managerPin: '1234',
+  approvalId: '5f1e2d3c-4b5a-4c6d-8e7f-9a0b1c2d3e4f',
   approverId: '3a7c9e21-5f2b-4d81-9c3a-6e408f17b2d5',
 };
 
@@ -54,7 +54,7 @@ describe('useReopenTab', () => {
     queryClient.clear();
   });
 
-  it('calls supabase.rpc with the manager PIN and approver id', async () => {
+  it('calls supabase.rpc with the approval ticket and approver id', async () => {
     mockedRpc.mockResolvedValue({ data: { ok: true }, error: null } as never);
 
     const wrapper = makeWrapper(queryClient);
@@ -66,7 +66,7 @@ describe('useReopenTab', () => {
       p_tab_id: baseInput.tabId,
       p_expected_version: baseInput.expectedVersion,
       p_reason: baseInput.reason,
-      p_manager_pin: baseInput.managerPin,
+      p_approval_id: baseInput.approvalId,
       p_approver_id: baseInput.approverId,
     });
   });

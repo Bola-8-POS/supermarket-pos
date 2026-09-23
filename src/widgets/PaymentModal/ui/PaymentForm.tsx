@@ -242,11 +242,11 @@ export function PaymentForm({
   // (D-07). pinPurpose tracks which flow requested the dialog so onSuccess
   // knows what to do next.
   const [managerOverride, setManagerOverride] = useState(false);
-  // The staff member who matched in ManagerPinDialog, with the PIN as typed:
-  // both go to the RPC so the server checks the PIN against that person.
+  // The staff member who matched in ManagerPinDialog, with the approval
+  // ticket the server issued: both go to the RPC, which consumes the ticket.
   // Reset everywhere managerOverride resets to false, so a stale approval
   // from a prior payment attempt is never reused.
-  const [authorizingManager, setAuthorizingManager] = useState<{ id: string; pin: string } | undefined>(undefined);
+  const [authorizingManager, setAuthorizingManager] = useState<{ id: string; approvalId: string } | undefined>(undefined);
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
   const [pinPurpose, setPinPurpose] = useState<'discount' | 'below_cost' | null>(null);
   // Phase 27 (PROMO-05): id of the "Apply Promotion" selection — independent
@@ -475,7 +475,7 @@ export function PaymentForm({
      * retry path calls `onSuccess` -> `setAuthorizingManager(...)` ->
      * resubmit in the same tick, before React commits the new state.
      */
-    overrideManager?: { id: string; pin: string }
+    overrideManager?: { id: string; approvalId: string }
   ): Promise<Result<{ receiptData: ReceiptData }, { message: string; code?: AppErrorCode }>> => {
     if (!staffId) {
       return { ok: false, error: { message: t('paymentForm.notSignedIn') } };
@@ -496,7 +496,7 @@ export function PaymentForm({
             value: discountValue,
             amount: discountAmount,
             managerOverride: effectiveManagerOverride,
-            managerPin: effectiveManager?.pin,
+            approvalId: effectiveManager?.approvalId,
             approverId: effectiveManager?.id,
           }
         : undefined;
@@ -586,7 +586,7 @@ export function PaymentForm({
 
   const handlePrimary = async (
     overrideManagerOverride?: boolean,
-    overrideManager?: { id: string; pin: string }
+    overrideManager?: { id: string; approvalId: string }
   ) => {
     setErrorMessage(null);
     setIsProcessing(true);
@@ -647,7 +647,7 @@ export function PaymentForm({
 
   const handleSplitPrimary = async (
     overrideManagerOverride?: boolean,
-    overrideManager?: { id: string; pin: string }
+    overrideManager?: { id: string; approvalId: string }
   ) => {
     setErrorMessage(null);
     setIsProcessing(true);
@@ -663,7 +663,7 @@ export function PaymentForm({
             value: discountValue,
             amount: discountAmount,
             managerOverride: effectiveManagerOverride,
-            managerPin: effectiveManager?.pin,
+            approvalId: effectiveManager?.approvalId,
             approverId: effectiveManager?.id,
           }
         : undefined;
@@ -1448,17 +1448,17 @@ export function PaymentForm({
           if (!open) setPinPurpose(null);
         }}
         requiredAction="apply_custom_discount"
-        onSuccess={(staff, enteredPin) => {
+        onSuccess={(staff, approvalId) => {
           setPinDialogOpen(false);
           setManagerOverride(true);
-          const approval = { id: staff.id, pin: enteredPin };
+          const approval = { id: staff.id, approvalId };
           setAuthorizingManager(approval);
           if (pinPurpose === 'discount') {
             setDiscountExpanded(true);
           } else if (pinPurpose === 'below_cost') {
             // Resubmit the SAME payment attempt (idempotencyKeyRef is
             // untouched on a failed attempt) with managerOverride: true —
-            // a retry, not a new sale. The matched staff member and PIN are
+            // a retry, not a new sale. The matched staff member and ticket are
             // passed explicitly (not read from state) since this fires in
             // the same tick as setAuthorizingManager above, before React
             // commits it.
