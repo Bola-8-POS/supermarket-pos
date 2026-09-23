@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { verifyStaffPin } from '@entities/staff/model/pinVerification';
+
+const mockApprovalId = '5f1e2d3c-4b5a-4c6d-8e7f-9a0b1c2d3e4f';
 import { useStaffList } from '@entities/staff/model/queries';
 import type { Staff } from '@shared/lib/domain';
 import type { StaffAction } from '@shared/lib/rbac';
@@ -50,7 +52,7 @@ describe('ManagerPinDialog', () => {
     overrides: {
       open?: boolean;
       onOpenChange?: (open: boolean) => void;
-      onSuccess?: (staff: Staff, enteredPin: string) => void;
+      onSuccess?: (staff: Staff, approvalId: string) => void;
       requiredAction?: StaffAction;
     } = {}
   ) {
@@ -88,18 +90,19 @@ describe('ManagerPinDialog', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
-  it('a match with an eligible role calls onSuccess with the matched staff and the typed PIN', async () => {
+  it('a match with an eligible role calls onSuccess with the matched staff and the approval ticket', async () => {
     const user = userEvent.setup();
     vi.mocked(verifyStaffPin).mockResolvedValue({
       ok: true,
       matches: [{ id: mockManager.id, name: mockManager.name, role: mockManager.role }],
+      approvalId: mockApprovalId,
     });
     const { onSuccess } = renderDialog();
 
     await typePin(user, '789012');
 
     await waitFor(() => {
-      expect(onSuccess).toHaveBeenCalledWith(mockManager, '789012');
+      expect(onSuccess).toHaveBeenCalledWith(mockManager, mockApprovalId);
     });
   });
 
@@ -108,6 +111,7 @@ describe('ManagerPinDialog', () => {
     vi.mocked(verifyStaffPin).mockResolvedValue({
       ok: true,
       matches: [{ id: mockManager.id, name: mockManager.name, role: mockManager.role }],
+      approvalId: mockApprovalId,
     });
     renderDialog({ requiredAction: 'manage_staff' });
 
@@ -118,11 +122,27 @@ describe('ManagerPinDialog', () => {
     });
   });
 
+  it('an eligible match without an approval ticket shows the incorrect-PIN error and does not call onSuccess', async () => {
+    const user = userEvent.setup();
+    vi.mocked(verifyStaffPin).mockResolvedValue({
+      ok: true,
+      matches: [{ id: mockManager.id, name: mockManager.name, role: mockManager.role }],
+    });
+    const { onSuccess } = renderDialog();
+    await typePin(user, '789012');
+    const dialog = screen.getByRole('alertdialog');
+    await waitFor(() => {
+      expect(within(dialog).getByText(/Incorrect PIN/i)).toBeInTheDocument();
+    });
+    expect(onSuccess).not.toHaveBeenCalled();
+  });
+
   it('matches containing only a non-eligible role show the incorrect-PIN error and do not call onSuccess', async () => {
     const user = userEvent.setup();
     vi.mocked(verifyStaffPin).mockResolvedValue({
       ok: true,
       matches: [{ id: mockCashier.id, name: mockCashier.name, role: mockCashier.role }],
+      approvalId: mockApprovalId,
     });
     const { onSuccess } = renderDialog();
 
@@ -143,13 +163,14 @@ describe('ManagerPinDialog', () => {
         { id: 'cccccccc-cccc-cccc-cccc-cccccccccccc', name: 'Someone Else', role: 'cashier' },
         { id: mockManager.id, name: mockManager.name, role: mockManager.role },
       ],
+      approvalId: mockApprovalId,
     });
     const { onSuccess } = renderDialog();
 
     await typePin(user, '555555');
 
     await waitFor(() => {
-      expect(onSuccess).toHaveBeenCalledWith(mockManager, '555555');
+      expect(onSuccess).toHaveBeenCalledWith(mockManager, mockApprovalId);
     });
   });
 
