@@ -72,7 +72,11 @@ BEGIN
   -- No merge semantics needed for the link table -- a row has no other
   -- columns to preserve. Today's unchecked delete
   -- (settings-restore/index.ts:117) becomes a checked, transactional step.
-  DELETE FROM product_modifiers;
+  -- The always-true filter satisfies safeupdate (loaded for the
+  -- authenticator role this RPC runs under) requiring a WHERE clause on
+  -- DELETE, same convention as the edge function's prior
+  -- .neq('product_id', '00000000-...') call.
+  DELETE FROM product_modifiers WHERE product_id <> '00000000-0000-0000-0000-000000000000';
   INSERT INTO product_modifiers (product_id, modifier_id)
   SELECT (r ->> 'product_id')::uuid, (r ->> 'modifier_id')::uuid
   FROM jsonb_array_elements(COALESCE(v_snap -> 'product_modifiers', '[]'::jsonb)) AS r;
