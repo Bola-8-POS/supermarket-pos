@@ -1,158 +1,93 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { z } from 'https://deno.land/x/zod@v3.23.8/mod.ts';
 
 import { recordAudit } from '../_shared/audit.ts';
+import { verifyCaller } from '../_shared/caller.ts';
+import { corsHeaders } from '../_shared/cors.ts';
+import { fail } from '../_shared/errors.ts';
 
 const BodySchema = z.object({
   backupId: z.string().uuid(),
 });
 
-// Missing on this function until now — every other edge function in this
-// project sets these, and their absence means every real browser call fails
-// at CORS preflight before ever reaching this code.
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+function methodsHeader(req: Request): Record<string, string> {
+  return { ...corsHeaders(req), 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
+}
 
-function json(body: unknown, status = 200): Response {
+function json(req: Request, body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    headers: { 'Content-Type': 'application/json', ...methodsHeader(req) },
   });
 }
 
-type Snapshot = {
-  settings?: Array<{ key: string; value: unknown; updated_by?: string | null }>;
-  categories?: Array<Record<string, unknown>>;
-  products?: Array<Record<string, unknown>>;
-  modifiers?: Array<Record<string, unknown>>;
-  product_modifiers?: Array<Record<string, unknown>>;
-};
+// The RPC raises 'CODE: detail' on refusal; the code prefix maps to an HTTP
+// status the same way a database error already mapped to one here before
+// this wave (S-27: the RPC now does the whole restore transactionally,
+// including reading the snapshot itself).
+function statusForRpcMessage(message: string | undefined): number {
+  if (message?.startsWith('NOT_FOUND')) return 404;
+  if (message?.startsWith('FORBIDDEN')) return 403;
+  return 500;
+}
 
 Deno.serve(async req => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: methodsHeader(req) });
   if (req.method !== 'POST') {
-    return json({ ok: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST only' } }, 405);
-  }
-
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    return json({ ok: false, error: { code: 'UNAUTHORIZED', message: 'Missing bearer token' } }, 401);
+    return fail(req, 405, 'METHOD_NOT_ALLOWED', { envelope: 'ok' });
   }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
-  const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  if (!supabaseUrl || !anonKey || !serviceKey) {
-    return json({ ok: false, error: { code: 'CONFIG', message: 'Server misconfigured' } }, 500);
+  if (!supabaseUrl || !serviceKey) {
+    return fail(req, 500, 'CONFIG', { envelope: 'ok' });
   }
-
-  const userClient = createClient(supabaseUrl, anonKey, {
-    global: { headers: { Authorization: authHeader } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
   const serviceClient = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const {
-    data: { user },
-    error: userError,
-  } = await userClient.auth.getUser();
-  if (userError || !user) {
-    return json({ ok: false, error: { code: 'UNAUTHORIZED', message: 'Invalid session' } }, 401);
+  const caller = await verifyCaller(req, serviceClient);
+  if (!caller.ok) {
+    return fail(req, caller.status, caller.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN', { envelope: 'ok' });
   }
-
-  const { data: profile, error: profileError } = await serviceClient
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single();
-  if (profileError || profile?.role !== 'admin') {
-    return json({ ok: false, error: { code: 'FORBIDDEN', message: 'Admin access required' } }, 403);
+  if (caller.role !== 'admin') {
+    return fail(req, 403, 'FORBIDDEN', { envelope: 'ok', message: 'Admin access required' });
   }
 
   let bodyRaw: unknown;
   try {
     bodyRaw = await req.json();
   } catch {
-    return json({ ok: false, error: { code: 'INVALID_JSON', message: 'Body must be JSON' } }, 400);
+    return fail(req, 400, 'INVALID_JSON', { envelope: 'ok' });
   }
   const parsed = BodySchema.safeParse(bodyRaw);
   if (!parsed.success) {
-    return json({ ok: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid backup id' } }, 400);
+    return fail(req, 400, 'VALIDATION_ERROR', { envelope: 'ok', message: 'Invalid backup id' });
   }
 
-  const { data: backup, error: backupError } = await serviceClient
-    .from('settings_backups')
-    .select('snapshot')
-    .eq('id', parsed.data.backupId)
-    .single();
+  // S-27: settings_restore_snapshot reads the snapshot itself (FOR UPDATE)
+  // and applies the whole restore in one transaction — no separate
+  // fetch-the-backup step here anymore.
+  const { error } = await serviceClient.rpc('settings_restore_snapshot', {
+    p_backup_id: parsed.data.backupId,
+    p_actor: caller.id,
+  });
 
-  if (backupError || !backup) {
-    return json({ ok: false, error: { code: 'NOT_FOUND', message: 'Backup not found' } }, 404);
+  if (error) {
+    const status = statusForRpcMessage(error.message);
+    const code = error.message?.startsWith('NOT_FOUND') ? 'NOT_FOUND' : error.message?.startsWith('FORBIDDEN') ? 'FORBIDDEN' : 'RESTORE_FAILED';
+    return fail(req, status, code, { envelope: 'ok', detail: error.message });
   }
-
-  const snapshot = (backup.snapshot ?? {}) as Snapshot;
-  const categories = snapshot.categories ?? [];
-  const products = snapshot.products ?? [];
-  const modifiers = snapshot.modifiers ?? [];
-  const productModifiers = snapshot.product_modifiers ?? [];
-  const settingsRows = snapshot.settings ?? [];
-
-  if (categories.length > 0) {
-    const { error } = await serviceClient.from('categories').upsert(categories, { onConflict: 'id' });
-    if (error) return json({ ok: false, error: { code: 'RESTORE_FAILED', message: error.message } }, 500);
-  }
-  if (modifiers.length > 0) {
-    const { error } = await serviceClient.from('modifiers').upsert(modifiers, { onConflict: 'id' });
-    if (error) return json({ ok: false, error: { code: 'RESTORE_FAILED', message: error.message } }, 500);
-  }
-  if (products.length > 0) {
-    const { error } = await serviceClient.from('products').upsert(products, { onConflict: 'id' });
-    if (error) return json({ ok: false, error: { code: 'RESTORE_FAILED', message: error.message } }, 500);
-  }
-
-  await serviceClient.from('product_modifiers').delete().neq('product_id', '00000000-0000-0000-0000-000000000000');
-  if (productModifiers.length > 0) {
-    const { error } = await serviceClient
-      .from('product_modifiers')
-      .upsert(productModifiers, { onConflict: 'product_id,modifier_id' });
-    if (error) return json({ ok: false, error: { code: 'RESTORE_FAILED', message: error.message } }, 500);
-  }
-
-  if (settingsRows.length > 0) {
-    const settingsPayload = settingsRows.map(row => ({
-      key: row.key,
-      value: row.value,
-      updated_by: user.id,
-    }));
-    const { error } = await serviceClient.from('settings').upsert(settingsPayload, { onConflict: 'key' });
-    if (error) return json({ ok: false, error: { code: 'RESTORE_FAILED', message: error.message } }, 500);
-  }
-
-  await serviceClient
-    .from('settings_backups')
-    .update({
-      restored_at: new Date().toISOString(),
-      restored_by: user.id,
-    })
-    .eq('id', parsed.data.backupId);
 
   await recordAudit(serviceClient, {
     action: 'settings.update',
     entityType: 'settings',
     entityId: null,
     before: null,
-    after: {
-      categories: categories.length,
-      products: products.length,
-      settings: settingsRows.length,
-    },
+    after: { backupId: parsed.data.backupId },
     source: 'edge',
-    actorId: user.id,
+    actorId: caller.id,
   });
 
-  return json({ ok: true });
+  return json(req, { ok: true });
 });

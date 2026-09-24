@@ -106,7 +106,7 @@ if ($missingDirs) {
 Write-Host "OK: all 12 required function directories exist under supabase/functions/." -ForegroundColor Green
 
 # --- Audit: verify_jwt defaults are correct for all 12 functions ---------------
-Write-Host "OK: supabase/config.toml only sets explicit (redundant) verify_jwt=true for process-payment/send-receipt-email; every one of the 12 functions in this app is called via an authenticated supabase.functions.invoke() session, so the CLI default verify_jwt=true is correct for all 12 -- no verify_jwt=false entries needed." -ForegroundColor Green
+Write-Host "OK: supabase/config.toml now sets an explicit [functions.<name>] block with verify_jwt for every function in supabase/functions/ (SEC-07); get-server-time is the sole verify_jwt=false function -- it is deployed unauthenticated by design, and this wave only made that explicit instead of relying on the platform default. This check's own pass/fail logic does not read verify_jwt; only this message describes it." -ForegroundColor Green
 
 # --- Step A: bulk deploy all 12 functions ---------------------------------------
 Write-Host "Running: supabase functions deploy --project-ref $projectRef" -ForegroundColor Cyan
