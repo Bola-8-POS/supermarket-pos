@@ -1,5 +1,6 @@
 import { Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useStaffStore } from '@entities/staff/model/store';
 import { cn } from '@shared/lib/utils';
 import { LockedFeature } from '@shared/ui/LockedFeature';
 import { Button } from '@shared/ui/button';
@@ -9,9 +10,12 @@ export function AgentButton({ className }: { className?: string }) {
   const { t } = useTranslation('featMgmt');
   const toggle = useAgentStore(s => s.toggle);
   const hasUnread = useAgentStore(s => s.hasUnread);
+  const userRole = useStaffStore(s => s.currentStaff?.role ?? 'cashier');
 
   const agentEnabled = import.meta.env['VITE_AGENT_ENABLED'] as string | undefined;
   if (agentEnabled === 'false') return null;
+  // S-20: the AI assistant is admin/manager only.
+  if (userRole !== 'admin' && userRole !== 'manager') return null;
 
   return (
     <LockedFeature feature="ai_assistant">

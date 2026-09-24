@@ -14,6 +14,9 @@ import {
 import { generateSalesReport, getDailySummary, getTopProducts, reportToolDefinitions } from './reportTools';
 import { getPosStatus, getCurrentShift, systemToolDefinitions } from './systemTools';
 
+// confirm_action is executable (see the switch below, for the UI's own
+// click-through path in useAgent.ts) but never offered to the model — S-20,
+// brain.ts's tool loop refuses a model-issued confirm_action as a backstop.
 export const allToolDefinitions = [
   ...guardToolDefinitions,   // lookup tools first — Claude should reach for these
   ...posToolDefinitions,
@@ -21,7 +24,7 @@ export const allToolDefinitions = [
   ...reportToolDefinitions,
   ...diagnosticToolDefinitions,
   ...systemToolDefinitions,
-];
+].filter((t) => t.name !== 'confirm_action');
 
 // Write tools subject to rate guard
 const WRITE_TOOLS = new Set([
@@ -29,6 +32,31 @@ const WRITE_TOOLS = new Set([
   'add_product', 'update_product', 'deactivate_product', 'bulk_import_products',
   'confirm_action',
 ]);
+
+// S-20: data minimization before a tool result reaches the model — customer
+// phone numbers are masked to their last 4 digits, customer names are kept
+// (needed to find a tab), and any staff email or pin field is dropped. No
+// tool selects a phone/email/pin column today (see the plan), so this is a
+// defensive seam for a select list that grows one later, not a fix for
+// something currently exposed.
+function redactForModel(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((v: unknown) => redactForModel(v));
+  }
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+      if (/pin/i.test(key) || /email/i.test(key)) continue;
+      if (/phone/i.test(key) && typeof v === 'string') {
+        out[key] = v.length > 4 ? `***${v.slice(-4)}` : v;
+        continue;
+      }
+      out[key] = redactForModel(v);
+    }
+    return out;
+  }
+  return value;
+}
 
 export async function executeTool(
   name: string,
@@ -41,6 +69,15 @@ export async function executeTool(
     if (rateErr) return rateErr;
   }
 
+  const result = await dispatchTool(name, args, ctx);
+  return result.ok ? { ok: true, data: redactForModel(result.data) } : result;
+}
+
+async function dispatchTool(
+  name: string,
+  args: Record<string, unknown>,
+  ctx: AgentActionContext
+): Promise<Result<unknown>> {
   switch (name) {
     // ── Guard / lookup ──
     case 'find_product':    return findProduct(args as { name: string }, ctx);

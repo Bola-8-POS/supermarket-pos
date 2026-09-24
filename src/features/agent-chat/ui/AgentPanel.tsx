@@ -45,6 +45,8 @@ export function AgentPanel() {
   }, [messages, isTyping, isOpen]);
 
   if (agentEnabled === 'false') return null;
+  // S-20: the AI assistant is admin/manager only.
+  if (userRole !== 'admin' && userRole !== 'manager') return null;
 
   const handleFileDrop = (file: File) => {
     void handleFileImport(file);
