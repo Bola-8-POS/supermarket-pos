@@ -6,7 +6,7 @@ function req(): Request {
   return new Request('https://example.local/fn')
 }
 
-Deno.test('publicRpcMessage: DIRECT_SALE_FAILED with an allow-listed prefix keeps the message (B-8)', () => {
+Deno.test('publicRpcMessage: DIRECT_SALE_FAILED with an allow-listed prefix keeps the message', () => {
   const msg = publicRpcMessage('DIRECT_SALE_FAILED', 'INVENTORY_NEGATIVE: result would be -3 for ingredient X')
   assertEquals(msg, 'INVENTORY_NEGATIVE: result would be -3 for ingredient X')
 })
@@ -56,7 +56,7 @@ Deno.test('fail: ok envelope shape, with extra merged in', async () => {
   })
 })
 
-Deno.test('fail: nested envelope merges extra into the error object (429 shape, I-7)', async () => {
+Deno.test('fail: nested envelope merges extra into the error object (429 shape)', async () => {
   const res = fail(req(), 429, 'RATE_LIMITED', { envelope: 'nested', extra: { retryAfter: 12 } })
   const body = await res.json()
   assertEquals(body, {

@@ -14,14 +14,14 @@ pub struct AppConfig {
     /// Licensing server (separate Supabase project). Empty = fall back to VITE_ build-time env.
     pub license_server_url: String,
     pub license_server_anon_key: String,
-    /// S-26: a rejected runtime-override URL or an accepted one is recorded here
+    /// A rejected runtime-override URL or an accepted one is recorded here
     /// (naming the field and the offending host, never the key) instead of
     /// `eprintln!`, which a release build's `windows_subsystem = "windows"`
     /// detaches before anyone could see it. Read and logged by AppConfigProvider.
     pub warnings: Vec<String>,
 }
 
-/// S-26: a runtime-override backend host is only trusted when it is the
+/// A runtime-override backend host is only trusted when it is the
 /// project's own Supabase host (over https) or a local dev/loopback stack
 /// (either scheme) — never an arbitrary host that merely contains
 /// "supabase.co" somewhere in it (e.g. `evil.supabase.co.attacker.example`,
@@ -42,9 +42,19 @@ fn is_allowed_backend_url(url_str: &str) -> bool {
     }
 }
 
+/// The host to name in a warning — never the full URL, which may carry
+/// userinfo (`https://user:pass@host`) that a warning must not repeat back
+/// through AppConfigProvider's logger.
+fn describe_host(url_str: &str) -> String {
+    url::Url::parse(url_str)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_string()))
+        .unwrap_or_else(|| "unparseable URL".to_string())
+}
+
 /// Pure parse of a `.env` file's content into an `AppConfig` — extracted from
-/// `read_env_config` (I-9) so the line-order-independent validation below,
-/// and the whole function, are unit-testable without touching the filesystem.
+/// `read_env_config` so the line-order-independent validation below, and the
+/// whole function, are unit-testable without touching the filesystem.
 fn parse_env_config(content: &str) -> AppConfig {
     let mut config = AppConfig::default();
     for line in content.lines() {
@@ -72,23 +82,37 @@ fn parse_env_config(content: &str) -> AppConfig {
     // Validated AFTER the full line loop, not inline mid-loop: a paired key's
     // line can appear before or after its URL's line in the file, so only a
     // post-loop pass over the fully-populated struct can reliably clear both
-    // together (N-6) — clearing inline could miss a not-yet-parsed key or let
-    // a later line silently re-set one already cleared.
-    if !config.supabase_url.is_empty() && !is_allowed_backend_url(&config.supabase_url) {
-        config.warnings.push(format!(
-            "Ignored VITE_SUPABASE_URL override — host not allowed: {}",
-            config.supabase_url
-        ));
-        config.supabase_url = String::new();
-        config.supabase_anon_key = String::new();
+    // together — clearing inline could miss a not-yet-parsed key or let a
+    // later line silently re-set one already cleared.
+    if !config.supabase_url.is_empty() {
+        if is_allowed_backend_url(&config.supabase_url) {
+            config.warnings.push(format!(
+                "Using VITE_SUPABASE_URL override — host: {}",
+                describe_host(&config.supabase_url)
+            ));
+        } else {
+            config.warnings.push(format!(
+                "Ignored VITE_SUPABASE_URL override — host not allowed: {}",
+                describe_host(&config.supabase_url)
+            ));
+            config.supabase_url = String::new();
+            config.supabase_anon_key = String::new();
+        }
     }
-    if !config.license_server_url.is_empty() && !is_allowed_backend_url(&config.license_server_url) {
-        config.warnings.push(format!(
-            "Ignored VITE_LICENSE_SERVER_URL override — host not allowed: {}",
-            config.license_server_url
-        ));
-        config.license_server_url = String::new();
-        config.license_server_anon_key = String::new();
+    if !config.license_server_url.is_empty() {
+        if is_allowed_backend_url(&config.license_server_url) {
+            config.warnings.push(format!(
+                "Using VITE_LICENSE_SERVER_URL override — host: {}",
+                describe_host(&config.license_server_url)
+            ));
+        } else {
+            config.warnings.push(format!(
+                "Ignored VITE_LICENSE_SERVER_URL override — host not allowed: {}",
+                describe_host(&config.license_server_url)
+            ));
+            config.license_server_url = String::new();
+            config.license_server_anon_key = String::new();
+        }
     }
 
     config
@@ -152,7 +176,8 @@ mod tests {
         assert_eq!(config.supabase_anon_key, "anon-key-1");
         assert_eq!(config.license_server_url, "https://ijklmnop.supabase.co");
         assert_eq!(config.license_server_anon_key, "anon-key-2");
-        assert!(config.warnings.is_empty());
+        // Both overrides are allowed hosts, so both get a warning.
+        assert_eq!(config.warnings.len(), 2);
     }
 
     #[test]
@@ -165,9 +190,19 @@ mod tests {
     }
 
     #[test]
+    fn rejects_a_userinfo_host_trick() {
+        // The `url` crate parses the host of `scheme://user@host` as `host`,
+        // not the string before the first `.`/`@` — confirms the allow-list
+        // check runs on the parsed host, not a raw string match.
+        assert!(!is_allowed_backend_url(
+            "https://x.supabase.co@evil.example/"
+        ));
+    }
+
+    #[test]
     fn clears_a_rejected_url_and_its_paired_key_when_the_key_line_comes_before() {
-        // N-6: .env line order is arbitrary — the paired key's line can
-        // precede the URL's own line.
+        // .env line order is arbitrary — the paired key's line can precede
+        // the URL's own line.
         let content = "VITE_LICENSE_SERVER_ANON_KEY=some-anon-key\nVITE_LICENSE_SERVER_URL=https://evil.supabase.co.attacker.example\n";
         let config = parse_env_config(content);
         assert_eq!(config.license_server_url, "");
@@ -181,7 +216,11 @@ mod tests {
         let config = parse_env_config(content);
         assert_eq!(config.supabase_url, "https://abcdefgh.supabase.co");
         assert_eq!(config.supabase_anon_key, "some-anon-key");
-        assert!(config.warnings.is_empty());
+        // An accepted override still gets a warning — it's real logged
+        // behavior a dev/support session should be able to see, unlike a
+        // silent default.
+        assert_eq!(config.warnings.len(), 1);
+        assert!(config.warnings[0].contains("abcdefgh.supabase.co"));
     }
 }
 

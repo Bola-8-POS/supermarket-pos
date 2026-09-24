@@ -15,7 +15,7 @@
  * "Receipt sent." toast is shown (not the "…without PDF attachment" variant)
  * — proving the PDF-attachment path succeeded end-to-end.
  *
- * Test 3 (I-8, wave 3b/S-11): signs in as the seeded Kitchen Test account and
+ * Test 3 (added in wave 3b): signs in as the seeded Kitchen Test account and
  * calls send-receipt-email directly with that session's own access token
  * (read off the browser's persisted Supabase session, same way the app
  * itself would send it), asserting the role gate refuses it with 403

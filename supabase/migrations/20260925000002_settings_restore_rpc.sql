@@ -1,4 +1,4 @@
--- Settings restore as one transactional, admin-gated RPC (SEC-07 / S-27).
+-- Settings restore as one transactional, admin-gated RPC.
 --
 -- Replaces settings-restore/index.ts's own five upsert/delete steps (two of
 -- them today running with their error unchecked, at index.ts:117 and
@@ -6,8 +6,8 @@
 -- UPDATE, which also serializes two concurrent restores of the same backup)
 -- and rolls back completely on any failure.
 --
--- I-4: takes the backup id, not a caller-supplied snapshot -- passing both
--- would let them disagree about which backup is actually being restored.
+-- Takes the backup id, not a caller-supplied snapshot -- passing both would
+-- let them disagree about which backup is actually being restored.
 
 CREATE FUNCTION public.settings_restore_snapshot(p_backup_id uuid, p_actor uuid)
 RETURNS void
@@ -37,8 +37,8 @@ BEGIN
     RAISE EXCEPTION 'NOT_FOUND: backup not found';
   END IF;
 
-  -- Column-list strategy (N-4): the column list, existing-row/default
-  -- expression and ON CONFLICT SET clause are all derived from the catalog,
+  -- Column-list strategy: the column list, existing-row/default expression
+  -- and ON CONFLICT SET clause are all derived from the catalog,
   -- not hand-maintained, so a column added to one of these tables after this
   -- migration ships is picked up automatically.
   FOREACH v_tbl IN ARRAY ARRAY['categories', 'modifiers', 'products'] LOOP   -- FK order

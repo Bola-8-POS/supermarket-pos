@@ -33,11 +33,11 @@ export function AppConfigProvider({ children }: Props) {
         }>('get_runtime_config')
       )
       .then(cfg => {
-        // S-26: a rejected runtime-override backend URL (rust/src-tauri's
-        // is_allowed_backend_url) is surfaced here rather than silently —
-        // read_env_config runs before any Tauri logger exists.
+        // A rejected (or accepted) runtime-override backend URL
+        // (rust/src-tauri's is_allowed_backend_url) is surfaced here rather
+        // than silently — read_env_config runs before any Tauri logger exists.
         for (const warning of cfg.warnings ?? []) {
-          logger.warn('appConfig.runtimeOverrideRejected', { detail: warning });
+          logger.warn('appConfig.runtimeOverride', { detail: warning });
         }
         if (cfg.supabaseUrl && cfg.supabaseAnonKey) {
           initSupabaseClient(cfg.supabaseUrl, cfg.supabaseAnonKey);

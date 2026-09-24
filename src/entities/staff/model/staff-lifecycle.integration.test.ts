@@ -257,7 +257,7 @@ describe.skipIf(skip)('staff lifecycle', () => {
 
     const bad = await callFn('change-own-pin', token, { newPin: '12' });
     expect(bad.status).toBe(400);
-    // SEC-07/S-24: change-own-pin's flat envelope now carries the error
+    // change-own-pin's flat envelope now carries the error
     // code, not a free-text sentence, in `.error` (Contract: envelope
     // 'flat' -> { error: code, ...extra }) -- same as every other flat-
     // family validation failure this wave converted.

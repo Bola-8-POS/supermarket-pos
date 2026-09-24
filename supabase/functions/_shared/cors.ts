@@ -1,4 +1,4 @@
-// Per-request CORS headers (SEC-07 / S-24). Reflects the caller's Origin
+// Per-request CORS headers. Reflects the caller's Origin
 // when it is allow-listed, instead of the previous '*' every function set —
 // '*' let any site call an authenticated endpoint from a browser. Building
 // this from the request each time (not a module-level constant) also keeps
@@ -33,7 +33,7 @@ function isOriginAllowed(origin: string): boolean {
   return DEFAULT_ALLOWED_ORIGINS.includes(origin) || LOOPBACK_ORIGIN.test(origin)
 }
 
-// Access-Control-Allow-Headers stays fixed across every function (M-6):
+// Access-Control-Allow-Headers stays fixed across every function:
 // supabase-js 2.103 only adds x-region when a region is configured, and none
 // is here.
 export function corsHeaders(req: Request): Record<string, string> {

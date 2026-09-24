@@ -102,7 +102,7 @@ export const ReceiptDataSchema = z.object({
 export type ReceiptData = z.infer<typeof ReceiptDataSchema>;
 
 /**
- * S-25/I-3: `licenseGuardedFetch` rejects with a plain `Error` whose message
+ * `licenseGuardedFetch` rejects with a plain `Error` whose message
  * starts with `LICENSE_LOCKED:` (see `supabase.ts`) instead of calling
  * `fetch` at all. None of the seven raw-`fetch` call sites below recognize
  * that prefix on their own — each `catch` block gains one new first line,
@@ -233,8 +233,8 @@ export function mapProcessPaymentEdgeError(
     case 'INVALID_DISCOUNT_SCOPE':
       return { code: 'VALIDATION_ERROR', message };
     default:
-      // S-24: the server's own text never reaches AppError.message unmapped —
-      // it is kept in `details` for logs, not shown to the user.
+      // The server's own text never reaches AppError.message unmapped — it
+      // is kept in `details` for logs, not shown to the user.
       return { code: 'SUPABASE_ERROR', message: i18n.t('common:edgeErrors.generic'), details: message };
   }
 }
@@ -757,8 +757,8 @@ export const AgentProxyErrorBodySchema = z.object({
 
 /**
  * Exported so it's directly unit-testable — mirrors mapAdminResetPinEdgeError's
- * convention. S-11/S-24: the three codes agent-proxy's own gates can raise get
- * their own translated messages; everything else falls through to a generic
+ * convention. The three codes agent-proxy's own gates can raise get their
+ * own translated messages; everything else falls through to a generic
  * AGENT_ERROR with the server's own text kept only in `details`, never shown
  * to the user.
  */
@@ -1383,9 +1383,9 @@ export async function callSendReceiptEmail(
     });
 
     if (error) {
-      // I-7: fail()'s RATE_LIMITED (S-11) and FORBIDDEN reach the client
-      // through the real response body behind supabase-js's generic error,
-      // not through the always-2xx `data` path below.
+      // fail()'s RATE_LIMITED and FORBIDDEN reach the client through the
+      // real response body behind supabase-js's generic error, not through
+      // the always-successful `data` path below.
       const invokeErr = await getInvokeErrorBody(error, 'Could not send receipt email');
       if (invokeErr.code === 'RATE_LIMITED') {
         return err({
@@ -1449,7 +1449,7 @@ function getInvokeErrorMessage(error: unknown, fallback: string): string {
 }
 
 /**
- * I-7: `getInvokeErrorMessage` only ever sees the supabase-js SDK's own
+ * `getInvokeErrorMessage` only ever sees the supabase-js SDK's own
  * generic "Edge Function returned a non-2xx status code" string — it never
  * reads the real response body. `error.context` is the raw `Response` when
  * the edge function actually answered (the working precedent is
@@ -1635,8 +1635,8 @@ export async function callSettingsEmailStatus(): Promise<
       body: {},
     });
     if (error) {
-      // I-7 (S-11): a FORBIDDEN role-gate refusal reaches the client through
-      // the real response body behind supabase-js's generic error.
+      // A FORBIDDEN role-gate refusal reaches the client through the real
+      // response body behind supabase-js's generic error.
       const invokeErr = await getInvokeErrorBody(error, 'Could not check email status');
       if (invokeErr.code === 'FORBIDDEN') {
         return err({ code: 'AUTH_FORBIDDEN', message: i18n.t('common:edgeErrors.forbidden') });

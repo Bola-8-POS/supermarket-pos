@@ -1,10 +1,10 @@
-// Pure request-shape guard for agent-proxy (SEC-07 / S-11, I-8). No
-// Deno.serve, no network, no DB -- covers the model allow-list and every B-6
-// cap so the logic is unit-testable without a running edge runtime. Kitchen
-// role / caller identity is verifyCaller's job (already generic, not
-// agent-specific); rate limiting is _shared/rate_limit.ts's job.
+// Pure request-shape guard for agent-proxy. No Deno.serve, no network, no
+// DB -- covers the model allow-list and every request cap so the logic is
+// unit-testable without a running edge runtime. Kitchen role / caller
+// identity is verifyCaller's job (already generic, not agent-specific);
+// rate limiting is _shared/rate_limit.ts's job.
 //
-// N-8: a local error type, since AppError (src/shared/lib/result.ts) is a
+// A local error type, since AppError (src/shared/lib/result.ts) is a
 // client type and not importable from supabase/functions.
 
 export interface AgentProxyBody {
@@ -25,9 +25,9 @@ export interface AgentGuardError {
 }
 
 const MAX_SYSTEM_CHARS = 20_000
-// "every string field across system/messages/tools except base64 image
-// block data" (B-6) -- string .length (UTF-16 code units) stands in for
-// bytes here, close enough for a request-size cap.
+// Every string field across system/messages/tools except base64 image
+// block data -- string .length (UTF-16 code units) stands in for bytes
+// here, close enough for a request-size cap.
 const MAX_TEXT_CHARS = 200_000
 const MAX_IMAGE_BASE64_CHARS = 5 * 1024 * 1024 // Anthropic's own per-image base64 limit
 const MAX_IMAGES = 4

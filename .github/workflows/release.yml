@@ -218,8 +218,8 @@ jobs:
             --config {"bundle":{"windows":{"certificateThumbprint":"${{ steps.gencert.outputs.thumbprint }}","digestAlgorithm":"sha256"}}}
             --config customers/${{ matrix.customer.name }}/tauri.override.json
 
-      - name: Scan dist for provider-key patterns (S-19)
-        # M-4: this job's dist/ is what a real customer build actually ships —
+      - name: Scan dist for provider-key patterns
+        # this job's dist/ is what a real customer build actually ships —
         # the "Materialize .env.production from Environment secrets" step
         # above put real VITE_* secrets into this build, unlike ci.yml's
         # tauri-build job, which sets none. Same inverted-exit pattern as

@@ -1,5 +1,5 @@
 \set ON_ERROR_STOP on
--- Assertions: settings_restore_snapshot and rate_limit_hit (SEC-07 / S-27, S-11).
+-- Assertions: settings_restore_snapshot and rate_limit_hit.
 -- Run as the migration role:
 --   psql -v ON_ERROR_STOP=1 < scripts/sql/verify-settings-restore.sql
 -- Static catalog checks only; behavior lives in the settings-restore
@@ -7,8 +7,8 @@
 -- task 1 report for the transactional run against seeded data).
 DO $$
 BEGIN
-  -- 1. settings_restore_snapshot: two args (p_backup_id, p_actor), not the
-  --    originally-planned three -- I-4's signature correction.
+  -- 1. settings_restore_snapshot: two args (p_backup_id, p_actor), not a
+  --    caller-supplied snapshot -- see the migration header for why.
   IF (SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = 'settings_restore_snapshot') <> 1 THEN
     RAISE EXCEPTION 'settings_restore_snapshot must exist exactly once';
   END IF;

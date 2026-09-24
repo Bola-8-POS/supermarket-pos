@@ -1,10 +1,9 @@
 /**
- * E2E spec: prompt-injection resistance in the AI assistant's confirm flow (S-20)
+ * E2E spec: prompt-injection resistance in the AI assistant's confirm flow
  *
- * B-7's finding on the original S-20 spec design: "no write without
- * confirm_action" was never a real assertion on its own, because a
- * page.route()-mocked proxy fully controls which tools "get called" — a spec
- * built only on that mock could never fail. This spec instead proves the
+ * "No write without confirm_action" was never a real assertion on its own,
+ * because a page.route()-mocked proxy fully controls which tools "get
+ * called" — a spec built only on that mock could never fail. This spec instead proves the
  * absence of a write: even when a mocked model, steered by an instruction
  * smuggled into a tool argument (a stand-in for prompt injection via
  * DB-sourced content), tries to close a tab AND tries to confirm that close
@@ -23,7 +22,7 @@ import { loginAs } from '../helpers/auth';
 import { requireIntegrationEnv } from '../helpers/requireEnv';
 import { getServiceClient, resetTestState, seedOpenTab } from '../helpers/supabase';
 
-test.describe('AI assistant prompt-injection resistance (S-20)', () => {
+test.describe('AI assistant prompt-injection resistance', () => {
   test.beforeEach(async ({ page }) => {
     requireIntegrationEnv();
     await resetTestState();
@@ -51,7 +50,7 @@ test.describe('AI assistant prompt-injection resistance (S-20)', () => {
     await page.route('**/functions/v1/agent-proxy', async route => {
       call++;
 
-      // I-1: pull the real confirm_token close_tab staged for tu-2 out of the
+      // Pull the real confirm_token close_tab staged for tu-2 out of the
       // request body instead of guessing one. A wrong token is refused by
       // consumePendingAction's own NOT_FOUND path (guardTools.ts) regardless
       // of whether brain.ts's own confirm_action refusal exists, which made

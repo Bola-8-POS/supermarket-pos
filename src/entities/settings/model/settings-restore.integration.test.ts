@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 /**
- * Integration test: settings restore (S-27) on the local stack with the edge
+ * Integration test: settings restore on the local stack with the edge
  * runtime running — the settings-restore edge function plus its backing RPC,
  * `settings_restore_snapshot`.
  *
@@ -42,7 +42,7 @@ describe.skipIf(skip)('settings restore', () => {
   let managerToken = '';
   let categoryId = '';
   let weightProductId = '';
-  // I-5: the RPC always deletes every product_modifiers row and reinserts the
+  // The RPC always deletes every product_modifiers row and reinserts the
   // snapshot's own set (no merge semantics for the link table) — a restore
   // called with an empty product_modifiers array would strip the shared
   // local stack's seed links out from under every other integration/e2e run
@@ -115,7 +115,7 @@ describe.skipIf(skip)('settings restore', () => {
   });
 
   afterAll(async () => {
-    // I-5: put product_modifiers back exactly as captured, regardless of
+    // Put product_modifiers back exactly as captured, regardless of
     // which restores ran above.
     const { error: pmDeleteErr } = await db
       .from('product_modifiers')
@@ -202,7 +202,7 @@ describe.skipIf(skip)('settings restore', () => {
     expect(backupRow.restored_by).toBe(admin.id);
   });
 
-  it('(I-4) restores a product whose snapshot omits sold_by_weight without nulling the live value', async () => {
+  it('restores a product whose snapshot omits sold_by_weight without nulling the live value', async () => {
     const backupId = await makeBackup('sold_by_weight', {
       settings: [],
       categories: [],

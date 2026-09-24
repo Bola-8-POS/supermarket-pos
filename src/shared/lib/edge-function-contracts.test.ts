@@ -677,11 +677,11 @@ describe('ProcessPaymentEnvelopeSchema — retryAfter', () => {
   });
 });
 
-// S-24: every mapper's fallback branch now returns a generic translated
-// message, keeping the raw server text only in `details` (for logs), not in
+// Every mapper's fallback branch now returns a generic translated message,
+// keeping the raw server text only in `details` (for logs), not in
 // `AppError.message` (what the UI shows). The prefix/equality checks above
 // each fallback are untouched (asserted separately above by `.code`).
-describe('S-24 — hardened mapper fallbacks never surface raw server text as message', () => {
+describe('hardened mapper fallbacks never surface raw server text as message', () => {
   const generic = i18n.t('common:edgeErrors.generic');
 
   it('mapAdminResetPinEdgeError generic fallback', () => {
@@ -730,7 +730,7 @@ describe('S-24 — hardened mapper fallbacks never surface raw server text as me
   });
 });
 
-describe('mapAgentProxyErrorBody (S-11/S-24)', () => {
+describe('mapAgentProxyErrorBody', () => {
   it('maps RATE_LIMITED to a translated message carrying retryAfter', () => {
     const error = mapAgentProxyErrorBody(
       { code: 'RATE_LIMITED', message: 'Too many requests', retryAfter: 42 },
@@ -770,7 +770,7 @@ describe('mapAgentProxyErrorBody (S-11/S-24)', () => {
   });
 });
 
-describe('catchToAppError (S-25/I-3)', () => {
+describe('catchToAppError', () => {
   it('maps a LICENSE_LOCKED-prefixed Error to a LICENSE_LOCKED AppError', () => {
     const error = catchToAppError(
       new Error('LICENSE_LOCKED: this terminal is not licensed — database writes are disabled')

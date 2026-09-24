@@ -384,10 +384,10 @@ verify_jwt = true
 [functions.change-own-pin]
 verify_jwt = true
 
-# SEC-07 (S-24): every function below gets an explicit verify_jwt instead of
-# relying on the platform default. get-server-time is the sole unauthenticated
-# one (B-1: its only real caller invokes it via supabase.functions.invoke,
-# which sends POST by default, so it answers GET, POST and OPTIONS).
+# Every function below gets an explicit verify_jwt instead of relying on the
+# platform default. get-server-time is the sole unauthenticated one -- its
+# only real caller invokes it via supabase.functions.invoke, which sends
+# POST by default, so it answers GET, POST and OPTIONS.
 [functions.admin-reset-pin]
 verify_jwt = true
 

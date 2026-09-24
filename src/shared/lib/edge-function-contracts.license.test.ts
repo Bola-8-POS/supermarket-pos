@@ -3,9 +3,9 @@ import { callProcessPayment } from './edge-function-contracts';
 import { useLicenseStore } from './license/store';
 import type * as SupabaseModule from './supabase';
 
-// S-25/I-3/N-3: isolated in its own file because vi.mock hoists to the whole
-// file — every other case in edge-function-contracts.test.ts needs the
-// globally-mocked ./supabase from test-setup.ts, not this real, partial one.
+// Isolated in its own file because vi.mock hoists to the whole file — every
+// other case in edge-function-contracts.test.ts needs the globally-mocked
+// ./supabase from test-setup.ts, not this real, partial one.
 // Keeps the real licenseGuardedFetch/initSupabaseClient/etc. and only swaps
 // getCachedAccessToken so callProcessPayment gets past its own AUTH_REQUIRED
 // guard and reaches the license gate instead.

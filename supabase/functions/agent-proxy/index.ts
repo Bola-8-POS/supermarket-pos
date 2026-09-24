@@ -6,9 +6,9 @@
 // context stay entirely client-side. This function only ever forwards one
 // messages.create-shaped request and returns the raw Anthropic response.
 //
-// S-11: superseding the D-03 (locked) comment this wave replaced — a role
-// gate (admin/manager), a model allow-list, request caps and a rate limit
-// are added on top of the existing Bearer-JWT auth.
+// Superseding the D-03 (locked) comment this wave replaced — a role gate
+// (admin/manager), a model allow-list, request caps and a rate limit are
+// added on top of the existing Bearer-JWT auth.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { z } from 'https://deno.land/x/zod@v3.23.8/mod.ts';
 import { type AgentGuardEnv, checkAgentRequest } from '../_shared/agent_guard.ts';
@@ -31,7 +31,7 @@ const BodySchema = z.object({
   messages: z.array(z.unknown()),
 });
 
-// M-2: the same literal is brain.ts:36's and vision.ts:9-11's client-side
+// The same literal is brain.ts:36's and vision.ts:9-11's client-side
 // default model string — the allow-list default must match both, since
 // vision.ts's menu-photo extraction calls this proxy too.
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
@@ -139,8 +139,8 @@ Deno.serve(async (req: Request) => {
   const anthropicBody: unknown = await anthropicResp.json().catch(() => null);
 
   if (!anthropicResp.ok) {
-    // B-4: the upstream body is logged, never relayed — only the HTTP status
-    // is kept.
+    // The upstream body is logged, never relayed — only the HTTP status is
+    // kept.
     return fail(req, anthropicResp.status, 'ANTHROPIC_ERROR', {
       envelope: 'nested',
       message: 'Upstream error',

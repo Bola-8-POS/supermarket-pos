@@ -25,7 +25,7 @@ Deno.serve(async req => {
   }
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
-  // S-11: admin or manager only (was any authenticated caller).
+  // Admin or manager only (was any authenticated caller).
   const caller = await verifyCaller(req, admin);
   if (!caller.ok) {
     return fail(req, caller.status, caller.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN', { envelope: 'ok' });

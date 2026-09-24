@@ -13,7 +13,7 @@ const BodySchema = z.object({
   pdfBase64: z.string().max(2_000_000).optional(),
 });
 
-// M-9: env-configurable instead of hardcoded, next to AGENT_ALLOWED_MODELS.
+// Env-configurable instead of hardcoded, next to AGENT_ALLOWED_MODELS.
 const DEFAULT_DAILY_LIMIT = 50;
 const RATE_LIMIT_WINDOW_SECONDS = 86_400;
 
@@ -45,7 +45,7 @@ Deno.serve(async (req: Request) => {
   if (!caller.ok) {
     return fail(req, caller.status, caller.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN', { envelope: 'nested' });
   }
-  // S-11: any active role except kitchen may email a receipt.
+  // Any active role except kitchen may email a receipt.
   if (caller.role === 'kitchen') {
     return fail(req, 403, 'FORBIDDEN', { envelope: 'nested' });
   }
@@ -106,7 +106,7 @@ Deno.serve(async (req: Request) => {
     return fail(req, 502, 'RESEND_ERROR', { envelope: 'nested', detail });
   }
 
-  // I-6 known limit: BodySchema carries no paymentId/tabId today, so the
+  // Known limit: BodySchema carries no paymentId/tabId today, so the
   // audit row records the recipient with a null entity id until a future
   // request-shape change.
   await recordAudit(admin, {

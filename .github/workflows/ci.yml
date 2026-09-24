@@ -131,7 +131,7 @@ jobs:
       - name: Tauri native build
         run: npm run tauri build -- --ci --no-bundle
 
-      - name: Scan dist for provider-key patterns (S-19)
+      - name: Scan dist for provider-key patterns
         # This job's other run: steps default to pwsh on this self-hosted
         # Windows runner; a bare grep needs bash. This job's build sets no
         # VITE_* secrets, so this mostly proves the pattern doesn't

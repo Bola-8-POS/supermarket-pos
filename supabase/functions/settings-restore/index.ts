@@ -23,8 +23,8 @@ function json(req: Request, body: unknown, status = 200): Response {
 
 // The RPC raises 'CODE: detail' on refusal; the code prefix maps to an HTTP
 // status the same way a database error already mapped to one here before
-// this wave (S-27: the RPC now does the whole restore transactionally,
-// including reading the snapshot itself).
+// this wave (the RPC now does the whole restore transactionally, including
+// reading the snapshot itself).
 function statusForRpcMessage(message: string | undefined): number {
   if (message?.startsWith('NOT_FOUND')) return 404;
   if (message?.startsWith('FORBIDDEN')) return 403;
@@ -65,8 +65,8 @@ Deno.serve(async req => {
     return fail(req, 400, 'VALIDATION_ERROR', { envelope: 'ok', message: 'Invalid backup id' });
   }
 
-  // S-27: settings_restore_snapshot reads the snapshot itself (FOR UPDATE)
-  // and applies the whole restore in one transaction — no separate
+  // settings_restore_snapshot reads the snapshot itself (FOR UPDATE) and
+  // applies the whole restore in one transaction — no separate
   // fetch-the-backup step here anymore.
   const { error } = await serviceClient.rpc('settings_restore_snapshot', {
     p_backup_id: parsed.data.backupId,

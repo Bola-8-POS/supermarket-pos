@@ -15,8 +15,9 @@ import { generateSalesReport, getDailySummary, getTopProducts, reportToolDefinit
 import { getPosStatus, getCurrentShift, systemToolDefinitions } from './systemTools';
 
 // confirm_action is executable (see the switch below, for the UI's own
-// click-through path in useAgent.ts) but never offered to the model — S-20,
-// brain.ts's tool loop refuses a model-issued confirm_action as a backstop.
+// click-through path in useAgent.ts) but never offered to the model —
+// brain.ts's tool loop also refuses a model-issued confirm_action as a
+// backstop.
 export const allToolDefinitions = [
   ...guardToolDefinitions,   // lookup tools first — Claude should reach for these
   ...posToolDefinitions,
@@ -35,12 +36,12 @@ export const WRITE_TOOLS = new Set([
   'confirm_action',
 ]);
 
-// S-20: data minimization before a tool result reaches the model — customer
-// phone numbers are masked to their last 4 digits, customer names are kept
-// (needed to find a tab), and any staff email or pin field is dropped. No
-// tool selects a phone/email/pin column today (see the plan), so this is a
-// defensive seam for a select list that grows one later, not a fix for
-// something currently exposed.
+// Data minimization before a tool result reaches the model — customer phone
+// numbers are masked to their last 4 digits, customer names are kept (needed
+// to find a tab), and any staff email or pin field is dropped. No tool
+// selects a phone/email/pin column today, so this is a defensive seam for a
+// select list that grows one later, not a fix for a field any tool currently
+// sends to the model.
 function redactForModel(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map((v: unknown) => redactForModel(v));

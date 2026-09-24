@@ -14,7 +14,7 @@ export function AgentButton({ className }: { className?: string }) {
 
   const agentEnabled = import.meta.env['VITE_AGENT_ENABLED'] as string | undefined;
   if (agentEnabled === 'false') return null;
-  // S-20: the AI assistant is admin/manager only.
+  // The AI assistant is admin/manager only.
   if (userRole !== 'admin' && userRole !== 'manager') return null;
 
   return (

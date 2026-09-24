@@ -1,9 +1,9 @@
--- Generic rate limiting for edge functions (SEC-07 / S-11).
+-- Generic rate limiting for edge functions.
 --
--- One row per key, upserted under an advisory lock (I-6). A refused call
--- does not increment hit_count, so a client stuck retrying does not extend
--- its own lockout -- only an allowed call increments. The window resets when
--- it has fully elapsed since window_start.
+-- One row per key, upserted under an advisory lock. A refused call does not
+-- increment hit_count, so a client stuck retrying does not extend its own
+-- lockout -- only an allowed call increments. The window resets when it has
+-- fully elapsed since window_start.
 
 CREATE TABLE public.rate_limits (
   rate_key     text PRIMARY KEY,
@@ -54,7 +54,7 @@ END;
 $$;
 
 -- ponytail: one row per user per rate-limit key never needs a cleanup job at
--- this scale -- no TTL sweep added (I-6).
+-- this scale -- no TTL sweep added.
 
 REVOKE ALL ON FUNCTION public.rate_limit_hit(text, integer, integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.rate_limit_hit(text, integer, integer) TO service_role;

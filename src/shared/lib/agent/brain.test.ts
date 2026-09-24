@@ -161,7 +161,7 @@ describe('runAgent', () => {
     expect(result.text).toMatch(/unavailable|disponible/i);
   });
 
-  it('refuses a model-issued confirm_action instead of executing it (S-20)', async () => {
+  it('refuses a model-issued confirm_action instead of executing it', async () => {
     mockCallAgentProxy
       .mockImplementationOnce(() => toolUseResponse('confirm_action', 'tu-4', { token: 'tok-xyz' }))
       .mockImplementationOnce(() => textResponse('done'));

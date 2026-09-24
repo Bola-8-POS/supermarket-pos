@@ -1,7 +1,7 @@
-// Shared error envelope for edge functions (SEC-07 / S-24). fail() builds
-// the right response shape for the calling function's family and keeps raw
-// server text (a Postgres/Auth error's own .message) out of every response
-// body; only opts.detail reaches the server log.
+// Shared error envelope for edge functions. fail() builds the right
+// response shape for the calling function's family and keeps raw server
+// text (a Postgres/Auth error's own .message) out of every response body;
+// only opts.detail reaches the server log.
 import { corsHeaders } from './cors.ts'
 
 export type Envelope = 'nested' | 'flat' | 'ok'
@@ -45,8 +45,8 @@ const DEFAULT_MESSAGES: Record<string, string> = {
 }
 
 // The three RPC-raised codes whose message is actually SQLERRM-sourced and
-// so can carry raw database detail (B-4/B-8). Every other RPC code's message
-// is our own literal text and passes through fail() unscrubbed.
+// so can carry raw database detail. Every other RPC code's message is our
+// own literal text and passes through fail() unscrubbed.
 const RAW_TEXT_CODES = new Set(['DIRECT_SALE_FAILED', 'INTERNAL', 'RECEIVE_SHIPMENT_FAILED'])
 
 // Every distinct RAISE EXCEPTION '<PREFIX>:' prefix in supabase/migrations

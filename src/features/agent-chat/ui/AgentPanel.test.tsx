@@ -16,7 +16,7 @@ function staffWith(role: Staff['role']): Staff {
   };
 }
 
-describe('AgentPanel role gate (S-20)', () => {
+describe('AgentPanel role gate', () => {
   beforeEach(() => {
     useStaffStore.setState({
       currentStaff: null,

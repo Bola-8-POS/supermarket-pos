@@ -1,7 +1,6 @@
-// Edge-side wrapper for the rate_limit_hit RPC (SEC-07 / S-11). Callers turn
-// a false `ok` into a 500 (the counter itself is unavailable) and a positive
-// retryAfter into a 429 via _shared/errors.ts's fail() with `extra:
-// { retryAfter }` (I-7's 429 body shape).
+// Edge-side wrapper for the rate_limit_hit RPC. Callers turn a false `ok`
+// into a 500 (the counter itself is unavailable) and a positive retryAfter
+// into a 429 via _shared/errors.ts's fail() with `extra: { retryAfter }`.
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 export type RateLimitResult = { ok: true; retryAfter: number } | { ok: false }

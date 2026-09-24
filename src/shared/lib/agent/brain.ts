@@ -183,7 +183,7 @@ export async function runAgent(
         const toolResults: AnthropicToolResultBlockParam[] = [];
 
         for (const block of toolBlocks) {
-          // S-20: a model-issued confirm_action is refused here, before it ever
+          // A model-issued confirm_action is refused here, before it ever
           // reaches executeTool — only the UI's own click-through (useAgent.ts)
           // may call confirm_action. See allToolDefinitions in tools/index.ts,
           // which already drops confirm_action from what the model is offered;
