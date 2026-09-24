@@ -26,6 +26,11 @@ vi.mock('./tools/index', () => ({
   ],
   executeTool: mockExecuteTool,
   DESTRUCTIVE_TOOLS: new Set(['deactivate_product', 'bulk_import_products']),
+  WRITE_TOOLS: new Set([
+    'open_tab', 'close_tab', 'add_items_to_tab',
+    'add_product', 'update_product', 'deactivate_product', 'bulk_import_products',
+    'confirm_action',
+  ]),
 }));
 
 vi.mock('@shared/lib/logger', () => ({
@@ -33,6 +38,7 @@ vi.mock('@shared/lib/logger', () => ({
 }));
 
 import { runAgent } from './brain';
+import type { Message } from './brain';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -168,5 +174,40 @@ describe('runAgent', () => {
       expect.anything()
     );
     expect(result.toolsExecuted).toContain('confirm_action');
+  });
+
+  it('trims a long history so one full turn stays under the proxy message cap, starting on a user message', async () => {
+    const longHistory: Message[] = Array.from({ length: 80 }, (_, i) => ({
+      role: i % 2 === 0 ? 'user' : 'assistant',
+      content: `message ${String(i)}`,
+    }));
+
+    let capturedMessages: Array<{ role: string; content: unknown }> = [];
+    mockCallAgentProxy.mockImplementation(
+      (params: { messages: Array<{ role: string; content: unknown }> }) => {
+        capturedMessages = params.messages;
+        return textResponse('ok');
+      }
+    );
+
+    await runAgent('one more message', 'manager', longHistory);
+
+    expect(capturedMessages.length).toBeLessThanOrEqual(60);
+    expect(capturedMessages[0]?.role).toBe('user');
+  });
+
+  it('stops retrying and returns an error once a write tool has run in the attempt', async () => {
+    mockCallAgentProxy
+      .mockImplementationOnce(() => toolUseResponse('open_tab', 'tu-1', { customer_name: 'Test' }))
+      .mockRejectedValueOnce(new Error('network error'));
+
+    mockExecuteTool.mockResolvedValueOnce({ ok: true, data: { id: 'tab-1' } });
+
+    const result = await runAgent('open a tab for test', 'admin', []);
+
+    expect(mockCallAgentProxy).toHaveBeenCalledTimes(2);
+    expect(result.usedFallback).toBe(false);
+    expect(result.toolsExecuted).toContain('open_tab');
+    expect(result.text).toMatch(/went wrong/i);
   });
 });

@@ -26,8 +26,10 @@ export const allToolDefinitions = [
   ...systemToolDefinitions,
 ].filter((t) => t.name !== 'confirm_action');
 
-// Write tools subject to rate guard
-const WRITE_TOOLS = new Set([
+// Write tools subject to rate guard (also used by brain.ts to know whether a
+// write has already run in the current attempt, so a failure afterward isn't
+// silently retried into a duplicate write).
+export const WRITE_TOOLS = new Set([
   'open_tab', 'close_tab', 'add_items_to_tab',
   'add_product', 'update_product', 'deactivate_product', 'bulk_import_products',
   'confirm_action',

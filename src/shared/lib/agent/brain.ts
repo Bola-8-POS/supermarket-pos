@@ -6,7 +6,7 @@ import type {
   AnthropicToolResultBlockParam,
   AnthropicToolUseBlock,
 } from './anthropic-types';
-import { allToolDefinitions, executeTool } from './tools/index';
+import { allToolDefinitions, executeTool, WRITE_TOOLS } from './tools/index';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -42,6 +42,23 @@ function getOllamaUrl(): string {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const MAX_TOOL_LOOPS = 8;
+
+// agent-proxy's own guard (supabase/functions/_shared/agent_guard.ts,
+// MAX_MESSAGES) rejects any request with more than 60 messages. One turn can
+// add: the trimmed history, the new user message (+1), and up to
+// MAX_TOOL_LOOPS rounds of an assistant + tool-result pair each (+2 per
+// round) — so the history sent has to leave room for both.
+const AGENT_MAX_MESSAGES = 60;
+// ponytail: trims oldest messages; summarisation if long sessions matter
+const HISTORY_LIMIT = AGENT_MAX_MESSAGES - 1 - 2 * MAX_TOOL_LOOPS; // 43
+
+// Keeps the most recent HISTORY_LIMIT messages, then drops any leading
+// non-user messages so the trimmed history still starts on a user turn.
+function trimHistory(history: Message[]): Message[] {
+  const trimmed = history.slice(-HISTORY_LIMIT);
+  const firstUserIdx = trimmed.findIndex((m) => m.role === 'user');
+  return firstUserIdx === -1 ? [] : trimmed.slice(firstUserIdx);
+}
 
 function detectLanguage(text: string): 'es' | 'en' {
   const spanishPattern =
@@ -126,7 +143,7 @@ export async function runAgent(
   const systemPrompt = buildSystemPrompt(userRole, lang);
 
   const messages: AnthropicMessageParam[] = [
-    ...conversationHistory.map((m) => ({
+    ...trimHistory(conversationHistory).map((m) => ({
       role: m.role,
       content: m.content,
     })),
@@ -135,6 +152,10 @@ export async function runAgent(
 
   let attempt = 0;
   while (attempt < 2) {
+    // Whether a write tool has already run in this attempt. A failure after
+    // that point must not retry the whole turn (or fall back to Ollama) —
+    // the retry would replay the same write.
+    let wroteThisAttempt = false;
     try {
       const firstResult = await callAgentProxy({
         model: getModel(),
@@ -187,6 +208,7 @@ export async function runAgent(
             ctx
           );
           toolsExecuted.push(block.name);
+          if (WRITE_TOOLS.has(block.name)) wroteThisAttempt = true;
 
           // Capture the first pending destructive action for UI confirmation dialog
           if (result.ok && capturedPending === null) {
@@ -231,6 +253,22 @@ export async function runAgent(
     } catch (e) {
       attempt++;
       logger.warn('brain.runAgent.claude_error', { attempt, detail: String(e) });
+      if (wroteThisAttempt) {
+        // A write already ran this attempt — retrying (or falling back to
+        // Ollama, which can't see toolsExecuted at all) risks running the
+        // same write again. Surface the failure to the user instead.
+        const text =
+          lang === 'es'
+            ? 'La acción se ejecutó, pero ocurrió un error después. Revisa antes de intentarlo de nuevo.'
+            : 'The action ran, but something went wrong afterward. Please check before trying again.';
+        return {
+          text,
+          toolsExecuted,
+          usedFallback: false,
+          awaitingConfirmation: false,
+          pendingConfirmation: null,
+        };
+      }
       if (attempt < 2) continue;
     }
   }
