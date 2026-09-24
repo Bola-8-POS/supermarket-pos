@@ -22,7 +22,7 @@ import {
 import i18n from './i18n';
 import { logger } from './logger';
 import { ok, err, inventoryNegativeError, type Result } from './result';
-import { supabase, getCachedAccessToken } from './supabase';
+import { supabase, getCachedAccessToken, licenseGuardedFetch } from './supabase';
 import type { AppError } from './supabase-contracts';
 import { TERMINAL_ID_PATTERN } from './terminal';
 
@@ -100,6 +100,22 @@ export const ReceiptDataSchema = z.object({
 });
 
 export type ReceiptData = z.infer<typeof ReceiptDataSchema>;
+
+/**
+ * S-25/I-3: `licenseGuardedFetch` rejects with a plain `Error` whose message
+ * starts with `LICENSE_LOCKED:` (see `supabase.ts`) instead of calling
+ * `fetch` at all. None of the seven raw-`fetch` call sites below recognize
+ * that prefix on their own — each `catch` block gains one new first line,
+ * `const licenseErr = catchToAppError(error); if (licenseErr) return
+ * err(licenseErr);`, ahead of its existing `ZodError`/ternary logic, which
+ * stays otherwise untouched.
+ */
+export function catchToAppError(e: unknown): AppError | null {
+  if (e instanceof Error && e.message.startsWith('LICENSE_LOCKED:')) {
+    return { code: 'LICENSE_LOCKED', message: e.message.slice('LICENSE_LOCKED:'.length).trim() };
+  }
+  return null;
+}
 
 // ============================================================================
 // PROCESS PAYMENT
@@ -217,7 +233,9 @@ export function mapProcessPaymentEdgeError(
     case 'INVALID_DISCOUNT_SCOPE':
       return { code: 'VALIDATION_ERROR', message };
     default:
-      return { code: 'SUPABASE_ERROR', message, details: code ?? '' };
+      // S-24: the server's own text never reaches AppError.message unmapped —
+      // it is kept in `details` for logs, not shown to the user.
+      return { code: 'SUPABASE_ERROR', message: i18n.t('common:edgeErrors.generic'), details: message };
   }
 }
 
@@ -244,7 +262,7 @@ export async function callProcessPayment(
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-    const response = await fetch(`${supabaseUrl}/functions/v1/process-payment`, {
+    const response = await licenseGuardedFetch(`${supabaseUrl}/functions/v1/process-payment`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -303,6 +321,9 @@ export async function callProcessPayment(
 
     return ok(success.data);
   } catch (error) {
+    const licenseErr = catchToAppError(error);
+    if (licenseErr) return err(licenseErr);
+
     if (error instanceof z.ZodError) {
       return err({
         code: 'VALIDATION_ERROR',
@@ -344,7 +365,7 @@ export type CreateStaffSuccess = z.infer<typeof CreateStaffSuccessSchema>;
 function mapCreateStaffEdgeError(status: number, message: string): AppError {
   if (status === 401) return { code: 'AUTH_REQUIRED', message };
   if (status === 403) return { code: 'AUTH_FORBIDDEN', message };
-  return { code: 'SUPABASE_ERROR', message };
+  return { code: 'SUPABASE_ERROR', message: i18n.t('common:edgeErrors.generic'), details: message };
 }
 
 /**
@@ -366,7 +387,7 @@ export async function callCreateStaff(
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-    const response = await fetch(`${supabaseUrl}/functions/v1/create-staff`, {
+    const response = await licenseGuardedFetch(`${supabaseUrl}/functions/v1/create-staff`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -400,6 +421,9 @@ export async function callCreateStaff(
 
     return ok(success.data);
   } catch (error) {
+    const licenseErr = catchToAppError(error);
+    if (licenseErr) return err(licenseErr);
+
     if (error instanceof z.ZodError) {
       return err({
         code: 'VALIDATION_ERROR',
@@ -447,7 +471,7 @@ export function mapAdminResetPinEdgeError(status: number, message: string): AppE
   if (status === 401) return { code: 'AUTH_REQUIRED', message };
   if (status === 403) return { code: 'AUTH_FORBIDDEN', message };
   if (status === 404) return { code: 'NOT_FOUND', message };
-  return { code: 'SUPABASE_ERROR', message };
+  return { code: 'SUPABASE_ERROR', message: i18n.t('common:edgeErrors.generic'), details: message };
 }
 
 /**
@@ -474,7 +498,7 @@ async function callStaffEdgeFunction<TRequest, TSuccess>(
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-    const response = await fetch(`${supabaseUrl}/functions/v1/${fnName}`, {
+    const response = await licenseGuardedFetch(`${supabaseUrl}/functions/v1/${fnName}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -508,6 +532,9 @@ async function callStaffEdgeFunction<TRequest, TSuccess>(
 
     return ok(success.data);
   } catch (error) {
+    const licenseErr = catchToAppError(error);
+    if (licenseErr) return err(licenseErr);
+
     if (error instanceof z.ZodError) {
       return err({
         code: 'VALIDATION_ERROR',
@@ -570,7 +597,7 @@ export function mapSetStaffActiveEdgeError(status: number, message: string): App
   if (status === 401) return { code: 'AUTH_REQUIRED', message };
   if (status === 403) return { code: 'AUTH_FORBIDDEN', message };
   if (status === 404) return { code: 'NOT_FOUND', message };
-  return { code: 'SUPABASE_ERROR', message };
+  return { code: 'SUPABASE_ERROR', message: i18n.t('common:edgeErrors.generic'), details: message };
 }
 
 /** Calls the set-staff-active edge function (deactivate or reactivate a staff member). */
@@ -608,7 +635,7 @@ export function mapChangeOwnPinEdgeError(status: number, message: string): AppEr
   if (message === 'SAME_PIN') return { code: 'PIN_SAME', message };
   if (status === 401) return { code: 'AUTH_REQUIRED', message };
   if (status === 403) return { code: 'AUTH_FORBIDDEN', message };
-  return { code: 'SUPABASE_ERROR', message };
+  return { code: 'SUPABASE_ERROR', message: i18n.t('common:edgeErrors.generic'), details: message };
 }
 
 /** Calls the change-own-pin edge function for the signed-in staff member. */
@@ -725,7 +752,35 @@ export type AgentProxyRequest = z.infer<typeof AgentProxyRequestSchema>;
 export const AgentProxyErrorBodySchema = z.object({
   code: z.string(),
   message: z.string(),
+  retryAfter: z.number().optional(),
 });
+
+/**
+ * Exported so it's directly unit-testable — mirrors mapAdminResetPinEdgeError's
+ * convention. S-11/S-24: the three codes agent-proxy's own gates can raise get
+ * their own translated messages; everything else falls through to a generic
+ * AGENT_ERROR with the server's own text kept only in `details`, never shown
+ * to the user.
+ */
+export function mapAgentProxyErrorBody(
+  errBody: { code: string; message: string; retryAfter?: number | undefined } | null,
+  responseStatus: number
+): AppError {
+  if (errBody?.code === 'RATE_LIMITED') {
+    return {
+      code: 'RATE_LIMITED',
+      message: i18n.t('common:edgeErrors.rateLimited', { seconds: errBody.retryAfter ?? 0 }),
+    };
+  }
+  if (errBody?.code === 'FORBIDDEN') {
+    return { code: 'AUTH_FORBIDDEN', message: i18n.t('common:edgeErrors.forbidden') };
+  }
+  if (errBody?.code === 'MODEL_NOT_ALLOWED') {
+    return { code: 'MODEL_NOT_ALLOWED', message: i18n.t('common:edgeErrors.modelNotAllowed') };
+  }
+  const message = errBody?.message ?? `Agent service error (${String(responseStatus)})`;
+  return { code: 'AGENT_ERROR', message: i18n.t('common:edgeErrors.generic'), details: message };
+}
 
 /**
  * LOOSE validator — only pins down what callers (brain.ts/vision.ts) actually
@@ -762,7 +817,7 @@ export async function callAgentProxy(
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-    const response = await fetch(`${supabaseUrl}/functions/v1/agent-proxy`, {
+    const response = await licenseGuardedFetch(`${supabaseUrl}/functions/v1/agent-proxy`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -780,12 +835,7 @@ export async function callAgentProxy(
           ? (data as { error: unknown }).error
           : null
       );
-      const message = errBody.success
-        ? errBody.data.message
-        : `Agent service error (${String(response.status)})`;
-      // Every agent-proxy failure code maps to AGENT_ERROR — this proxy has
-      // no other domain-specific codes to distinguish.
-      return err({ code: 'AGENT_ERROR', message });
+      return err(mapAgentProxyErrorBody(errBody.success ? errBody.data : null, response.status));
     }
 
     const parsed = AnthropicMessageResponseSchema.safeParse(data);
@@ -802,6 +852,9 @@ export async function callAgentProxy(
     // shape (id, type, role, etc.) is trusted to come through from Anthropic's API.
     return ok(parsed.data as unknown as AnthropicMessage);
   } catch (error) {
+    const licenseErr = catchToAppError(error);
+    if (licenseErr) return err(licenseErr);
+
     if (error instanceof z.ZodError) {
       return err({
         code: 'VALIDATION_ERROR',
@@ -931,7 +984,7 @@ export async function callProcessDirectSale(
     const accessToken = getCachedAccessToken();
     if (!accessToken) return err({ code: 'AUTH_REQUIRED', message: 'Not authenticated' });
 
-    const response = await fetch(
+    const response = await licenseGuardedFetch(
       `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-direct-sale`,
       {
         method: 'POST',
@@ -980,6 +1033,9 @@ export async function callProcessDirectSale(
           details: result.error.message,
         });
   } catch (error) {
+    const licenseErr = catchToAppError(error);
+    if (licenseErr) return err(licenseErr);
+
     logger.error('process_direct_sale.exception', {}, error);
     return err({
       code: error instanceof z.ZodError ? 'VALIDATION_ERROR' : 'UNKNOWN_ERROR',
@@ -1026,7 +1082,7 @@ export async function callReceiveShipment(
     const body = ReceiveShipmentRequestSchema.parse(request);
     const accessToken = getCachedAccessToken();
     if (!accessToken) return err({ code: 'AUTH_REQUIRED', message: 'Not authenticated' });
-    const response = await fetch(
+    const response = await licenseGuardedFetch(
       `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/receive-shipment`,
       {
         method: 'POST',
@@ -1052,6 +1108,9 @@ export async function callReceiveShipment(
       ? ok(result.data)
       : err({ code: 'VALIDATION_ERROR', message: 'Invalid shipment payload' });
   } catch (error) {
+    const licenseErr = catchToAppError(error);
+    if (licenseErr) return err(licenseErr);
+
     return err({
       code: error instanceof z.ZodError ? 'VALIDATION_ERROR' : 'UNKNOWN_ERROR',
       message: error instanceof Error ? error.message : 'Unknown error occurred',
@@ -1180,7 +1239,7 @@ export function mapProcessSplitPaymentEdgeError(
     case 'UNAUTHORIZED':
       return { code: 'AUTH_REQUIRED', message };
     default:
-      return { code: 'SUPABASE_ERROR', message, details: code ?? '' };
+      return { code: 'SUPABASE_ERROR', message: i18n.t('common:edgeErrors.generic'), details: message };
   }
 }
 
@@ -1205,7 +1264,7 @@ export async function callProcessSplitPayment(
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-    const response = await fetch(`${supabaseUrl}/functions/v1/process-split-payment`, {
+    const response = await licenseGuardedFetch(`${supabaseUrl}/functions/v1/process-split-payment`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1269,6 +1328,9 @@ export async function callProcessSplitPayment(
 
     return ok(success.data);
   } catch (error) {
+    const licenseErr = catchToAppError(error);
+    if (licenseErr) return err(licenseErr);
+
     if (error instanceof z.ZodError) {
       return err({
         code: 'VALIDATION_ERROR',
@@ -1321,17 +1383,23 @@ export async function callSendReceiptEmail(
     });
 
     if (error) {
-      const msg =
-        typeof error === 'object' &&
-        error !== null &&
-        'message' in error &&
-        typeof (error as { message: unknown }).message === 'string'
-          ? (error as { message: string }).message
-          : 'Could not send receipt email';
+      // I-7: fail()'s RATE_LIMITED (S-11) and FORBIDDEN reach the client
+      // through the real response body behind supabase-js's generic error,
+      // not through the always-2xx `data` path below.
+      const invokeErr = await getInvokeErrorBody(error, 'Could not send receipt email');
+      if (invokeErr.code === 'RATE_LIMITED') {
+        return err({
+          code: 'RATE_LIMITED',
+          message: i18n.t('common:edgeErrors.rateLimited', { seconds: invokeErr.retryAfter ?? 0 }),
+        });
+      }
+      if (invokeErr.code === 'FORBIDDEN') {
+        return err({ code: 'AUTH_FORBIDDEN', message: i18n.t('common:edgeErrors.forbidden') });
+      }
       return err({
         code: 'SUPABASE_ERROR',
-        message: msg,
-        details: JSON.stringify(error),
+        message: i18n.t('common:edgeErrors.generic'),
+        details: invokeErr.message,
       });
     }
 
@@ -1349,8 +1417,8 @@ export async function callSendReceiptEmail(
       const e = body.error;
       return err({
         code: 'SUPABASE_ERROR',
-        message: e?.message ?? 'Failed to send receipt email',
-        ...(e?.code != null && e.code.length > 0 ? { details: e.code } : {}),
+        message: i18n.t('common:edgeErrors.generic'),
+        details: e?.message ?? e?.code ?? 'Failed to send receipt email',
       });
     }
 
@@ -1378,6 +1446,37 @@ function getInvokeErrorMessage(error: unknown, fallback: string): string {
     typeof (error as { message: unknown }).message === 'string'
     ? (error as { message: string }).message
     : fallback;
+}
+
+/**
+ * I-7: `getInvokeErrorMessage` only ever sees the supabase-js SDK's own
+ * generic "Edge Function returned a non-2xx status code" string — it never
+ * reads the real response body. `error.context` is the raw `Response` when
+ * the edge function actually answered (the working precedent is
+ * `callStaffSignIn`'s own body-read at line ~672); this reads it and pulls
+ * `{ code, message, retryAfter }` out of the function's own `nested`/`ok`
+ * envelope shape (`{ success | ok: false, error: { code, message, ... } }`),
+ * falling back to `getInvokeErrorMessage`'s generic string when there is no
+ * `context` at all (a genuine network failure with no HTTP response).
+ */
+async function getInvokeErrorBody(
+  error: unknown,
+  fallback: string
+): Promise<{ code?: string | undefined; message: string; retryAfter?: number | undefined }> {
+  const context: unknown = (error as { context?: unknown }).context;
+  if (!(context instanceof Response)) {
+    return { message: getInvokeErrorMessage(error, fallback) };
+  }
+  const body: unknown = await context.json().catch(() => null);
+  const nested =
+    body !== null && typeof body === 'object' && 'error' in body && typeof body.error === 'object' && body.error !== null
+      ? (body as { error: { code?: unknown; message?: unknown; retryAfter?: unknown } }).error
+      : null;
+  return {
+    code: typeof nested?.code === 'string' ? nested.code : undefined,
+    message: typeof nested?.message === 'string' ? nested.message : getInvokeErrorMessage(error, fallback),
+    retryAfter: typeof nested?.retryAfter === 'number' ? nested.retryAfter : undefined,
+  };
 }
 
 // ============================================================================
@@ -1492,7 +1591,8 @@ export async function callRestoreSettingsBackup(
     if (!envelope.data.ok) {
       return err({
         code: 'SUPABASE_ERROR',
-        message: envelope.data.error?.message ?? 'Restore failed',
+        message: i18n.t('common:edgeErrors.generic'),
+        details: envelope.data.error?.message ?? 'Restore failed',
       });
     }
     return ok(undefined);
@@ -1535,9 +1635,16 @@ export async function callSettingsEmailStatus(): Promise<
       body: {},
     });
     if (error) {
+      // I-7 (S-11): a FORBIDDEN role-gate refusal reaches the client through
+      // the real response body behind supabase-js's generic error.
+      const invokeErr = await getInvokeErrorBody(error, 'Could not check email status');
+      if (invokeErr.code === 'FORBIDDEN') {
+        return err({ code: 'AUTH_FORBIDDEN', message: i18n.t('common:edgeErrors.forbidden') });
+      }
       return err({
         code: 'SUPABASE_ERROR',
-        message: getInvokeErrorMessage(error, 'Could not check email status'),
+        message: i18n.t('common:edgeErrors.generic'),
+        details: invokeErr.message,
       });
     }
     const envelope = SettingsEmailStatusResponseSchema.safeParse(data);
@@ -1551,7 +1658,8 @@ export async function callSettingsEmailStatus(): Promise<
     if (!envelope.data.ok || envelope.data.resendConfigured == null) {
       return err({
         code: 'SUPABASE_ERROR',
-        message: envelope.data.error?.message ?? 'Could not check email status',
+        message: i18n.t('common:edgeErrors.generic'),
+        details: envelope.data.error?.message ?? 'Could not check email status',
       });
     }
     return ok({ resendConfigured: envelope.data.resendConfigured });

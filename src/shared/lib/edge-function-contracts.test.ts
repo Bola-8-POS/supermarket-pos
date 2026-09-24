@@ -7,7 +7,9 @@ import {
   ChangeOwnPinSuccessSchema,
   SetStaffActiveRequestSchema,
   SetStaffActiveSuccessSchema,
+  catchToAppError,
   mapAdminResetPinEdgeError,
+  mapAgentProxyErrorBody,
   mapChangeOwnPinEdgeError,
   mapSetStaffActiveEdgeError,
   mapProcessPaymentEdgeError,
@@ -23,6 +25,7 @@ import {
   ReceiveShipmentSuccessSchema,
   SendReceiptEmailRequestSchema,
 } from './edge-function-contracts';
+import i18n from './i18n';
 
 const tabId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 
@@ -671,5 +674,116 @@ describe('ProcessPaymentEnvelopeSchema — retryAfter', () => {
     });
     expect(r.success).toBe(true);
     if (r.success) expect(r.data.error?.retryAfter).toBe(30);
+  });
+});
+
+// S-24: every mapper's fallback branch now returns a generic translated
+// message, keeping the raw server text only in `details` (for logs), not in
+// `AppError.message` (what the UI shows). The prefix/equality checks above
+// each fallback are untouched (asserted separately above by `.code`).
+describe('S-24 — hardened mapper fallbacks never surface raw server text as message', () => {
+  const generic = i18n.t('common:edgeErrors.generic');
+
+  it('mapAdminResetPinEdgeError generic fallback', () => {
+    const error = mapAdminResetPinEdgeError(500, 'duplicate key value violates unique constraint');
+    expect(error.code).toBe('SUPABASE_ERROR');
+    expect(error.message).toBe(generic);
+    expect(error.details).toBe('duplicate key value violates unique constraint');
+  });
+
+  it('mapSetStaffActiveEdgeError generic fallback', () => {
+    const error = mapSetStaffActiveEdgeError(400, 'some raw db detail');
+    expect(error.code).toBe('SUPABASE_ERROR');
+    expect(error.message).toBe(generic);
+    expect(error.details).toBe('some raw db detail');
+  });
+
+  it('mapChangeOwnPinEdgeError generic fallback', () => {
+    const error = mapChangeOwnPinEdgeError(500, 'some raw db detail');
+    expect(error.code).toBe('SUPABASE_ERROR');
+    expect(error.message).toBe(generic);
+    expect(error.details).toBe('some raw db detail');
+  });
+
+  it('mapProcessPaymentEdgeError default branch', () => {
+    const error = mapProcessPaymentEdgeError('SOME_UNKNOWN_CODE', 'raw rpc detail');
+    expect(error.code).toBe('SUPABASE_ERROR');
+    expect(error.message).toBe(generic);
+    expect(error.details).toBe('raw rpc detail');
+  });
+
+  it('mapProcessSplitPaymentEdgeError default branch', () => {
+    const error = mapProcessSplitPaymentEdgeError('SOME_UNKNOWN_CODE', 'raw rpc detail');
+    expect(error.code).toBe('SUPABASE_ERROR');
+    expect(error.message).toBe(generic);
+    expect(error.details).toBe('raw rpc detail');
+  });
+
+  it('mapStaffSignInEdgeError is untouched — a short server code, not free text', () => {
+    // Regression guard: mapStaffSignInEdgeError must NOT gain the
+    // generic-fallback treatment — it takes a short server-issued code, not
+    // raw free text, and the design explicitly leaves it unchanged.
+    expect(mapStaffSignInEdgeError(503, 'UNAVAILABLE', 0)).toEqual({
+      code: 'SUPABASE_ERROR',
+      message: 'UNAVAILABLE',
+    });
+  });
+});
+
+describe('mapAgentProxyErrorBody (S-11/S-24)', () => {
+  it('maps RATE_LIMITED to a translated message carrying retryAfter', () => {
+    const error = mapAgentProxyErrorBody(
+      { code: 'RATE_LIMITED', message: 'Too many requests', retryAfter: 42 },
+      429
+    );
+    expect(error.code).toBe('RATE_LIMITED');
+    expect(error.message).toContain('42');
+  });
+
+  it('maps FORBIDDEN to AUTH_FORBIDDEN with a translated message', () => {
+    const error = mapAgentProxyErrorBody({ code: 'FORBIDDEN', message: 'nope' }, 403);
+    expect(error.code).toBe('AUTH_FORBIDDEN');
+    expect(error.message).toBe(i18n.t('common:edgeErrors.forbidden'));
+  });
+
+  it('maps MODEL_NOT_ALLOWED to a translated message', () => {
+    const error = mapAgentProxyErrorBody({ code: 'MODEL_NOT_ALLOWED', message: 'nope' }, 400);
+    expect(error.code).toBe('MODEL_NOT_ALLOWED');
+    expect(error.message).toBe(i18n.t('common:edgeErrors.modelNotAllowed'));
+  });
+
+  it('falls back to a generic AGENT_ERROR, keeping the server text only in details', () => {
+    const error = mapAgentProxyErrorBody(
+      { code: 'ANTHROPIC_ERROR', message: 'Upstream error' },
+      500
+    );
+    expect(error.code).toBe('AGENT_ERROR');
+    expect(error.message).toBe(i18n.t('common:edgeErrors.generic'));
+    expect(error.details).toBe('Upstream error');
+  });
+
+  it('falls back to a generic AGENT_ERROR with a status-derived detail when there is no parsed body', () => {
+    const error = mapAgentProxyErrorBody(null, 500);
+    expect(error.code).toBe('AGENT_ERROR');
+    expect(error.message).toBe(i18n.t('common:edgeErrors.generic'));
+    expect(error.details).toContain('500');
+  });
+});
+
+describe('catchToAppError (S-25/I-3)', () => {
+  it('maps a LICENSE_LOCKED-prefixed Error to a LICENSE_LOCKED AppError', () => {
+    const error = catchToAppError(
+      new Error('LICENSE_LOCKED: this terminal is not licensed — database writes are disabled')
+    );
+    expect(error).toEqual({
+      code: 'LICENSE_LOCKED',
+      message: 'this terminal is not licensed — database writes are disabled',
+    });
+  });
+
+  it('returns null for any other error', () => {
+    expect(catchToAppError(new Error('network error'))).toBeNull();
+    expect(catchToAppError('not an error')).toBeNull();
+    expect(catchToAppError(undefined)).toBeNull();
   });
 });

@@ -46,6 +46,12 @@
     "next7Days": "Next 7 Days",
     "next30Days": "Next 30 Days"
   },
+  "edgeErrors": {
+    "generic": "Something went wrong on the server. Please try again.",
+    "rateLimited": "Too many requests. Try again in {{seconds}}s.",
+    "forbidden": "You don't have permission to do that.",
+    "modelNotAllowed": "This AI model is not allowed."
+  },
   "errorBoundary": {
     "title": "Something went wrong"
   },

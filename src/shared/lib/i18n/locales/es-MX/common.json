@@ -46,6 +46,12 @@
     "next7Days": "Próximos 7 días",
     "next30Days": "Próximos 30 días"
   },
+  "edgeErrors": {
+    "generic": "Algo salió mal en el servidor. Intenta de nuevo.",
+    "rateLimited": "Demasiadas solicitudes. Intenta de nuevo en {{seconds}}s.",
+    "forbidden": "No tienes permiso para hacer eso.",
+    "modelNotAllowed": "Este modelo de IA no está permitido."
+  },
   "errorBoundary": {
     "title": "Algo salió mal"
   },
