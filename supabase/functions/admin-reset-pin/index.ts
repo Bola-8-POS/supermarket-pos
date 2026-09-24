@@ -4,26 +4,28 @@ import { z } from 'https://deno.land/x/zod@v3.23.8/mod.ts'
 import { recordAudit } from '../_shared/audit.ts'
 import { verifyCaller } from '../_shared/caller.ts'
 import { writeCredential } from '../_shared/credentials.ts'
+import { corsHeaders } from '../_shared/cors.ts'
+import { fail } from '../_shared/errors.ts'
 
 const BodySchema = z.object({
   targetStaffId: z.string().uuid(),
   newPin: z.string().regex(/^\d{6}$/),
 })
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+function methodsHeader(req: Request): Record<string, string> {
+  return { ...corsHeaders(req), 'Access-Control-Allow-Methods': 'POST, OPTIONS' }
 }
 
-function json(body: unknown, status = 200): Response {
+function json(req: Request, body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    headers: { 'Content-Type': 'application/json', ...methodsHeader(req) },
   })
 }
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: methodsHeader(req) })
+  if (req.method !== 'POST') return fail(req, 405, 'METHOD_NOT_ALLOWED', { envelope: 'flat' })
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -33,22 +35,22 @@ Deno.serve(async (req) => {
   const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey)
 
   const caller = await verifyCaller(req, supabaseAdmin)
-  if (!caller.ok) return json({ error: caller.error }, caller.status)
+  if (!caller.ok) return fail(req, caller.status, caller.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN', { envelope: 'flat' })
 
   // D-01: single-stage, admin-only gate — stricter than create-staff's
   // ['admin','manager'] gate, deliberately, since this is a live-credential
   // overwrite on an existing account, not account creation.
-  if (caller.role !== 'admin') return json({ error: 'Insufficient role' }, 403)
+  if (caller.role !== 'admin') return fail(req, 403, 'FORBIDDEN', { envelope: 'flat' })
 
   let bodyJson: unknown
   try {
     bodyJson = await req.json()
   } catch {
-    return json({ error: 'Invalid request' }, 400)
+    return fail(req, 400, 'VALIDATION_ERROR', { envelope: 'flat' })
   }
 
   const parsed = BodySchema.safeParse(bodyJson)
-  if (!parsed.success) return json({ error: 'Invalid request' }, 400)
+  if (!parsed.success) return fail(req, 400, 'VALIDATION_ERROR', { envelope: 'flat' })
   const { targetStaffId, newPin } = parsed.data
 
   // D-06: target must exist and be active. No self-target special-case
@@ -60,8 +62,8 @@ Deno.serve(async (req) => {
     .eq('id', targetStaffId)
     .single()
 
-  if (targetLookupError || !targetProfile) return json({ error: 'Staff member not found' }, 404)
-  if (!targetProfile.is_active) return json({ error: 'Staff member is inactive' }, 400)
+  if (targetLookupError || !targetProfile) return fail(req, 404, 'NOT_FOUND', { envelope: 'flat' })
+  if (!targetProfile.is_active) return fail(req, 400, 'INACTIVE', { envelope: 'flat' })
 
   // Both credential stores in one operation: Auth first, then the profile;
   // the previous Auth password is restored when the profile write fails.
@@ -79,9 +81,11 @@ Deno.serve(async (req) => {
   )
 
   if (!result.ok) {
-    if (result.code === 'AUTH_WRITE_FAILED') return json({ error: result.message }, 400)
+    if (result.code === 'AUTH_WRITE_FAILED') {
+      return fail(req, 400, 'AUTH_WRITE_FAILED', { envelope: 'flat', detail: result.message })
+    }
     if (result.code === 'COMPENSATED') {
-      return json({ error: 'CREDENTIAL_WRITE_FAILED: nothing changed, try again' }, 409)
+      return fail(req, 409, 'CREDENTIAL_WRITE_FAILED: nothing changed, try again', { envelope: 'flat' })
     }
     // The two credential stores diverged and the restore did not land:
     // surface a distinct, loud error and record the divergence.
@@ -94,12 +98,11 @@ Deno.serve(async (req) => {
       source: 'edge',
       actorId: caller.id,
     })
-    return json(
-      {
-        error:
-          'PARTIAL_FAILURE: credential changed but staff record failed to sync — contact support before this staff member logs in',
-      },
-      500
+    return fail(
+      req,
+      500,
+      'PARTIAL_FAILURE: credential changed but staff record failed to sync — contact support before this staff member logs in',
+      { envelope: 'flat', detail: result.message }
     )
   }
 
@@ -113,5 +116,5 @@ Deno.serve(async (req) => {
     actorId: caller.id, // unlike create-staff's null — actor is known and distinct from target here
   })
 
-  return json({ id: targetProfile.id, name: targetProfile.name })
+  return json(req, { id: targetProfile.id, name: targetProfile.name })
 })

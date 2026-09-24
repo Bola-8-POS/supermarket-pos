@@ -1,75 +1,62 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { z } from 'https://deno.land/x/zod@v3.23.8/mod.ts';
+import { verifyCaller } from '../_shared/caller.ts';
+import { corsHeaders } from '../_shared/cors.ts';
+import { fail } from '../_shared/errors.ts';
 
 const BodySchema = z.object({
   email: z.string().trim().email(),
 });
 
-// Missing on this function until now — every other edge function in this
-// project sets these, and their absence means every real browser call fails
-// at CORS preflight before ever reaching this code.
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+function methodsHeader(req: Request): Record<string, string> {
+  return { ...corsHeaders(req), 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
+}
 
-function json(body: unknown, status = 200): Response {
+function json(req: Request, body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    headers: { 'Content-Type': 'application/json', ...methodsHeader(req) },
   });
 }
 
 Deno.serve(async req => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: methodsHeader(req) });
   if (req.method !== 'POST') {
-    return json({ ok: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST only' } }, 405);
-  }
-
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    return json({ ok: false, error: { code: 'UNAUTHORIZED', message: 'Missing bearer token' } }, 401);
+    return fail(req, 405, 'METHOD_NOT_ALLOWED', { envelope: 'ok' });
   }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   const resendApiKey = Deno.env.get('RESEND_API_KEY');
-  if (!supabaseUrl || !anonKey || !resendApiKey) {
-    return json({ ok: false, error: { code: 'CONFIG', message: 'Server misconfigured' } }, 500);
+  if (!supabaseUrl || !anonKey || !serviceKey || !resendApiKey) {
+    return fail(req, 500, 'CONFIG', { envelope: 'ok' });
   }
 
   const userClient = createClient(supabaseUrl, anonKey, {
-    global: { headers: { Authorization: authHeader } },
+    global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } },
     auth: { persistSession: false, autoRefreshToken: false },
   });
+  const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
-  const {
-    data: { user },
-    error: userError,
-  } = await userClient.auth.getUser();
-  if (userError || !user) {
-    return json({ ok: false, error: { code: 'UNAUTHORIZED', message: 'Invalid session' } }, 401);
+  const caller = await verifyCaller(req, admin);
+  if (!caller.ok) {
+    return fail(req, caller.status, caller.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN', { envelope: 'ok' });
   }
-
-  const { data: profile, error: profileError } = await userClient
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single();
-  if (profileError || !profile || profile.role !== 'admin') {
-    return json({ ok: false, error: { code: 'FORBIDDEN', message: 'Admin access required' } }, 403);
+  if (caller.role !== 'admin') {
+    return fail(req, 403, 'FORBIDDEN', { envelope: 'ok', message: 'Admin access required' });
   }
 
   let bodyRaw: unknown;
   try {
     bodyRaw = await req.json();
   } catch {
-    return json({ ok: false, error: { code: 'INVALID_JSON', message: 'Body must be JSON' } }, 400);
+    return fail(req, 400, 'INVALID_JSON', { envelope: 'ok' });
   }
 
   const parsed = BodySchema.safeParse(bodyRaw);
   if (!parsed.success) {
-    return json({ ok: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid email' } }, 400);
+    return fail(req, 400, 'VALIDATION_ERROR', { envelope: 'ok', message: 'Invalid email' });
   }
 
   const { data: emailSetting } = await userClient
@@ -84,10 +71,7 @@ Deno.serve(async req => {
   const fromEmailEnv = (Deno.env.get('RECEIPT_FROM_EMAIL') ?? '').trim();
   const fromEmail = fromEmailSetting || fromEmailEnv;
   if (fromEmail.length === 0) {
-    return json(
-      { ok: false, error: { code: 'CONFIG', message: 'No from-email configured in settings or env' } },
-      500
-    );
+    return fail(req, 500, 'CONFIG', { envelope: 'ok', message: 'No from-email configured in settings or env' });
   }
 
   const response = await fetch('https://api.resend.com/emails', {
@@ -106,17 +90,8 @@ Deno.serve(async req => {
 
   if (!response.ok) {
     const detail = await response.text();
-    return json(
-      {
-        ok: false,
-        error: {
-          code: 'RESEND_ERROR',
-          message: detail.slice(0, 500) || `Resend returned ${String(response.status)}`,
-        },
-      },
-      502
-    );
+    return fail(req, 502, 'RESEND_ERROR', { envelope: 'ok', detail });
   }
 
-  return json({ ok: true });
+  return json(req, { ok: true });
 });

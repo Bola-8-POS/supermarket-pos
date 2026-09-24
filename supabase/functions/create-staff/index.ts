@@ -2,6 +2,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { z } from 'https://deno.land/x/zod@v3.23.8/mod.ts'
 import { recordAudit } from '../_shared/audit.ts'
+import { corsHeaders } from '../_shared/cors.ts'
+import { fail } from '../_shared/errors.ts'
 
 const BodySchema = z.object({
   name: z.string().trim().min(1).max(100),
@@ -10,17 +12,13 @@ const BodySchema = z.object({
   locale: z.enum(['es-MX', 'en-US']).optional(),
 })
 
-// Missing on this function until now — every other edge function in this
-// project (process-direct-sale, receive-shipment, etc.) sets these, and their
-// absence here means every real browser call to create-staff (the app's own
-// "Add Staff" dialog) fails at CORS preflight before ever reaching this code.
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+function methodsHeader(req: Request): Record<string, string> {
+  return { ...corsHeaders(req), 'Access-Control-Allow-Methods': 'POST, OPTIONS' }
 }
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: methodsHeader(req) })
+  if (req.method !== 'POST') return fail(req, 405, 'METHOD_NOT_ALLOWED', { envelope: 'flat' })
 
   // Bearer-JWT verification via a direct HTTP call to /auth/v1/user.
   // admin.auth.getUser() fails on ES256-signed tokens ("Unsupported JWT
@@ -28,10 +26,7 @@ Deno.serve(async (req) => {
   // handles ES256 correctly. Same pattern as process-payment/index.ts.
   const authHeader = req.headers.get('Authorization')
   if (!authHeader?.startsWith('Bearer ')) {
-    return new Response(JSON.stringify({ error: 'Missing bearer token' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders },
-    })
+    return fail(req, 401, 'UNAUTHORIZED', { envelope: 'flat' })
   }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
@@ -46,10 +41,7 @@ Deno.serve(async (req) => {
   })
 
   if (!authVerifyResp.ok) {
-    return new Response(JSON.stringify({ error: 'Invalid session' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders },
-    })
+    return fail(req, 401, 'UNAUTHORIZED', { envelope: 'flat' })
   }
 
   const authUser = (await authVerifyResp.json()) as { id: string }
@@ -65,28 +57,19 @@ Deno.serve(async (req) => {
     .single()
 
   if (callerProfileError || !callerProfile || !['admin', 'manager'].includes(callerProfile.role)) {
-    return new Response(JSON.stringify({ error: 'Insufficient role' }), {
-      status: 403,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders },
-    })
+    return fail(req, 403, 'FORBIDDEN', { envelope: 'flat' })
   }
 
   let bodyJson: unknown
   try {
     bodyJson = await req.json()
   } catch {
-    return new Response(JSON.stringify({ error: 'Invalid request' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders },
-    })
+    return fail(req, 400, 'VALIDATION_ERROR', { envelope: 'flat' })
   }
 
   const parsed = BodySchema.safeParse(bodyJson)
   if (!parsed.success) {
-    return new Response(JSON.stringify({ error: 'Invalid request' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders },
-    })
+    return fail(req, 400, 'VALIDATION_ERROR', { envelope: 'flat' })
   }
 
   const { name, role, pin, locale } = parsed.data
@@ -95,10 +78,7 @@ Deno.serve(async (req) => {
   // a manager caller must not be able to mint an admin/manager account by
   // calling this endpoint directly, bypassing the client-side RBAC boundary.
   if (['admin', 'manager'].includes(role) && callerProfile.role !== 'admin') {
-    return new Response(JSON.stringify({ error: 'Insufficient role' }), {
-      status: 403,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders },
-    })
+    return fail(req, 403, 'FORBIDDEN', { envelope: 'flat' })
   }
 
   const staffId = crypto.randomUUID()
@@ -113,10 +93,7 @@ Deno.serve(async (req) => {
   })
 
   if (authError) {
-    return new Response(JSON.stringify({ error: authError.message }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders },
-    })
+    return fail(req, 400, 'AUTH_WRITE_FAILED', { envelope: 'flat', detail: authError.message })
   }
 
   const { error: profileError } = await supabaseAdmin
@@ -134,10 +111,7 @@ Deno.serve(async (req) => {
 
   if (profileError) {
     await supabaseAdmin.auth.admin.deleteUser(staffId)
-    return new Response(JSON.stringify({ error: profileError.message }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders },
-    })
+    return fail(req, 400, 'PROFILE_WRITE_FAILED', { envelope: 'flat', detail: profileError.message })
   }
 
   await recordAudit(supabaseAdmin, {
@@ -151,6 +125,6 @@ Deno.serve(async (req) => {
   })
 
   return new Response(JSON.stringify({ id: staffId, email, name, role }), {
-    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    headers: { 'Content-Type': 'application/json', ...methodsHeader(req) },
   })
 })

@@ -6,20 +6,19 @@
 // context stay entirely client-side. This function only ever forwards one
 // messages.create-shaped request and returns the raw Anthropic response.
 //
-// D-03 (locked): no manager/admin role check beyond Bearer-JWT auth — any
-// authenticated staff (cashier+) may call this, matching pre-phase behavior.
+// S-11: superseding the D-03 (locked) comment this wave replaced — a role
+// gate (admin/manager), a model allow-list, request caps and a rate limit
+// are added on top of the existing Bearer-JWT auth.
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { z } from 'https://deno.land/x/zod@v3.23.8/mod.ts';
+import { type AgentGuardEnv, checkAgentRequest } from '../_shared/agent_guard.ts';
+import { verifyCaller } from '../_shared/caller.ts';
+import { corsHeaders } from '../_shared/cors.ts';
+import { fail } from '../_shared/errors.ts';
+import { rateLimit } from '../_shared/rate_limit.ts';
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders },
-  });
+function methodsHeader(req: Request): Record<string, string> {
+  return { ...corsHeaders(req), 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
 }
 
 // Forwarded opaquely (D-01's thin-proxy framing) — do not deeply validate
@@ -32,18 +31,30 @@ const BodySchema = z.object({
   messages: z.array(z.unknown()),
 });
 
+// M-2: the same literal is brain.ts:36's and vision.ts:9-11's client-side
+// default model string — the allow-list default must match both, since
+// vision.ts's menu-photo extraction calls this proxy too.
+const DEFAULT_MODEL = 'claude-sonnet-4-6';
+const RATE_LIMIT_WINDOW_SECONDS = 3600;
+// One chat message costs 1 proxy call plus up to MAX_TOOL_LOOPS=8 (brain.ts:45)
+// tool-loop round trips, retried once on failure (brain.ts:147) -- up to
+// 2*(1+8)=18 calls for one heavy message. 300/hour covers ~16 such messages
+// an hour per user without materially loosening the guard on a runaway caller.
+const RATE_LIMIT_PER_HOUR = 300;
+
+function allowedModels(): string[] {
+  const env = Deno.env.get('AGENT_ALLOWED_MODELS');
+  if (!env) return [DEFAULT_MODEL];
+  return env.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: methodsHeader(req) });
   }
 
   if (req.method !== 'POST') {
-    return jsonResponse({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST only' } }, 405);
-  }
-
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    return jsonResponse({ success: false, error: { code: 'UNAUTHORIZED', message: 'Missing bearer token' } }, 401);
+    return fail(req, 405, 'METHOD_NOT_ALLOWED', { envelope: 'nested' });
   }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
@@ -51,51 +62,48 @@ Deno.serve(async (req: Request) => {
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
   if (!supabaseUrl || !supabaseAnonKey || !serviceRoleKey) {
-    return jsonResponse({ success: false, error: { code: 'CONFIG', message: 'Server misconfigured' } }, 500);
+    return fail(req, 500, 'CONFIG', { envelope: 'nested' });
   }
 
-  // Verify the JWT via a direct HTTP call to /auth/v1/user.
-  // admin.auth.getUser() in supabase-js@2.49.1 fails with ES256-signed tokens
-  // ("Unsupported JWT algorithm ES256") because the bundled JWT library predates
-  // Supabase's switch from RS256 → ES256. The Auth REST API handles ES256 correctly.
-  const token = authHeader.slice(7); // strip "Bearer "
-  const authVerifyResp = await fetch(`${supabaseUrl}/auth/v1/user`, {
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'apikey': supabaseAnonKey,
-    },
-  });
+  const admin = createClient(supabaseUrl, serviceRoleKey);
 
-  if (!authVerifyResp.ok) {
-    return jsonResponse({ success: false, error: { code: 'UNAUTHORIZED', message: 'Invalid session' } }, 401);
+  const caller = await verifyCaller(req, admin);
+  if (!caller.ok) {
+    return fail(req, caller.status, caller.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN', { envelope: 'nested' });
   }
-  // authUser.id not otherwise used — no DB write, no audit row, this proxy only
-  // needs to prove a valid session exists (D-03: no role check beyond auth).
+  if (caller.role !== 'admin' && caller.role !== 'manager') {
+    return fail(req, 403, 'FORBIDDEN', { envelope: 'nested' });
+  }
+
+  const limitResult = await rateLimit(admin, `agent:${caller.id}`, RATE_LIMIT_PER_HOUR, RATE_LIMIT_WINDOW_SECONDS);
+  if (!limitResult.ok) {
+    return fail(req, 500, 'INTERNAL', { envelope: 'nested', detail: 'rate_limit_hit failed' });
+  }
+  if (limitResult.retryAfter > 0) {
+    return fail(req, 429, 'RATE_LIMITED', { envelope: 'nested', extra: { retryAfter: limitResult.retryAfter } });
+  }
 
   let bodyJson: unknown;
   try {
     bodyJson = await req.json();
   } catch {
-    return jsonResponse({ success: false, error: { code: 'INVALID_JSON', message: 'Body must be JSON' } }, 400);
+    return fail(req, 400, 'INVALID_JSON', { envelope: 'nested' });
   }
 
   const parsed = BodySchema.safeParse(bodyJson);
   if (!parsed.success) {
-    return jsonResponse(
-      {
-        success: false,
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: JSON.stringify(parsed.error.flatten().fieldErrors),
-        },
-      },
-      400
-    );
+    return fail(req, 400, 'VALIDATION_ERROR', { envelope: 'nested', detail: parsed.error.flatten().fieldErrors });
+  }
+
+  const guardEnv: AgentGuardEnv = { allowedModels: allowedModels() };
+  const guardError = checkAgentRequest(parsed.data, guardEnv);
+  if (guardError) {
+    return fail(req, 400, guardError.code, { envelope: 'nested', message: guardError.message });
   }
 
   const anthropicApiKey = Deno.env.get('ANTHROPIC_API_KEY');
   if (!anthropicApiKey) {
-    return jsonResponse({ success: false, error: { code: 'CONFIG', message: 'ANTHROPIC_API_KEY not set' } }, 500);
+    return fail(req, 500, 'CONFIG', { envelope: 'nested', message: 'ANTHROPIC_API_KEY not set' });
   }
 
   const body = parsed.data;
@@ -118,10 +126,11 @@ Deno.serve(async (req: Request) => {
       }),
     });
   } catch (e) {
-    return jsonResponse(
-      { success: false, error: { code: 'UPSTREAM_ERROR', message: e instanceof Error ? e.message : 'Anthropic request failed' } },
-      500
-    );
+    return fail(req, 502, 'ANTHROPIC_ERROR', {
+      envelope: 'nested',
+      message: 'Upstream error',
+      detail: e instanceof Error ? e.message : e,
+    });
   }
 
   // Success path: forward the raw Anthropic response body UNCHANGED (same
@@ -130,18 +139,17 @@ Deno.serve(async (req: Request) => {
   const anthropicBody: unknown = await anthropicResp.json().catch(() => null);
 
   if (!anthropicResp.ok) {
-    const message =
-      anthropicBody !== null && typeof anthropicBody === 'object' && 'error' in anthropicBody
-        ? JSON.stringify((anthropicBody as { error: unknown }).error)
-        : 'Anthropic API error';
-    return jsonResponse(
-      { success: false, error: { code: 'ANTHROPIC_ERROR', message } },
-      anthropicResp.status
-    );
+    // B-4: the upstream body is logged, never relayed — only the HTTP status
+    // is kept.
+    return fail(req, anthropicResp.status, 'ANTHROPIC_ERROR', {
+      envelope: 'nested',
+      message: 'Upstream error',
+      detail: anthropicBody,
+    });
   }
 
   return new Response(JSON.stringify(anthropicBody), {
     status: anthropicResp.status,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    headers: { 'Content-Type': 'application/json', ...methodsHeader(req) },
   });
 });

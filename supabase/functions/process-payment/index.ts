@@ -2,6 +2,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
 import { z } from 'https://deno.land/x/zod@v3.23.8/mod.ts';
 import { decomposeTax } from '../_shared/tax.ts';
+import { corsHeaders } from '../_shared/cors.ts';
+import { fail, publicRpcMessage } from '../_shared/errors.ts';
 
 const BodySchema = z
   .object({
@@ -50,15 +52,14 @@ type RpcResult = {
   retryAfter?: number;
 };
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+function methodsHeader(req: Request): Record<string, string> {
+  return { ...corsHeaders(req), 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
+}
 
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(req: Request, body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    headers: { 'Content-Type': 'application/json', ...methodsHeader(req) },
   });
 }
 
@@ -84,16 +85,16 @@ function statusForCode(code: string | undefined): number {
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: methodsHeader(req) });
   }
 
   if (req.method !== 'POST') {
-    return jsonResponse({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST only' } }, 405);
+    return fail(req, 405, 'METHOD_NOT_ALLOWED', { envelope: 'nested' });
   }
 
   const authHeader = req.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
-    return jsonResponse({ success: false, error: { code: 'UNAUTHORIZED', message: 'Missing bearer token' } }, 401);
+    return fail(req, 401, 'UNAUTHORIZED', { envelope: 'nested' });
   }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
@@ -101,7 +102,7 @@ Deno.serve(async (req: Request) => {
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
   if (!supabaseUrl || !supabaseAnonKey || !serviceRoleKey) {
-    return jsonResponse({ success: false, error: { code: 'CONFIG', message: 'Server misconfigured' } }, 500);
+    return fail(req, 500, 'CONFIG', { envelope: 'nested' });
   }
 
   // Verify the JWT via a direct HTTP call to /auth/v1/user.
@@ -117,7 +118,7 @@ Deno.serve(async (req: Request) => {
   });
 
   if (!authVerifyResp.ok) {
-    return jsonResponse({ success: false, error: { code: 'UNAUTHORIZED', message: 'Invalid session' } }, 401);
+    return fail(req, 401, 'UNAUTHORIZED', { envelope: 'nested' });
   }
 
   const authUser = await authVerifyResp.json() as { id: string };
@@ -127,23 +128,17 @@ Deno.serve(async (req: Request) => {
   try {
     bodyJson = await req.json();
   } catch {
-    return jsonResponse({ success: false, error: { code: 'INVALID_JSON', message: 'Body must be JSON' } }, 400);
+    return fail(req, 400, 'INVALID_JSON', { envelope: 'nested' });
   }
 
   const parsed = BodySchema.safeParse(bodyJson);
   if (!parsed.success) {
-    return jsonResponse(
-      {
-        success: false,
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: parsed.error.flatten().fieldErrors
-            ? JSON.stringify(parsed.error.flatten().fieldErrors)
-            : 'Invalid request',
-        },
-      },
-      400
-    );
+    // Our own schema's field errors, not raw server text — kept verbatim
+    // (unchanged behavior), same as before this wave.
+    return fail(req, 400, 'VALIDATION_ERROR', {
+      envelope: 'nested',
+      message: JSON.stringify(parsed.error.flatten().fieldErrors),
+    });
   }
 
   const body = parsed.data;
@@ -172,24 +167,18 @@ Deno.serve(async (req: Request) => {
   });
 
   if (rpcError) {
-    return jsonResponse(
-      {
-        success: false,
-        error: { code: 'RPC_ERROR', message: rpcError.message },
-      },
-      500
-    );
+    return fail(req, 500, 'RPC_ERROR', { envelope: 'nested', detail: rpcError.message });
   }
 
   const rpc = rpcData as RpcResult;
   if (!rpc || typeof rpc !== 'object' || rpc.ok !== true || !rpc.paymentId) {
     const code = rpc?.code ?? 'PAYMENT_FAILED';
-    const message = rpc?.message ?? 'Payment failed';
     const retryAfter = typeof rpc?.retryAfter === 'number' ? rpc.retryAfter : undefined;
-    return jsonResponse(
-      { success: false, error: { code, message, ...(retryAfter !== undefined ? { retryAfter } : {}) } },
-      statusForCode(code)
-    );
+    return fail(req, statusForCode(code), code, {
+      envelope: 'nested',
+      message: publicRpcMessage(code, rpc?.message),
+      extra: retryAfter !== undefined ? { retryAfter } : undefined,
+    });
   }
 
   const paymentId = rpc.paymentId;
@@ -206,7 +195,7 @@ Deno.serve(async (req: Request) => {
     .single();
 
   if (payErr || !paymentRow) {
-    return jsonResponse({ success: false, error: { code: 'PAYMENT_FETCH', message: 'Could not load payment' } }, 500);
+    return fail(req, 500, 'PAYMENT_FETCH', { envelope: 'nested', detail: payErr?.message });
   }
 
   const { data: tabRow, error: tabErr } = await admin
@@ -216,7 +205,7 @@ Deno.serve(async (req: Request) => {
     .single();
 
   if (tabErr || !tabRow) {
-    return jsonResponse({ success: false, error: { code: 'TAB_FETCH', message: 'Could not load tab' } }, 500);
+    return fail(req, 500, 'TAB_FETCH', { envelope: 'nested', detail: tabErr?.message });
   }
 
   const { data: cashierRow } = await admin.from('profiles').select('name').eq('id', authUser.id).maybeSingle();
@@ -242,7 +231,7 @@ Deno.serve(async (req: Request) => {
     .eq('tab_id', body.tabId);
 
   if (ordErr) {
-    return jsonResponse({ success: false, error: { code: 'ORDERS_FETCH', message: ordErr.message } }, 500);
+    return fail(req, 500, 'ORDERS_FETCH', { envelope: 'nested', detail: ordErr.message });
   }
 
   type Oi = {
@@ -384,7 +373,7 @@ Deno.serve(async (req: Request) => {
       paymentRow.discount_value == null ? undefined : Number(paymentRow.discount_value),
   };
 
-  return jsonResponse({
+  return jsonResponse(req, {
     success: true,
     paymentId,
     receiptData,

@@ -7,6 +7,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { z } from 'https://deno.land/x/zod@v3.23.8/mod.ts'
 import { recordAudit } from '../_shared/audit.ts'
 import { verifyCaller } from '../_shared/caller.ts'
+import { corsHeaders } from '../_shared/cors.ts'
+import { fail } from '../_shared/errors.ts'
 
 const BodySchema = z.object({
   staffId: z.string().uuid(),
@@ -17,27 +19,27 @@ const BodySchema = z.object({
 // Long enough to outlive any session; 'none' lifts it.
 const BAN_DURATION = '876000h'
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+function methodsHeader(req: Request): Record<string, string> {
+  return { ...corsHeaders(req), 'Access-Control-Allow-Methods': 'POST, OPTIONS' }
 }
 
-function json(body: unknown, status = 200): Response {
+function json(req: Request, body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    headers: { 'Content-Type': 'application/json', ...methodsHeader(req) },
   })
 }
 
 const RPC_STATUS: Record<string, number> = { NOT_FOUND: 404, SELF: 400, LAST_ADMIN: 409 }
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: methodsHeader(req) })
+  if (req.method !== 'POST') return fail(req, 405, 'METHOD_NOT_ALLOWED', { envelope: 'flat' })
 
   const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
 
   const caller = await verifyCaller(req, admin)
-  if (!caller.ok) return json({ error: caller.error }, caller.status)
+  if (!caller.ok) return fail(req, caller.status, caller.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN', { envelope: 'flat' })
 
   const { data: permission, error: permissionError } = await admin
     .from('role_permissions')
@@ -51,17 +53,17 @@ Deno.serve(async (req) => {
       caller.id,
       permissionError?.message ?? `role ${caller.role} lacks manage_staff`
     )
-    return json({ error: 'Insufficient role' }, 403)
+    return fail(req, 403, 'FORBIDDEN', { envelope: 'flat' })
   }
 
   let raw: unknown
   try {
     raw = await req.json()
   } catch {
-    return json({ error: 'Invalid request' }, 400)
+    return fail(req, 400, 'VALIDATION_ERROR', { envelope: 'flat' })
   }
   const parsed = BodySchema.safeParse(raw)
-  if (!parsed.success) return json({ error: 'Invalid request' }, 400)
+  if (!parsed.success) return fail(req, 400, 'VALIDATION_ERROR', { envelope: 'flat' })
   const { staffId, active, terminalId } = parsed.data
 
   const setBan = (banned: boolean) =>
@@ -78,7 +80,7 @@ Deno.serve(async (req) => {
     const { error: unbanError } = await setBan(false)
     if (unbanError) {
       console.error('set-staff-active: sign-in state update failed', unbanError.message)
-      return json({ error: 'Sign-in state update failed, retry' }, 500)
+      return fail(req, 500, 'SIGN_IN_STATE_FAILED', { envelope: 'flat', detail: unbanError.message })
     }
   }
 
@@ -98,9 +100,9 @@ Deno.serve(async (req) => {
     }
     if (rpcError) {
       console.error('set-staff-active: staff record update failed', rpcError.message)
-      return json({ error: 'Staff record update failed, retry' }, 500)
+      return fail(req, 500, 'STAFF_RECORD_FAILED', { envelope: 'flat', detail: rpcError.message })
     }
-    return json({ error: outcome.code }, RPC_STATUS[outcome.code ?? ''] ?? 500)
+    return fail(req, RPC_STATUS[outcome.code ?? ''] ?? 500, outcome.code ?? 'SET_ACTIVE_FAILED', { envelope: 'flat' })
   }
 
   if (!active) {
@@ -119,12 +121,14 @@ Deno.serve(async (req) => {
         actorId: caller.id,
         terminalId,
       })
-      return json(
-        { error: 'PARTIAL_FAILURE: staff record updated but sign-in state failed to sync, retry' },
-        500
+      return fail(
+        req,
+        500,
+        'PARTIAL_FAILURE: staff record updated but sign-in state failed to sync, retry',
+        { envelope: 'flat', detail: banError.message }
       )
     }
   }
 
-  return json({ ok: true, changed: outcome.changed === true })
+  return json(req, { ok: true, changed: outcome.changed === true })
 })

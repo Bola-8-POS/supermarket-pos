@@ -1,6 +1,11 @@
 // Supabase Edge Function — send-receipt-email (Deno)
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { z } from 'https://deno.land/x/zod@v3.23.8/mod.ts';
+import { recordAudit } from '../_shared/audit.ts';
+import { verifyCaller } from '../_shared/caller.ts';
+import { corsHeaders } from '../_shared/cors.ts';
+import { fail } from '../_shared/errors.ts';
+import { rateLimit } from '../_shared/rate_limit.ts';
 
 const BodySchema = z.object({
   email: z.string().trim().email(),
@@ -8,71 +13,65 @@ const BodySchema = z.object({
   pdfBase64: z.string().max(2_000_000).optional(),
 });
 
-// Missing on this function until now — every other edge function in this
-// project sets these, and their absence means every real browser call fails
-// at CORS preflight before ever reaching this code.
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+// M-9: env-configurable instead of hardcoded, next to AGENT_ALLOWED_MODELS.
+const DEFAULT_DAILY_LIMIT = 50;
+const RATE_LIMIT_WINDOW_SECONDS = 86_400;
 
-function jsonResponse(body: unknown, status = 200): Response {
+function methodsHeader(req: Request): Record<string, string> {
+  return { ...corsHeaders(req), 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
+}
+
+function jsonResponse(req: Request, body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    headers: { 'Content-Type': 'application/json', ...methodsHeader(req) },
   });
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: methodsHeader(req) });
   if (req.method !== 'POST') {
-    return jsonResponse({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST only' } }, 405);
-  }
-
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    return jsonResponse({ success: false, error: { code: 'UNAUTHORIZED', message: 'Missing bearer token' } }, 401);
+    return fail(req, 405, 'METHOD_NOT_ALLOWED', { envelope: 'nested' });
   }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
-  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!supabaseUrl || !serviceRoleKey) {
+    return fail(req, 500, 'CONFIG', { envelope: 'nested' });
+  }
+  const admin = createClient(supabaseUrl, serviceRoleKey);
 
-  if (!supabaseUrl || !supabaseAnonKey) {
-    return jsonResponse({ success: false, error: { code: 'CONFIG', message: 'Server misconfigured' } }, 500);
+  const caller = await verifyCaller(req, admin);
+  if (!caller.ok) {
+    return fail(req, caller.status, caller.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN', { envelope: 'nested' });
+  }
+  // S-11: any active role except kitchen may email a receipt.
+  if (caller.role === 'kitchen') {
+    return fail(req, 403, 'FORBIDDEN', { envelope: 'nested' });
   }
 
-  const userClient = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: authHeader } },
-  });
-
-  const {
-    data: { user },
-    error: userError,
-  } = await userClient.auth.getUser();
-
-  if (userError || !user) {
-    return jsonResponse({ success: false, error: { code: 'UNAUTHORIZED', message: 'Invalid session' } }, 401);
+  const dailyLimit = Number(Deno.env.get('RECEIPT_EMAIL_DAILY_LIMIT') ?? DEFAULT_DAILY_LIMIT);
+  const limitResult = await rateLimit(admin, `receipt-email:${caller.id}`, dailyLimit, RATE_LIMIT_WINDOW_SECONDS);
+  if (!limitResult.ok) {
+    return fail(req, 500, 'INTERNAL', { envelope: 'nested', detail: 'rate_limit_hit failed' });
+  }
+  if (limitResult.retryAfter > 0) {
+    return fail(req, 429, 'RATE_LIMITED', { envelope: 'nested', extra: { retryAfter: limitResult.retryAfter } });
   }
 
   let bodyJson: unknown;
   try {
     bodyJson = await req.json();
   } catch {
-    return jsonResponse({ success: false, error: { code: 'INVALID_JSON', message: 'Body must be JSON' } }, 400);
+    return fail(req, 400, 'INVALID_JSON', { envelope: 'nested' });
   }
 
   const parsed = BodySchema.safeParse(bodyJson);
   if (!parsed.success) {
-    return jsonResponse(
-      {
-        success: false,
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: parsed.error.flatten().fieldErrors.email?.[0] ?? 'Invalid request',
-        },
-      },
-      400
-    );
+    return fail(req, 400, 'VALIDATION_ERROR', {
+      envelope: 'nested',
+      message: parsed.error.flatten().fieldErrors.email?.[0] ?? 'Invalid request',
+    });
   }
 
   const body = parsed.data;
@@ -80,10 +79,7 @@ Deno.serve(async (req: Request) => {
   const fromEmail = Deno.env.get('RECEIPT_FROM_EMAIL');
 
   if (!apiKey || !fromEmail) {
-    return jsonResponse(
-      { success: false, error: { code: 'CONFIG', message: 'RESEND_API_KEY or RECEIPT_FROM_EMAIL not set' } },
-      500
-    );
+    return fail(req, 500, 'CONFIG', { envelope: 'nested', message: 'RESEND_API_KEY or RECEIPT_FROM_EMAIL not set' });
   }
 
   const resendPayload: Record<string, unknown> = {
@@ -107,17 +103,21 @@ Deno.serve(async (req: Request) => {
 
   if (!res.ok) {
     const detail = await res.text();
-    return jsonResponse(
-      {
-        success: false,
-        error: {
-          code: 'RESEND_ERROR',
-          message: detail.slice(0, 500) || `Resend returned ${String(res.status)}`,
-        },
-      },
-      502
-    );
+    return fail(req, 502, 'RESEND_ERROR', { envelope: 'nested', detail });
   }
 
-  return jsonResponse({ success: true });
+  // I-6 known limit: BodySchema carries no paymentId/tabId today, so the
+  // audit row records the recipient with a null entity id until a future
+  // request-shape change.
+  await recordAudit(admin, {
+    action: 'receipt.emailed',
+    entityType: 'receipt',
+    entityId: null,
+    before: null,
+    after: { recipient: body.email },
+    source: 'edge',
+    actorId: caller.id,
+  });
+
+  return jsonResponse(req, { success: true });
 });

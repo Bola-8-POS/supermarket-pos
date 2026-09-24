@@ -1,56 +1,41 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { verifyCaller } from '../_shared/caller.ts';
+import { corsHeaders } from '../_shared/cors.ts';
+import { fail } from '../_shared/errors.ts';
 
-type ErrorBody = { ok: false; error: { code: string; message: string } };
-
-// Missing on this function until now — every other edge function in this
-// project sets these, and their absence means every real browser call fails
-// at CORS preflight before ever reaching this code.
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders },
-  });
+function methodsHeader(req: Request): Record<string, string> {
+  return { ...corsHeaders(req), 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
 }
 
-function err(status: number, code: string, message: string): Response {
-  return json({ ok: false, error: { code, message } } satisfies ErrorBody, status);
+function json(req: Request, body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...methodsHeader(req) },
+  });
 }
 
 Deno.serve(async req => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (req.method !== 'POST') return err(405, 'METHOD_NOT_ALLOWED', 'POST only');
-
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    return err(401, 'UNAUTHORIZED', 'Missing bearer token');
-  }
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: methodsHeader(req) });
+  if (req.method !== 'POST') return fail(req, 405, 'METHOD_NOT_ALLOWED', { envelope: 'ok' });
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
-  const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
-  if (!supabaseUrl || !anonKey) {
-    return err(500, 'CONFIG', 'Server misconfigured');
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!supabaseUrl || !serviceKey) {
+    return fail(req, 500, 'CONFIG', { envelope: 'ok' });
   }
+  const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
-  const userClient = createClient(supabaseUrl, anonKey, {
-    global: { headers: { Authorization: authHeader } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-
-  const {
-    data: { user },
-    error: userError,
-  } = await userClient.auth.getUser();
-  if (userError || !user) {
-    return err(401, 'UNAUTHORIZED', 'Invalid session');
+  // S-11: admin or manager only (was any authenticated caller).
+  const caller = await verifyCaller(req, admin);
+  if (!caller.ok) {
+    return fail(req, caller.status, caller.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN', { envelope: 'ok' });
+  }
+  if (caller.role !== 'admin' && caller.role !== 'manager') {
+    return fail(req, 403, 'FORBIDDEN', { envelope: 'ok' });
   }
 
   const resendApiKey = Deno.env.get('RESEND_API_KEY');
   const resendConfigured = typeof resendApiKey === 'string' && resendApiKey.length > 0;
 
-  return json({ ok: true, resendConfigured });
+  return json(req, { ok: true, resendConfigured });
 });

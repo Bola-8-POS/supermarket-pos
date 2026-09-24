@@ -2,6 +2,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
 import { z } from 'https://deno.land/x/zod@v3.23.8/mod.ts';
 
 import { decomposeTax } from '../_shared/tax.ts';
+import { corsHeaders } from '../_shared/cors.ts';
+import { fail, publicRpcMessage } from '../_shared/errors.ts';
 
 const itemSchema = z.object({
   productId: z.string().uuid(),
@@ -85,14 +87,13 @@ type RpcResult = {
   retryAfter?: number;
 };
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+function methodsHeader(req: Request): Record<string, string> {
+  return { ...corsHeaders(req), 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
+}
 
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(req: Request, body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
-    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    headers: { 'Content-Type': 'application/json', ...methodsHeader(req) },
     status,
   });
 }
@@ -274,45 +275,27 @@ async function buildSaleReceipt(
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (req.method !== 'POST')
-    return jsonResponse(
-      { success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST only' } },
-      405
-    );
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: methodsHeader(req) });
+  if (req.method !== 'POST') return fail(req, 405, 'METHOD_NOT_ALLOWED', { envelope: 'nested' });
 
   const authHeader = req.headers.get('Authorization');
-  if (!authHeader?.startsWith('Bearer '))
-    return jsonResponse(
-      { success: false, error: { code: 'UNAUTHORIZED', message: 'Missing bearer token' } },
-      401
-    );
+  if (!authHeader?.startsWith('Bearer ')) return fail(req, 401, 'UNAUTHORIZED', { envelope: 'nested' });
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  if (!supabaseUrl || !supabaseAnonKey || !serviceRoleKey)
-    return jsonResponse(
-      { success: false, error: { code: 'CONFIG', message: 'Server misconfigured' } },
-      500
-    );
+  if (!supabaseUrl || !supabaseAnonKey || !serviceRoleKey) return fail(req, 500, 'CONFIG', { envelope: 'nested' });
 
   // admin.auth.getUser() cannot verify the local stack's ES256 JWTs.
   const authResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
     headers: { Authorization: authHeader, apikey: supabaseAnonKey },
   });
-  if (!authResponse.ok)
-    return jsonResponse(
-      { success: false, error: { code: 'UNAUTHORIZED', message: 'Invalid session' } },
-      401
-    );
+  if (!authResponse.ok) return fail(req, 401, 'UNAUTHORIZED', { envelope: 'nested' });
   const authUser = (await authResponse.json()) as { id: string };
 
   const body = BodySchema.safeParse(await req.json().catch(() => null));
-  if (!body.success)
-    return jsonResponse(
-      { success: false, error: { code: 'VALIDATION_ERROR', message: body.error.message } },
-      400
-    );
+  if (!body.success) {
+    return fail(req, 400, 'VALIDATION_ERROR', { envelope: 'nested', detail: body.error.message });
+  }
   const admin = createClient(supabaseUrl, serviceRoleKey);
   const { data, error } = await admin.rpc('process_direct_sale_atomic', {
     p_staff_id: authUser.id,
@@ -351,25 +334,16 @@ Deno.serve(async (req: Request) => {
     p_approver_id: body.data.approverId ?? null,
     p_terminal_id: body.data.terminalId ?? null,
   });
-  if (error)
-    return jsonResponse(
-      { success: false, error: { code: 'RPC_ERROR', message: error.message } },
-      500
-    );
+  if (error) return fail(req, 500, 'RPC_ERROR', { envelope: 'nested', detail: error.message });
   const rpc = data as RpcResult;
   if (!rpc?.ok || !rpc.tabId || (body.data.legs ? !rpc.paymentIds?.length : !rpc.paymentId)) {
     const retryAfter = typeof rpc?.retryAfter === 'number' ? rpc.retryAfter : undefined;
-    return jsonResponse(
-      {
-        success: false,
-        error: {
-          code: rpc?.code ?? 'PAYMENT_FAILED',
-          message: rpc?.message ?? 'Payment failed',
-          ...(retryAfter !== undefined ? { retryAfter } : {}),
-        },
-      },
-      409
-    );
+    const code = rpc?.code ?? 'PAYMENT_FAILED';
+    return fail(req, 409, code, {
+      envelope: 'nested',
+      message: publicRpcMessage(code, rpc?.message),
+      extra: retryAfter !== undefined ? { retryAfter } : undefined,
+    });
   }
 
   // One sale-level receipt for both direct and split-tender sales (CR-03):
@@ -384,12 +358,8 @@ Deno.serve(async (req: Request) => {
     body.data.shiftId,
     body.data.cajaSessionId
   );
-  if (!receiptData)
-    return jsonResponse(
-      { success: false, error: { code: 'RECEIPT_FETCH', message: 'Could not load receipt' } },
-      500
-    );
-  return jsonResponse({
+  if (!receiptData) return fail(req, 500, 'RECEIPT_FETCH', { envelope: 'nested' });
+  return jsonResponse(req, {
     success: true,
     tabId: rpc.tabId,
     ...(rpc.paymentId ? { paymentId: rpc.paymentId } : {}),

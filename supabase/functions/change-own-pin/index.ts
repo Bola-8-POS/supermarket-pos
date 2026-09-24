@@ -6,40 +6,42 @@ import { z } from 'https://deno.land/x/zod@v3.23.8/mod.ts'
 import { recordAudit } from '../_shared/audit.ts'
 import { verifyCaller } from '../_shared/caller.ts'
 import { writeCredential } from '../_shared/credentials.ts'
+import { corsHeaders } from '../_shared/cors.ts'
+import { fail } from '../_shared/errors.ts'
 
 const BodySchema = z.object({
   newPin: z.string().regex(/^\d{6}$/),
   terminalId: z.string().optional(),
 })
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+function methodsHeader(req: Request): Record<string, string> {
+  return { ...corsHeaders(req), 'Access-Control-Allow-Methods': 'POST, OPTIONS' }
 }
 
-function json(body: unknown, status = 200): Response {
+function json(req: Request, body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    headers: { 'Content-Type': 'application/json', ...methodsHeader(req) },
   })
 }
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: methodsHeader(req) })
+  if (req.method !== 'POST') return fail(req, 405, 'METHOD_NOT_ALLOWED', { envelope: 'flat' })
 
   const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
 
   const caller = await verifyCaller(req, admin)
-  if (!caller.ok) return json({ error: caller.error }, caller.status)
+  if (!caller.ok) return fail(req, caller.status, caller.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN', { envelope: 'flat' })
 
   let raw: unknown
   try {
     raw = await req.json()
   } catch {
-    return json({ error: 'Invalid request' }, 400)
+    return fail(req, 400, 'VALIDATION_ERROR', { envelope: 'flat' })
   }
   const parsed = BodySchema.safeParse(raw)
-  if (!parsed.success) return json({ error: 'Invalid request' }, 400)
+  if (!parsed.success) return fail(req, 400, 'VALIDATION_ERROR', { envelope: 'flat' })
   const { newPin, terminalId } = parsed.data
 
   const { data: profile, error: profileError } = await admin
@@ -49,9 +51,9 @@ Deno.serve(async (req) => {
     .single()
   if (profileError || !profile) {
     console.error('change-own-pin: own profile lookup failed', caller.id, profileError?.message ?? 'no row')
-    return json({ error: 'Insufficient role' }, 403)
+    return fail(req, 403, 'FORBIDDEN', { envelope: 'flat' })
   }
-  if (newPin === profile.pin) return json({ error: 'SAME_PIN' }, 400)
+  if (newPin === profile.pin) return fail(req, 400, 'SAME_PIN', { envelope: 'flat' })
 
   // The Auth password is written with the caller's own token (PUT
   // /auth/v1/user): a self update keeps the current session, while an admin
@@ -92,9 +94,11 @@ Deno.serve(async (req) => {
   )
 
   if (!result.ok) {
-    if (result.code === 'AUTH_WRITE_FAILED') return json({ error: result.message }, 400)
+    if (result.code === 'AUTH_WRITE_FAILED') {
+      return fail(req, 400, 'AUTH_WRITE_FAILED', { envelope: 'flat', detail: result.message })
+    }
     if (result.code === 'COMPENSATED') {
-      return json({ error: 'CREDENTIAL_WRITE_FAILED: nothing changed, try again' }, 409)
+      return fail(req, 409, 'CREDENTIAL_WRITE_FAILED: nothing changed, try again', { envelope: 'flat' })
     }
     await recordAudit(admin, {
       action: 'permission.force_pin_change',
@@ -106,9 +110,11 @@ Deno.serve(async (req) => {
       actorId: caller.id,
       terminalId,
     })
-    return json(
-      { error: 'PARTIAL_FAILURE: credential changed but staff record failed to sync, contact support' },
-      500
+    return fail(
+      req,
+      500,
+      'PARTIAL_FAILURE: credential changed but staff record failed to sync, contact support',
+      { envelope: 'flat', detail: result.message }
     )
   }
 
@@ -124,5 +130,5 @@ Deno.serve(async (req) => {
     terminalId,
   })
 
-  return json({ ok: true })
+  return json(req, { ok: true })
 })

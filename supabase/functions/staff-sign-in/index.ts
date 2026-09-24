@@ -5,36 +5,36 @@
 // pin_attempt_begin, pin_attempt_retry_after and pin_attempt_record).
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 import { z } from 'https://deno.land/x/zod@v3.23.8/mod.ts'
+import { corsHeaders } from '../_shared/cors.ts'
 
 const BodySchema = z.object({
   staffId: z.string().uuid(),
   pin: z.string().regex(/^\d{6}$/),
 })
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+function methodsHeader(req: Request): Record<string, string> {
+  return { ...corsHeaders(req), 'Access-Control-Allow-Methods': 'POST, OPTIONS' }
 }
 
-function json(body: unknown, status = 200): Response {
+function json(req: Request, body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    headers: { 'Content-Type': 'application/json', ...methodsHeader(req) },
   })
 }
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
-  if (req.method !== 'POST') return json({ error: 'INVALID_REQUEST' }, 405)
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: methodsHeader(req) })
+  if (req.method !== 'POST') return json(req, { error: 'INVALID_REQUEST' }, 405)
 
   let raw: unknown
   try {
     raw = await req.json()
   } catch {
-    return json({ error: 'INVALID_REQUEST' }, 400)
+    return json(req, { error: 'INVALID_REQUEST' }, 400)
   }
   const parsed = BodySchema.safeParse(raw)
-  if (!parsed.success) return json({ error: 'INVALID_REQUEST' }, 400)
+  if (!parsed.success) return json(req, { error: 'INVALID_REQUEST' }, 400)
   const { staffId, pin } = parsed.data
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
@@ -65,19 +65,19 @@ Deno.serve(async (req) => {
   })
   if (beginAccountError) {
     console.error('staff-sign-in: attempt lookup failed', beginAccountError.message)
-    return json({ error: 'UNAVAILABLE' }, 503)
+    return json(req, { error: 'UNAVAILABLE' }, 503)
   }
   const { data: beganAddress, error: beginAddressError } = await admin.rpc('pin_attempt_begin', {
     p_key: addressKey,
   })
   if (beginAddressError) {
     console.error('staff-sign-in: attempt lookup failed', beginAddressError.message)
-    return json({ error: 'UNAVAILABLE' }, 503)
+    return json(req, { error: 'UNAVAILABLE' }, 503)
   }
   const waitAccount = typeof beganAccount === 'number' ? beganAccount : 0
   const waitAddress = typeof beganAddress === 'number' ? beganAddress : 0
   if (waitAccount > 0 || waitAddress > 0) {
-    return json({ error: 'LOCKED', retryAfter: Math.max(waitAccount, waitAddress) }, 429)
+    return json(req, { error: 'LOCKED', retryAfter: Math.max(waitAccount, waitAddress) }, 429)
   }
 
   const { data: profile, error: profileError } = await admin
@@ -87,7 +87,7 @@ Deno.serve(async (req) => {
     .maybeSingle()
   if (profileError) {
     console.error('staff-sign-in: profile lookup failed', profileError.message)
-    return json({ error: 'UNAVAILABLE' }, 503)
+    return json(req, { error: 'UNAVAILABLE' }, 503)
   }
 
   let session: { access_token: string; refresh_token: string } | null = null
@@ -97,7 +97,7 @@ Deno.serve(async (req) => {
     if (error && error.status !== 400) {
       // Not a credential failure (rate limit, outage). The attempt stays counted.
       console.error('staff-sign-in: auth service error', error.status)
-      return json({ error: 'UNAVAILABLE' }, 503)
+      return json(req, { error: 'UNAVAILABLE' }, 503)
     }
     session = data.session
     // The session must belong to the requested staff member.
@@ -112,7 +112,7 @@ Deno.serve(async (req) => {
       admin.rpc('pin_attempt_retry_after', { p_key: addressKey }),
     ])
     const retryAfter = Math.max(typeof waitAcc === 'number' ? waitAcc : 0, typeof waitAddr === 'number' ? waitAddr : 0)
-    return json({ error: 'INVALID_CREDENTIALS', retryAfter }, 401)
+    return json(req, { error: 'INVALID_CREDENTIALS', retryAfter }, 401)
   }
 
   const [{ error: resetAccountError }, { error: resetAddressError }] = await Promise.all([
@@ -122,7 +122,7 @@ Deno.serve(async (req) => {
   if (resetAccountError || resetAddressError) {
     console.error('staff-sign-in: attempt reset failed', (resetAccountError ?? resetAddressError)?.message)
   }
-  return json({
+  return json(req, {
     accessToken: session.access_token,
     refreshToken: session.refresh_token,
     mustChangePin: profile?.must_change_pin === true,
