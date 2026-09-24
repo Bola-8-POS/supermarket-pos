@@ -258,6 +258,7 @@
     "submitFailed": "Physical count failed: {{message}}",
     "completeNoVariances": "Physical count complete — no variances found.",
     "completeAdjusted": "Physical count complete — {{count}} product(s) adjusted.",
+    "completeReported": "{{count}} product(s) changed underneath the count and were not applied. Recount them and submit again.",
     "dialogTitle": "Physical Inventory Count",
     "entryDescription": "Enter the actual quantity on hand for each product. Leave unchanged if the count matches.",
     "reportDescription": "Review the variance report. Red rows indicate a shortage; green rows indicate a surplus.",

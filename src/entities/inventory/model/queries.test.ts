@@ -17,7 +17,12 @@ import { createElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { supabase } from '@shared/lib/supabase';
 import { createTestQueryClient } from '@shared/lib/test-utils';
-import { inventoryKeys, useInventoryAlerts, useInventoryLog } from './queries';
+import {
+  inventoryKeys,
+  useInventoryAlerts,
+  useInventoryLog,
+  useMutationAdjustInventory,
+} from './queries';
 
 // ---------------------------------------------------------------------------
 // Supabase mock handle
@@ -25,6 +30,8 @@ import { inventoryKeys, useInventoryAlerts, useInventoryLog } from './queries';
 
 // eslint-disable-next-line @typescript-eslint/unbound-method
 const mockedFrom = vi.mocked(supabase).from;
+// eslint-disable-next-line @typescript-eslint/unbound-method
+const mockedRpc = vi.mocked(supabase).rpc;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -374,5 +381,144 @@ describe('useInventoryLog', () => {
 
     expect(result.current.data).toBeUndefined();
     expect(result.current.resultError?.code).toBe('SUPABASE_ERROR');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// useMutationAdjustInventory — one adjust_inventory RPC call (wave 3a)
+// ---------------------------------------------------------------------------
+
+function rpcOk(quantityOnHand: number, movementId = crypto.randomUUID()) {
+  return { data: { ok: true, quantityOnHand, movementId }, error: null } as never;
+}
+
+function rpcError(message: string) {
+  return { data: null, error: { message, code: 'P0001' } } as never;
+}
+
+describe('useMutationAdjustInventory', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('calls adjust_inventory with the exact argument object, p_notes null when notes is absent', async () => {
+    const productId = crypto.randomUUID();
+    mockedRpc.mockResolvedValueOnce(rpcOk(12));
+
+    const qc = createTestQueryClient();
+    const { result } = renderHook(() => useMutationAdjustInventory(), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await result.current.mutateAsync({
+      productId,
+      quantityDelta: 5,
+      reason: 'manual_adjustment',
+      notes: undefined,
+    });
+
+    expect(mockedRpc).toHaveBeenCalledTimes(1);
+    expect(mockedRpc).toHaveBeenCalledWith('adjust_inventory', {
+      p_product_id: productId,
+      p_quantity_delta: 5,
+      p_reason: 'manual_adjustment',
+      p_notes: null,
+      p_expected_quantity: null,
+    });
+  });
+
+  it('forwards a provided notes value as p_notes', async () => {
+    const productId = crypto.randomUUID();
+    mockedRpc.mockResolvedValueOnce(rpcOk(12));
+
+    const qc = createTestQueryClient();
+    const { result } = renderHook(() => useMutationAdjustInventory(), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await result.current.mutateAsync({
+      productId,
+      quantityDelta: -2,
+      reason: 'waste',
+      notes: 'dropped a case',
+    });
+
+    expect(mockedRpc).toHaveBeenCalledWith('adjust_inventory', {
+      p_product_id: productId,
+      p_quantity_delta: -2,
+      p_reason: 'waste',
+      p_notes: 'dropped a case',
+      p_expected_quantity: null,
+    });
+  });
+
+  it('maps a successful RPC response to { quantityOnHand, movementId }', async () => {
+    const movementId = crypto.randomUUID();
+    mockedRpc.mockResolvedValueOnce(rpcOk(7, movementId));
+
+    const qc = createTestQueryClient();
+    const { result } = renderHook(() => useMutationAdjustInventory(), {
+      wrapper: makeWrapper(qc),
+    });
+
+    const res = await result.current.mutateAsync({
+      productId: crypto.randomUUID(),
+      quantityDelta: 1,
+      reason: 'manual_adjustment',
+      notes: undefined,
+    });
+
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data).toEqual({ quantityOnHand: 7, movementId });
+  });
+
+  it.each([
+    ['AUTH_FORBIDDEN: not allowed to adjust stock', 'AUTH_FORBIDDEN'],
+    ['INVALID_DELTA: quantity delta must be non-zero', 'INVALID_DELTA'],
+    ['INVALID_REASON: a reason is required', 'INVALID_REASON'],
+    ['NOT_FOUND: no stock row for product x', 'NOT_FOUND'],
+    ['STOCK_CHANGED: expected 10 but stock is 6', 'STOCK_CHANGED'],
+  ] as const)('maps a %s error message to code %s', async (message, code) => {
+    mockedRpc.mockResolvedValueOnce(rpcError(message));
+
+    const qc = createTestQueryClient();
+    const { result } = renderHook(() => useMutationAdjustInventory(), {
+      wrapper: makeWrapper(qc),
+    });
+
+    const res = await result.current.mutateAsync({
+      productId: crypto.randomUUID(),
+      quantityDelta: 1,
+      reason: 'manual_adjustment',
+      notes: undefined,
+    });
+
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.code).toBe(code);
+    expect(res.error.message).toBe(message);
+  });
+
+  it('passes an unmatched error through unchanged (no five-way prefix match)', async () => {
+    mockedRpc.mockResolvedValueOnce(rpcError('some other database failure'));
+
+    const qc = createTestQueryClient();
+    const { result } = renderHook(() => useMutationAdjustInventory(), {
+      wrapper: makeWrapper(qc),
+    });
+
+    const res = await result.current.mutateAsync({
+      productId: crypto.randomUUID(),
+      quantityDelta: 1,
+      reason: 'manual_adjustment',
+      notes: undefined,
+    });
+
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    // Not one of the five mapped codes — the generic Supabase classification survives.
+    expect(res.error.code).toBe('SUPABASE_ERROR');
+    expect(res.error.message).toBe('some other database failure');
   });
 });

@@ -258,6 +258,7 @@
     "submitFailed": "Falló el conteo físico: {{message}}",
     "completeNoVariances": "Conteo físico completo — no se encontraron variaciones.",
     "completeAdjusted": "Conteo físico completo — {{count}} producto(s) ajustado(s).",
+    "completeReported": "{{count}} producto(s) cambiaron durante el conteo y no se aplicaron. Vuelve a contarlos y envía de nuevo.",
     "dialogTitle": "Conteo físico de inventario",
     "entryDescription": "Ingresa la cantidad real en existencia para cada producto. Deja sin cambios si el conteo coincide.",
     "reportDescription": "Revisa el reporte de variación. Las filas rojas indican faltante; las filas verdes indican sobrante.",

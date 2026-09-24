@@ -91,11 +91,25 @@ export function PhysicalCountForm({ open, onOpenChange }: Props) {
       return;
     }
 
-    toast.success(
-      result.data.adjustedRows.length === 0
-        ? t('physicalCount.completeNoVariances')
-        : t('physicalCount.completeAdjusted', { count: result.data.adjustedRows.length })
-    );
+    if (result.data.reportedRows.length > 0) {
+      // Stock moved under at least one changed row between "count started"
+      // and "apply" (STOCK_CHANGED) — never claim "no variances" or a plain
+      // success here, the overall Result is still ok:true even though some
+      // rows didn't apply.
+      toast.error(t('physicalCount.completeReported', { count: result.data.reportedRows.length }));
+      if (result.data.adjustedRows.length === 0) {
+        // Every changed row was rejected — nothing applied, so the count
+        // isn't complete. Stay on the entry screen (don't reset the entered
+        // counts) so the person can recount those specific rows.
+        return;
+      }
+    } else {
+      toast.success(
+        result.data.adjustedRows.length === 0
+          ? t('physicalCount.completeNoVariances')
+          : t('physicalCount.completeAdjusted', { count: result.data.adjustedRows.length })
+      );
+    }
 
     setVarianceRows(result.data.allRows);
     setPhase('report');
