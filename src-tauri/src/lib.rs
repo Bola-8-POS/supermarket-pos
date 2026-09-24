@@ -14,6 +14,84 @@ pub struct AppConfig {
     /// Licensing server (separate Supabase project). Empty = fall back to VITE_ build-time env.
     pub license_server_url: String,
     pub license_server_anon_key: String,
+    /// S-26: a rejected runtime-override URL or an accepted one is recorded here
+    /// (naming the field and the offending host, never the key) instead of
+    /// `eprintln!`, which a release build's `windows_subsystem = "windows"`
+    /// detaches before anyone could see it. Read and logged by AppConfigProvider.
+    pub warnings: Vec<String>,
+}
+
+/// S-26: a runtime-override backend host is only trusted when it is the
+/// project's own Supabase host (over https) or a local dev/loopback stack
+/// (either scheme) — never an arbitrary host that merely contains
+/// "supabase.co" somewhere in it (e.g. `evil.supabase.co.attacker.example`,
+/// which does NOT end with ".supabase.co" once parsed and checked on the
+/// host alone, not the whole URL string).
+fn is_allowed_backend_url(url_str: &str) -> bool {
+    let Ok(parsed) = url::Url::parse(url_str) else {
+        return false;
+    };
+    let Some(host) = parsed.host_str() else {
+        return false;
+    };
+    let is_loopback = host == "localhost" || host == "127.0.0.1";
+    match parsed.scheme() {
+        "https" => host.ends_with(".supabase.co") || host.ends_with(".supabase.in") || is_loopback,
+        "http" => is_loopback,
+        _ => false,
+    }
+}
+
+/// Pure parse of a `.env` file's content into an `AppConfig` — extracted from
+/// `read_env_config` (I-9) so the line-order-independent validation below,
+/// and the whole function, are unit-testable without touching the filesystem.
+fn parse_env_config(content: &str) -> AppConfig {
+    let mut config = AppConfig::default();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some((key, value)) = line.split_once('=') {
+            match key.trim() {
+                "VITE_SUPABASE_URL" => config.supabase_url = value.trim().to_string(),
+                "VITE_SUPABASE_ANON_KEY" => {
+                    config.supabase_anon_key = value.trim().to_string()
+                }
+                "VITE_LICENSE_SERVER_URL" => {
+                    config.license_server_url = value.trim().to_string()
+                }
+                "VITE_LICENSE_SERVER_ANON_KEY" => {
+                    config.license_server_anon_key = value.trim().to_string()
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Validated AFTER the full line loop, not inline mid-loop: a paired key's
+    // line can appear before or after its URL's line in the file, so only a
+    // post-loop pass over the fully-populated struct can reliably clear both
+    // together (N-6) — clearing inline could miss a not-yet-parsed key or let
+    // a later line silently re-set one already cleared.
+    if !config.supabase_url.is_empty() && !is_allowed_backend_url(&config.supabase_url) {
+        config.warnings.push(format!(
+            "Ignored VITE_SUPABASE_URL override — host not allowed: {}",
+            config.supabase_url
+        ));
+        config.supabase_url = String::new();
+        config.supabase_anon_key = String::new();
+    }
+    if !config.license_server_url.is_empty() && !is_allowed_backend_url(&config.license_server_url) {
+        config.warnings.push(format!(
+            "Ignored VITE_LICENSE_SERVER_URL override — host not allowed: {}",
+            config.license_server_url
+        ));
+        config.license_server_url = String::new();
+        config.license_server_anon_key = String::new();
+    }
+
+    config
 }
 
 fn read_env_config() -> AppConfig {
@@ -23,31 +101,88 @@ fn read_env_config() -> AppConfig {
         .unwrap_or_else(|| std::path::PathBuf::from("."));
     let env_path = exe_dir.join(".env");
 
-    let mut config = AppConfig::default();
-    if let Ok(content) = std::fs::read_to_string(&env_path) {
-        for line in content.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            if let Some((key, value)) = line.split_once('=') {
-                match key.trim() {
-                    "VITE_SUPABASE_URL" => config.supabase_url = value.trim().to_string(),
-                    "VITE_SUPABASE_ANON_KEY" => {
-                        config.supabase_anon_key = value.trim().to_string()
-                    }
-                    "VITE_LICENSE_SERVER_URL" => {
-                        config.license_server_url = value.trim().to_string()
-                    }
-                    "VITE_LICENSE_SERVER_ANON_KEY" => {
-                        config.license_server_anon_key = value.trim().to_string()
-                    }
-                    _ => {}
-                }
-            }
-        }
+    let content = std::fs::read_to_string(&env_path).unwrap_or_default();
+    parse_env_config(&content)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn allows_a_customer_supabase_host_over_https() {
+        assert!(is_allowed_backend_url("https://abcdefgh.supabase.co"));
+        assert!(is_allowed_backend_url("https://abcdefgh.supabase.in"));
     }
-    config
+
+    #[test]
+    fn allows_loopback_over_either_scheme() {
+        assert!(is_allowed_backend_url("http://localhost:54321"));
+        assert!(is_allowed_backend_url("https://localhost:54321"));
+        assert!(is_allowed_backend_url("http://127.0.0.1:54321"));
+        assert!(is_allowed_backend_url("https://127.0.0.1:54321"));
+    }
+
+    #[test]
+    fn rejects_a_host_suffix_match_that_is_not_a_real_suffix() {
+        // A `contains`/`ends_with`-on-the-whole-URL check would wrongly allow
+        // this; the check must be on the parsed host alone.
+        assert!(!is_allowed_backend_url(
+            "https://evil.supabase.co.attacker.example"
+        ));
+    }
+
+    #[test]
+    fn rejects_a_supabase_host_over_plain_http() {
+        assert!(!is_allowed_backend_url("http://abcdefgh.supabase.co"));
+    }
+
+    #[test]
+    fn rejects_garbage_and_unparseable_urls() {
+        assert!(!is_allowed_backend_url("not a url"));
+        assert!(!is_allowed_backend_url(""));
+        assert!(!is_allowed_backend_url("ftp://abcdefgh.supabase.co"));
+    }
+
+    #[test]
+    fn parses_keys_and_skips_comments_and_blank_lines() {
+        let content = "\n# comment\nVITE_SUPABASE_URL=https://abcdefgh.supabase.co\n\nVITE_SUPABASE_ANON_KEY=anon-key-1\nVITE_LICENSE_SERVER_URL=https://ijklmnop.supabase.co\nVITE_LICENSE_SERVER_ANON_KEY=anon-key-2\n";
+        let config = parse_env_config(content);
+        assert_eq!(config.supabase_url, "https://abcdefgh.supabase.co");
+        assert_eq!(config.supabase_anon_key, "anon-key-1");
+        assert_eq!(config.license_server_url, "https://ijklmnop.supabase.co");
+        assert_eq!(config.license_server_anon_key, "anon-key-2");
+        assert!(config.warnings.is_empty());
+    }
+
+    #[test]
+    fn clears_a_rejected_url_and_its_paired_key_when_the_key_line_comes_after() {
+        let content = "VITE_SUPABASE_URL=https://evil.supabase.co.attacker.example\nVITE_SUPABASE_ANON_KEY=some-anon-key\n";
+        let config = parse_env_config(content);
+        assert_eq!(config.supabase_url, "");
+        assert_eq!(config.supabase_anon_key, "");
+        assert_eq!(config.warnings.len(), 1);
+    }
+
+    #[test]
+    fn clears_a_rejected_url_and_its_paired_key_when_the_key_line_comes_before() {
+        // N-6: .env line order is arbitrary — the paired key's line can
+        // precede the URL's own line.
+        let content = "VITE_LICENSE_SERVER_ANON_KEY=some-anon-key\nVITE_LICENSE_SERVER_URL=https://evil.supabase.co.attacker.example\n";
+        let config = parse_env_config(content);
+        assert_eq!(config.license_server_url, "");
+        assert_eq!(config.license_server_anon_key, "");
+        assert_eq!(config.warnings.len(), 1);
+    }
+
+    #[test]
+    fn keeps_an_allowed_override_and_its_paired_key() {
+        let content = "VITE_SUPABASE_URL=https://abcdefgh.supabase.co\nVITE_SUPABASE_ANON_KEY=some-anon-key\n";
+        let config = parse_env_config(content);
+        assert_eq!(config.supabase_url, "https://abcdefgh.supabase.co");
+        assert_eq!(config.supabase_anon_key, "some-anon-key");
+        assert!(config.warnings.is_empty());
+    }
 }
 
 #[tauri::command]

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { initLicenseConfig } from '@shared/lib/license/config';
+import { logger } from '@shared/lib/logger';
 import { initSupabaseClient } from '@shared/lib/supabase';
 import { LoadingSpinner } from '@shared/ui/LoadingSpinner';
 
@@ -28,9 +29,16 @@ export function AppConfigProvider({ children }: Props) {
           supabaseAnonKey: string;
           licenseServerUrl?: string;
           licenseServerAnonKey?: string;
+          warnings?: string[];
         }>('get_runtime_config')
       )
       .then(cfg => {
+        // S-26: a rejected runtime-override backend URL (rust/src-tauri's
+        // is_allowed_backend_url) is surfaced here rather than silently —
+        // read_env_config runs before any Tauri logger exists.
+        for (const warning of cfg.warnings ?? []) {
+          logger.warn('appConfig.runtimeOverrideRejected', { detail: warning });
+        }
         if (cfg.supabaseUrl && cfg.supabaseAnonKey) {
           initSupabaseClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
         }
