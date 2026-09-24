@@ -384,6 +384,43 @@ verify_jwt = true
 [functions.change-own-pin]
 verify_jwt = true
 
+# SEC-07 (S-24): every function below gets an explicit verify_jwt instead of
+# relying on the platform default. get-server-time is the sole unauthenticated
+# one (B-1: its only real caller invokes it via supabase.functions.invoke,
+# which sends POST by default, so it answers GET, POST and OPTIONS).
+[functions.admin-reset-pin]
+verify_jwt = true
+
+[functions.agent-proxy]
+verify_jwt = true
+
+[functions.create-staff]
+verify_jwt = true
+
+[functions.get-server-time]
+verify_jwt = false
+
+[functions.process-direct-sale]
+verify_jwt = true
+
+[functions.process-split-payment]
+verify_jwt = true
+
+[functions.receive-shipment]
+verify_jwt = true
+
+[functions.settings-backup]
+verify_jwt = true
+
+[functions.settings-email-status]
+verify_jwt = true
+
+[functions.settings-restore]
+verify_jwt = true
+
+[functions.settings-test-email]
+verify_jwt = true
+
 [edge_runtime]
 enabled = true
 # Supported request policies: `oneshot`, `per_worker`.
