@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 /**
  * Integration test: remove_tab_item RPC — active-caller gate on line removal
- * (wave 3a, S-08) and the dropped direct-DELETE policy on order_items.
+ * (wave 3a) and the dropped direct-DELETE policy on order_items.
  *
  * Requires VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY
  * (local stack, edge runtime running for staff-sign-in). Skips gracefully when absent.
@@ -136,22 +136,36 @@ describe.skipIf(skip)('remove_tab_item RPC — active-caller gate', () => {
     if (shiftErr || !shift) throw new Error(`shift insert: ${shiftErr?.message}`);
     shiftId = shift.id as string;
 
+    // Dedicated tagged fixture product (not a shared live catalog product):
+    // the RPC restores inventory and writes 'correction' stock_movements
+    // rows, so this file creates and owns its own product + inventory row,
+    // deleted in afterAll (same pattern as
+    // receive-po-shipment.integration.test.ts's IT_PRODUCT_ID).
+    const { data: category, error: categoryErr } = await db.from('categories').select('id').limit(1).single();
+    if (categoryErr || !category) throw new Error(`no category: ${categoryErr?.message}`);
     const { data: product, error: productErr } = await db
       .from('products')
+      .insert({ name: `${TAG}product`, category_id: category.id, base_price: 5, is_active: true, sold_by_weight: false })
       .select('id')
-      .eq('is_active', true)
-      .eq('sold_by_weight', false)
-      .is('parent_product_id', null)
-      .limit(1)
       .single();
-    if (productErr || !product) throw new Error(`no eligible product: ${productErr?.message}`);
+    if (productErr || !product) throw new Error(`fixture product insert: ${productErr?.message}`);
     productId = product.id as string;
+
+    const { error: invErr } = await db.from('inventory').insert({ product_id: productId, quantity_on_hand: 100 });
+    if (invErr) throw new Error(`fixture inventory insert: ${invErr.message}`);
   });
 
   afterAll(async () => {
     for (const tabId of [...tabIds]) await cleanupTab(tabId).catch(() => undefined);
     if (shiftId) await db.from('shifts').delete().eq('id', shiftId);
     for (const f of fixtures) await removeFixture(f);
+
+    const movDel = await db.from('stock_movements').delete().eq('product_id', productId);
+    expect(movDel.error).toBeNull();
+    const invDel = await db.from('inventory').delete().eq('product_id', productId);
+    expect(invDel.error).toBeNull();
+    const prodDel = await db.from('products').delete().eq('id', productId);
+    expect(prodDel.error).toBeNull();
   });
 
   it('refuses a kitchen session', async () => {

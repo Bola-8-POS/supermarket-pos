@@ -230,7 +230,7 @@ describe('usePhysicalCount', () => {
   // STOCK_CHANGED: reported, loop continues (Review Focus #3)
   // -------------------------------------------------------------------------
 
-  it('S8-04/Review-Focus-3: a STOCK_CHANGED rejection on one of three rows is reported and the other two apply', async () => {
+  it('S8-04: a STOCK_CHANGED rejection on one of three rows is reported and the other two apply', async () => {
     const a = crypto.randomUUID();
     const b = crypto.randomUUID();
     const c = crypto.randomUUID();

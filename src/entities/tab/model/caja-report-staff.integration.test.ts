@@ -3,8 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 /**
- * Integration test: get_caja_report's per-staff summary (wave 3a, S-35 join
- * part). Before this wave, the staff summary independently LEFT JOINed
+ * Integration test: get_caja_report's per-staff summary (wave 3a, the
+ * report's staff-summary join). Before this wave, the staff summary independently LEFT JOINed
  * orders and payments to profiles, producing a cross-product per staff
  * member that multiplied salesTotal by the staff member's order count; the
  * fix aggregates orders and payments in separate subqueries first.

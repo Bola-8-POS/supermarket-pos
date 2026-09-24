@@ -552,19 +552,30 @@ describe.skipIf(!hasAnonEnv)('process_refund — per-line bounds (wave 3a)', () 
     await signIn(manager);
     await signIn(cashier);
 
-    const { data: product } = await svc
-      .from('products')
-      .select('id')
-      .eq('is_active', true)
-      .eq('sold_by_weight', false)
-      .is('parent_product_id', null)
-      .limit(1)
-      .single();
-    if (!product) throw new Error('no eligible regular product found');
-    regularProductId = product.id as string;
-
+    // Dedicated tagged fixture products (not a shared live catalog product):
+    // every test in this block that restocks leaves stock_movements rows and
+    // moves quantity_on_hand, so both products are created here and deleted
+    // in afterAll, same pattern as the codebase convention in
+    // receive-po-shipment.integration.test.ts.
     const { data: category } = await svc.from('categories').select('id').limit(1).single();
     if (!category) throw new Error('no category found');
+
+    const { data: regular, error: regularErr } = await svc
+      .from('products')
+      .insert({
+        name: '__refund_bounds_test__regular_product',
+        category_id: category.id,
+        base_price: 10,
+        sold_by_weight: false,
+        is_active: true,
+      })
+      .select('id')
+      .single();
+    if (regularErr || !regular) throw new Error(`regular product insert: ${regularErr?.message}`);
+    regularProductId = regular.id as string;
+    const { error: regularInvErr } = await svc.from('inventory').insert({ product_id: regularProductId, quantity_on_hand: 5000 });
+    if (regularInvErr) throw new Error(`regular product inventory insert: ${regularInvErr.message}`);
+
     const { data: weighed, error: weighedErr } = await svc
       .from('products')
       .insert({
@@ -591,9 +602,14 @@ describe.skipIf(!hasAnonEnv)('process_refund — per-line bounds (wave 3a)', () 
   });
 
   afterAll(async () => {
-    if (weighedProductId) {
-      await svc.from('inventory').delete().eq('product_id', weighedProductId);
-      await svc.from('products').delete().eq('id', weighedProductId);
+    for (const productId of [regularProductId, weighedProductId]) {
+      if (!productId) continue;
+      const movDel = await svc.from('stock_movements').delete().eq('product_id', productId);
+      expect(movDel.error).toBeNull();
+      const invDel = await svc.from('inventory').delete().eq('product_id', productId);
+      expect(invDel.error).toBeNull();
+      const prodDel = await svc.from('products').delete().eq('id', productId);
+      expect(prodDel.error).toBeNull();
     }
     for (const f of fixtures) await removeFixture(f);
   });

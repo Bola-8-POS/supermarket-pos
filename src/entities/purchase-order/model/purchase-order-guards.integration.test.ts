@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 /**
- * Integration test: purchase order guards (wave 3a, S-34) — a received
+ * Integration test: purchase order guards (wave 3a) — a received
  * purchase order is read-only in RLS and in update_purchase_order_atomic;
  * receive_shipment replays an idempotency key instead of creating a second
  * shipment.
@@ -105,14 +105,20 @@ describe.skipIf(skip)('purchase order guards', () => {
     if (supplierErr || !supplier) throw new Error(`supplier insert: ${supplierErr?.message}`);
     supplierId = supplier.id as string;
 
+    // Dedicated tagged fixture product (not a shared live catalog product):
+    // receive_shipment permanently moves quantity_on_hand and writes ledger
+    // rows, so this file creates and owns its own product, deleted in
+    // afterAll (same pattern as receive-po-shipment.integration.test.ts's
+    // IT_PRODUCT_ID). receive_shipment upserts its own inventory row, so no
+    // inventory row is pre-created here — only cleaned up.
+    const { data: category, error: categoryErr } = await db.from('categories').select('id').limit(1).single();
+    if (categoryErr || !category) throw new Error(`no category: ${categoryErr?.message}`);
     const { data: product, error: productErr } = await db
       .from('products')
+      .insert({ name: `${TAG}product`, category_id: category.id, base_price: 1, is_active: true, sold_by_weight: false })
       .select('id')
-      .eq('is_active', true)
-      .is('parent_product_id', null)
-      .limit(1)
       .single();
-    if (productErr || !product) throw new Error(`no eligible product: ${productErr?.message}`);
+    if (productErr || !product) throw new Error(`fixture product insert: ${productErr?.message}`);
     productId = product.id as string;
   });
 
@@ -125,6 +131,13 @@ describe.skipIf(skip)('purchase order guards', () => {
       await db.from('profiles').delete().eq('id', manager.id);
       await db.auth.admin.deleteUser(manager.id);
     }
+
+    const movDel = await db.from('stock_movements').delete().eq('product_id', productId);
+    expect(movDel.error).toBeNull();
+    const invDel = await db.from('inventory').delete().eq('product_id', productId);
+    expect(invDel.error).toBeNull();
+    const prodDel = await db.from('products').delete().eq('id', productId);
+    expect(prodDel.error).toBeNull();
   });
 
   it('a draft PO updated through update_purchase_order_atomic replaces its items', async () => {
@@ -149,8 +162,8 @@ describe.skipIf(skip)('purchase order guards', () => {
     // visibility entirely, so the row reads as NOT FOUND and the function's
     // own `v_status <> 'draft'` PO_RECEIVED branch is never reached for any
     // RLS-bound caller. Either way the write is refused and nothing
-    // changes; PO_RECEIVED stays reachable for a caller that bypasses RLS
-    // (service_role), which is what the static check in
+    // changes; PO_RECEIVED stays reachable for a caller that reads with RLS
+    // disabled (service_role), which is what the static check in
     // verify-stock-and-line-bounds.sql (prosrc contains PO_RECEIVED) pins.
     const poId = await seedPo('received');
     const { error } = await manager.client.rpc('update_purchase_order_atomic', {

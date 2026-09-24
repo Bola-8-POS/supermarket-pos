@@ -5,8 +5,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 /**
  * Integration test: adjust_inventory RPC — stock adjustments and counts go
  * through one RPC that locks the row, checks an optional expected quantity,
- * and writes the ledger row and the audit row together (wave 3a, S-28 + S-32
- * stock part).
+ * and writes the ledger row and the audit row together (wave 3a stock
+ * adjustments).
  *
  * Requires VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY
  * (local stack, edge runtime running for staff-sign-in). Skips gracefully when absent.
@@ -39,6 +39,7 @@ describe.skipIf(skip)('adjust_inventory RPC', () => {
   const cashier: Fixture = { id: '', name: `${TAG}cashier`, email: `${TAG}c_${stamp}@test.local`, role: 'cashier', pin: randomPin(), client: null };
   const fixtures = [manager, cashier];
   let productId = '';
+  let inventoryRowId = '';
 
   async function callFn(name: string, body: unknown): Promise<{ status: number; json: any }> {
     const res = await fetch(`${url}/functions/v1/${name}`, {
@@ -88,24 +89,44 @@ describe.skipIf(skip)('adjust_inventory RPC', () => {
     await signIn(manager);
     await signIn(cashier);
 
+    // Dedicated tagged fixture product (not a shared live catalog product):
+    // adjust_inventory permanently moves quantity_on_hand and writes ledger
+    // rows, so this file creates and owns its own product + inventory row,
+    // deleted in afterAll (same pattern as
+    // receive-po-shipment.integration.test.ts's IT_PRODUCT_ID).
+    const { data: category, error: categoryErr } = await db.from('categories').select('id').limit(1).single();
+    if (categoryErr || !category) throw new Error(`no category: ${categoryErr?.message}`);
     const { data: product, error: productErr } = await db
       .from('products')
+      .insert({ name: `${TAG}product`, category_id: category.id, base_price: 1, is_active: true, sold_by_weight: false })
       .select('id')
-      .eq('is_active', true)
-      .is('parent_product_id', null)
-      .limit(1)
       .single();
-    if (productErr || !product) throw new Error(`no eligible product: ${productErr?.message}`);
+    if (productErr || !product) throw new Error(`fixture product insert: ${productErr?.message}`);
     productId = product.id as string;
+
+    const { data: inv, error: invErr } = await db
+      .from('inventory')
+      .insert({ product_id: productId, quantity_on_hand: 100 })
+      .select('id')
+      .single();
+    if (invErr || !inv) throw new Error(`fixture inventory insert: ${invErr?.message}`);
+    inventoryRowId = inv.id as string;
   });
 
   afterAll(async () => {
+    const movDel = await db.from('stock_movements').delete().eq('product_id', productId);
+    expect(movDel.error).toBeNull();
+    const auditDel = await db.from('audit_logs').delete().eq('action', 'inventory.adjust').eq('entity_id', inventoryRowId);
+    expect(auditDel.error).toBeNull();
+    const invDel = await db.from('inventory').delete().eq('product_id', productId);
+    expect(invDel.error).toBeNull();
+    const prodDel = await db.from('products').delete().eq('id', productId);
+    expect(prodDel.error).toBeNull();
     for (const f of fixtures) await removeFixture(f);
   });
 
   it('applies a positive delta, writes one ledger row and one audit row, both attributed to the caller', async () => {
     const before = await currentQty();
-    const { data: invRow } = await db.from('inventory').select('id').eq('product_id', productId).single();
 
     const { data, error } = await manager.client.rpc('adjust_inventory', {
       p_product_id: productId,
@@ -128,7 +149,7 @@ describe.skipIf(skip)('adjust_inventory RPC', () => {
       .from('audit_logs')
       .select('actor_id')
       .eq('action', 'inventory.adjust')
-      .eq('entity_id', invRow!.id)
+      .eq('entity_id', inventoryRowId)
       .order('created_at', { ascending: false })
       .limit(1);
     expect(auditRows).toHaveLength(1);
