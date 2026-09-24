@@ -69,3 +69,10 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.DEMO_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.DEMO_SUPABASE_SERVICE_ROLE_KEY }}
         run: npm run seed:demo
+
+      # demo gets its schema from `db reset` but nothing else deployed functions there,
+      # so sign-in on any 2a+ client 404'd; this keeps the functions in step with `main`.
+      - name: Deploy edge functions
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: supabase functions deploy --project-ref ${{ secrets.DEMO_SUPABASE_PROJECT_REF }}
