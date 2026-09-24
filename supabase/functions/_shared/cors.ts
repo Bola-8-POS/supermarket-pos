@@ -1,8 +1,9 @@
 // Per-request CORS headers (SEC-07 / S-24). Reflects the caller's Origin
 // when it is allow-listed, instead of the previous '*' every function set —
 // '*' let any site call an authenticated endpoint from a browser. Building
-// this from the request each time (not a module-level constant) also avoids
-// one request's Origin leaking into a concurrent request's response.
+// this from the request each time (not a module-level constant) also keeps
+// one request's Origin from carrying over into a concurrent request's
+// response.
 const DEFAULT_ALLOWED_ORIGINS = [
   'http://tauri.localhost',
   'tauri://localhost',
