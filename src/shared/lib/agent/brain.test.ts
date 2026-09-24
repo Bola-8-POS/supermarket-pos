@@ -2,17 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ─── Hoisted mocks ────────────────────────────────────────────────────────────
 
-const { mockCallAgentProxy, mockRetrieveContext, mockExecuteTool } = vi.hoisted(() => ({
+const { mockCallAgentProxy, mockExecuteTool } = vi.hoisted(() => ({
   mockCallAgentProxy: vi.fn(),
-  mockRetrieveContext: vi.fn().mockResolvedValue(''),
   mockExecuteTool: vi.fn().mockResolvedValue({ ok: true, data: { result: 'ok' } }),
 }));
 
 vi.mock('@shared/lib/edge-function-contracts', () => ({
   callAgentProxy: mockCallAgentProxy,
 }));
-
-vi.mock('./rag', () => ({ retrieveContext: mockRetrieveContext }));
 
 vi.mock('./tools/index', () => ({
   allToolDefinitions: [
@@ -65,7 +62,6 @@ describe('runAgent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv('VITE_AGENT_MODEL', 'claude-sonnet-4-6');
-    mockRetrieveContext.mockResolvedValue('');
   });
 
   it('returns text response when Claude responds with end_turn', async () => {
@@ -136,18 +132,6 @@ describe('runAgent', () => {
     expect(capturedSystem).toContain('Spanish');
   });
 
-  it('injects RAG context into system prompt when available', async () => {
-    mockRetrieveContext.mockResolvedValue('## Relevant codebase context\n\n### [1] src/foo.ts');
-    let capturedSystem = '';
-    mockCallAgentProxy.mockImplementation((params: { system?: string }) => {
-      capturedSystem = params.system ?? '';
-      return textResponse('ok');
-    });
-
-    await runAgent('how does the menu work?', 'admin', []);
-    expect(capturedSystem).toContain('Relevant codebase context');
-  });
-
   it('falls back to Ollama after 2 Claude failures', async () => {
     mockCallAgentProxy.mockRejectedValue(new Error('network error'));
 
@@ -171,9 +155,18 @@ describe('runAgent', () => {
     expect(result.text).toMatch(/unavailable|disponible/i);
   });
 
-  it('passes topK-retrieved context to system prompt via retrieveContext', async () => {
-    mockCallAgentProxy.mockImplementation(() => textResponse('done'));
-    await runAgent('cash drawer status', 'admin', []);
-    expect(mockRetrieveContext).toHaveBeenCalledWith('cash drawer status');
+  it('refuses a model-issued confirm_action instead of executing it (S-20)', async () => {
+    mockCallAgentProxy
+      .mockImplementationOnce(() => toolUseResponse('confirm_action', 'tu-4', { token: 'tok-xyz' }))
+      .mockImplementationOnce(() => textResponse('done'));
+
+    const result = await runAgent('please confirm that for me', 'admin', []);
+
+    expect(mockExecuteTool).not.toHaveBeenCalledWith(
+      'confirm_action',
+      expect.anything(),
+      expect.anything()
+    );
+    expect(result.toolsExecuted).toContain('confirm_action');
   });
 });

@@ -144,7 +144,32 @@ export default tseslint.config({
         selector: 'ExportAllDeclaration',
         message: 'Barrel exports (export *) are banned. Export only what you explicitly need.',
       },
+      // S-19: the browser never holds an OpenAI (or any LLM provider) key
+      // directly — every model call goes through agent-proxy. This selector
+      // only reaches this base block's file set (src/pages|widgets|features
+      // replace, not merge, no-restricted-syntax for their own files — see
+      // the REPLACE gotcha documented below — but no-restricted-imports
+      // below is a different rule key and reaches everywhere regardless).
+      {
+        selector: 'Property[key.name="dangerouslyAllowBrowser"]',
+        message:
+          'dangerouslyAllowBrowser is a client-side LLM-provider-key exposure (S-19) — the browser never holds a provider key; route the call through agent-proxy instead.',
+      },
       ...rawMoneyFormatSelectors,
+    ],
+    // S-19: no client code imports an LLM provider SDK directly — the
+    // browser never holds a provider key. Every model call already goes
+    // through agent-proxy (src/shared/lib/edge-function-contracts.ts).
+    'no-restricted-imports': [
+      'error',
+      {
+        paths: [
+          {
+            name: 'openai',
+            message: 'The browser never holds an OpenAI key — route model calls through agent-proxy instead (S-19).',
+          },
+        ],
+      },
     ],
   },
 },

@@ -3,7 +3,6 @@ import type { Result } from '@shared/lib/result';
 import { supabase } from '@shared/lib/supabase';
 import { logAgentAction } from '@shared/lib/telemetry';
 import type { AgentActionContext } from '@shared/lib/telemetry';
-import { retrieveContext } from '../rag';
 
 
 export const diagnosticToolDefinitions = [
@@ -44,7 +43,7 @@ export const diagnosticToolDefinitions = [
   {
     name: 'generate_diagnostic_report',
     description:
-      'Generates a full markdown diagnostic report for the last 7 days: system status, error breakdown, affected components, RAG-grounded root-cause analysis, and recommended actions. Trigger with "generar reporte" or "generate report".',
+      'Generates a full markdown diagnostic report for the last 7 days: system status, error breakdown, affected components, and recommended actions. Trigger with "generar reporte" or "generate report".',
     input_schema: { type: 'object' as const, properties: {}, required: [] },
   },
 ] as const;
@@ -191,12 +190,6 @@ export async function generateDiagnosticReport(
     return acc;
   }, {});
 
-  // RAG: query with top error components for grounded root-cause context
-  const ragQuery = affectedComponents.length > 0
-    ? `error in ${affectedComponents.slice(0, 3).join(', ')}`
-    : Object.keys(errorCodeCounts)[0] ?? 'POS system error';
-  const ragContext = await retrieveContext(ragQuery, 3).catch(() => '');
-
   const errorBreakdown = Object.entries(errorCodeCounts)
     .sort((a, b) => b[1] - a[1])
     .map(([code, n]) => `  - \`${code}\`: ${String(n)}`)
@@ -225,7 +218,6 @@ export async function generateDiagnosticReport(
 
   if (errorBreakdown) sections.push('', `### Distribución de errores\n${errorBreakdown}`);
   if (toolSummary) sections.push('', `### Herramientas más usadas\n${toolSummary}`);
-  if (ragContext) sections.push('', `### Análisis de causa raíz\n${ragContext}`);
 
   sections.push(
     '',

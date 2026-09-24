@@ -50,6 +50,14 @@ jobs:
       - name: Unit tests
         run: npm run test
 
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Deno unit tests (edge functions' _shared helpers)
+        run: npm run test:deno
+
       - name: Security audit (high+)
         run: npm audit --audit-level=high
         continue-on-error: false
@@ -122,3 +130,13 @@ jobs:
 
       - name: Tauri native build
         run: npm run tauri build -- --ci --no-bundle
+
+      - name: Scan dist for provider-key patterns (S-19)
+        # This job's other run: steps default to pwsh on this self-hosted
+        # Windows runner; a bare grep needs bash. This job's build sets no
+        # VITE_* secrets, so this mostly proves the pattern doesn't
+        # false-positive — release.yml's identical step, after the build that
+        # actually materializes real VITE_* secrets, is the one that matters.
+        shell: bash
+        run: |
+          if grep -rEl "sk-ant-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{32,}|VITE_OPENAI_API_KEY" dist/; then exit 1; fi

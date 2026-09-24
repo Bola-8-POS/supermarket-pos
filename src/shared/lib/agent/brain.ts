@@ -6,7 +6,6 @@ import type {
   AnthropicToolResultBlockParam,
   AnthropicToolUseBlock,
 } from './anthropic-types';
-import { retrieveContext } from './rag';
 import { allToolDefinitions, executeTool } from './tools/index';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -52,7 +51,7 @@ function detectLanguage(text: string): 'es' | 'en' {
 }
 
 
-function buildSystemPrompt(userRole: string, ragContext: string, lang: 'es' | 'en'): string {
+function buildSystemPrompt(userRole: string, lang: 'es' | 'en'): string {
   const now = new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' });
   const langLine =
     lang === 'es'
@@ -71,13 +70,11 @@ function buildSystemPrompt(userRole: string, ragContext: string, lang: 'es' | 'e
     '1. NEVER invent UUIDs. Use find_product / find_tab to resolve real IDs before any write.',
     '2. For add_items_to_tab: call find_product first to get real product_id. Price is set by DB — do not pass unit_price.',
     '3. Destructive tools (close_tab, deactivate_product, bulk_import_products) return { pending: true, confirm_token, preview }.',
-    '   Show the preview to the user and ask for confirmation. When user confirms, call confirm_action({ token }) — do NOT re-call the original tool.',
+    '   Show the preview to the user and ask them to confirm. You never call confirm_action yourself — only the user\'s own click in the UI does. Narrate the pending action and wait.',
     '   To cancel, call cancel_action({ token }).',
     '4. If a tool returns an error, report the exact error message. Do not retry silently.',
     '5. Never call write tools more than 10 times per minute — the system will block excess calls.',
   ];
-
-  if (ragContext) parts.push('', ragContext);
 
   return parts.join('\n');
 }
@@ -126,14 +123,7 @@ export async function runAgent(
   const lang = detectLanguage(userMessage);
   const toolsExecuted: string[] = [];
 
-  let ragContext = '';
-  try {
-    ragContext = await retrieveContext(userMessage);
-  } catch {
-    // RAG is best-effort — continue without it
-  }
-
-  const systemPrompt = buildSystemPrompt(userRole, ragContext, lang);
+  const systemPrompt = buildSystemPrompt(userRole, lang);
 
   const messages: AnthropicMessageParam[] = [
     ...conversationHistory.map((m) => ({
@@ -172,6 +162,24 @@ export async function runAgent(
         const toolResults: AnthropicToolResultBlockParam[] = [];
 
         for (const block of toolBlocks) {
+          // S-20: a model-issued confirm_action is refused here, before it ever
+          // reaches executeTool — only the UI's own click-through (useAgent.ts)
+          // may call confirm_action. See allToolDefinitions in tools/index.ts,
+          // which already drops confirm_action from what the model is offered;
+          // this is the backstop for a model that tries to call it anyway.
+          if (block.name === 'confirm_action') {
+            toolsExecuted.push(block.name);
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: block.id,
+              content: JSON.stringify({
+                code: 'CONFIRMATION_REQUIRES_USER',
+                message: 'confirm_action must be triggered by the user, not the model.',
+              }),
+            });
+            continue;
+          }
+
           const ctx = { userId, userRole, durationMs: undefined };
           const result = await executeTool(
             block.name,
