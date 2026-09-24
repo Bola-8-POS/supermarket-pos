@@ -1,11 +1,15 @@
 /**
  * Unit tests for usePhysicalCount
  *
- * AC covered (S8-04):
- * - Success path: writes stock_movements entry per changed product with reason='physical_count'
- *   and delta=(actual - current), then updates inventory.quantity_on_hand
- * - Products with actual == current (zero variance) are skipped — no DB writes
- * - Error path: returns Result with ok:false when Supabase fails
+ * AC covered (S8-04) plus wave 3a Task 2 changes:
+ * - Success path: calls the adjust_inventory RPC per changed product with
+ *   reason='physical_count', delta=(actual - expected) and
+ *   p_expected_quantity = the baseline the count screen showed when the
+ *   count started (not a live re-fetch)
+ * - Products with actual == current (zero variance) are skipped — no RPC calls
+ * - A STOCK_CHANGED rejection on one row is reported for that product and the
+ *   loop continues to the remaining rows (Review Focus #3)
+ * - Any other RPC failure still stops the whole submission (unchanged behavior)
  */
 
 import type { QueryClient } from '@tanstack/react-query';
@@ -24,7 +28,7 @@ import { usePhysicalCount } from './usePhysicalCount';
 // ---------------------------------------------------------------------------
 
 // eslint-disable-next-line @typescript-eslint/unbound-method
-const mockedFrom = vi.mocked(supabase).from;
+const mockedRpc = vi.mocked(supabase.rpc);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -75,69 +79,15 @@ function makeInventoryItem(
   };
 }
 
-/**
- * Mock the sequential DB chain used by usePhysicalCount per changed row:
- *   1. supabaseQuery  → from('inventory').select('*').eq('product_id', id).single()
- *   2. supabaseMutation → from('inventory').update({...}).eq(...).select().single()
- *   3. supabaseMutation → from('stock_movements').insert({...}).select().single()
- *
- * We track which table is passed to `from` so we can return appropriate mocks.
- */
-type MockFromOptions = {
-  fetchResult?:
-    | { data: unknown; error: null }
-    | { data: null; error: { message: string; code: string } };
-  updateResult?:
-    | { data: unknown; error: null }
-    | { data: null; error: { message: string; code: string } };
-  logResult?:
-    | { data: unknown; error: null }
-    | { data: null; error: { message: string; code: string } };
-};
+function rpcOk(quantityOnHand: number) {
+  return {
+    data: { ok: true, quantityOnHand, movementId: crypto.randomUUID() },
+    error: null,
+  } as never;
+}
 
-function setupSuccessMock(productId: string, currentQty: number, opts: MockFromOptions = {}) {
-  const {
-    fetchResult = { data: { product_id: productId, quantity_on_hand: currentQty }, error: null },
-    updateResult = { data: { product_id: productId, quantity_on_hand: currentQty }, error: null },
-    logResult = {
-      data: {
-        id: crypto.randomUUID(),
-        product_id: productId,
-        quantity_delta: 0,
-        reason: 'physical_count',
-        staff_id: 'staff-1',
-      },
-      error: null,
-    },
-  } = opts;
-
-  mockedFrom.mockImplementation((table: string) => {
-    if (table === 'inventory') {
-      return {
-        select: vi.fn().mockReturnThis(),
-        update: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockReturnThis(),
-        single: vi
-          .fn()
-          // first call = fetch, second call = update .single()
-          .mockResolvedValueOnce(fetchResult)
-          .mockResolvedValueOnce(updateResult),
-      } as unknown as ReturnType<typeof supabase.from>;
-    }
-    if (table === 'stock_movements') {
-      return {
-        insert: vi.fn().mockReturnThis(),
-        select: vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue(logResult),
-      } as unknown as ReturnType<typeof supabase.from>;
-    }
-    // fallback
-    return {
-      select: vi.fn().mockReturnThis(),
-      insert: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: null, error: null }),
-    } as unknown as ReturnType<typeof supabase.from>;
-  });
+function rpcError(message: string) {
+  return { data: null, error: { message, code: 'P0001' } } as never;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,20 +108,7 @@ describe('usePhysicalCount', () => {
     const inventory: Inventory[] = [makeInventoryItem(productId, 'Heineken', 10)];
 
     // actual = 7, so delta = 7 - 10 = -3
-    setupSuccessMock(productId, 10, {
-      fetchResult: { data: { product_id: productId, quantity_on_hand: 10 }, error: null },
-      updateResult: { data: { product_id: productId, quantity_on_hand: 7 }, error: null },
-      logResult: {
-        data: {
-          id: crypto.randomUUID(),
-          product_id: productId,
-          quantity_delta: -3,
-          reason: 'physical_count',
-          staff_id: 'staff-1',
-        },
-        error: null,
-      },
-    });
+    mockedRpc.mockResolvedValueOnce(rpcOk(7));
 
     const qc = createTestQueryClient();
     const { result } = renderHook(() => usePhysicalCount(), {
@@ -189,6 +126,7 @@ describe('usePhysicalCount', () => {
     if (!res.ok) return;
 
     expect(res.data.adjustedRows).toHaveLength(1);
+    expect(res.data.reportedRows).toHaveLength(0);
     expect(res.data.adjustedRows[0]).toMatchObject({
       productId,
       productName: 'Heineken',
@@ -198,56 +136,16 @@ describe('usePhysicalCount', () => {
     });
   });
 
-  it('S8-04: writes stock_movements entry with reason=physical_count and correct delta', async () => {
+  it('S8-04: calls adjust_inventory with reason=physical_count, the count delta and the count-start baseline', async () => {
     const productId = crypto.randomUUID();
     const inventory: Inventory[] = [makeInventoryItem(productId, 'Coke', 20)];
 
-    const logInsertSingleSpy = vi.fn().mockResolvedValue({
-      data: {
-        id: crypto.randomUUID(),
-        product_id: productId,
-        quantity_delta: 5,
-        reason: 'physical_count',
-        staff_id: 'staff-42',
-      },
-      error: null,
-    });
-
-    mockedFrom.mockImplementation((table: string) => {
-      if (table === 'inventory') {
-        return {
-          select: vi.fn().mockReturnThis(),
-          update: vi.fn().mockReturnThis(),
-          eq: vi.fn().mockReturnThis(),
-          single: vi
-            .fn()
-            .mockResolvedValueOnce({
-              data: { product_id: productId, quantity_on_hand: 20 },
-              error: null,
-            })
-            .mockResolvedValueOnce({
-              data: { product_id: productId, quantity_on_hand: 25 },
-              error: null,
-            }),
-        } as unknown as ReturnType<typeof supabase.from>;
-      }
-      if (table === 'stock_movements') {
-        return {
-          insert: vi.fn().mockReturnThis(),
-          select: vi.fn().mockReturnThis(),
-          single: logInsertSingleSpy,
-        } as unknown as ReturnType<typeof supabase.from>;
-      }
-      return {
-        select: vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue({ data: null, error: null }),
-      } as unknown as ReturnType<typeof supabase.from>;
-    });
+    mockedRpc.mockResolvedValueOnce(rpcOk(25));
 
     const qc = createTestQueryClient();
     const { result } = renderHook(() => usePhysicalCount(), { wrapper: makeWrapper(qc) });
 
-    // actual=25, expected=20 → delta=+5
+    // actual=25, expected(baseline)=20 → delta=+5
     const entries = new Map([[productId, 25]]);
     const res = await result.current.submitPhysicalCount({
       entries,
@@ -256,32 +154,28 @@ describe('usePhysicalCount', () => {
     });
 
     expect(res.ok).toBe(true);
-    // stock_movements .single() was called — confirming the insert path was hit
-    expect(logInsertSingleSpy).toHaveBeenCalledTimes(1);
+    expect(mockedRpc).toHaveBeenCalledTimes(1);
+    expect(mockedRpc).toHaveBeenCalledWith('adjust_inventory', {
+      p_product_id: productId,
+      p_quantity_delta: 5,
+      p_reason: 'physical_count',
+      p_notes: null,
+      p_expected_quantity: 20,
+    });
   });
 
   // -------------------------------------------------------------------------
   // Skip unchanged rows
   // -------------------------------------------------------------------------
 
-  it('S8-04: skips DB writes for products where actual == expected (zero variance)', async () => {
+  it('S8-04: skips RPC calls for products where actual == expected (zero variance)', async () => {
     const productId = crypto.randomUUID();
     const inventory: Inventory[] = [makeInventoryItem(productId, 'Water', 15)];
-
-    // No mock needed for changed rows — if from() gets called, the test should fail
-    const fromSpy = vi.fn().mockReturnValue({
-      select: vi.fn().mockReturnThis(),
-      insert: vi.fn().mockReturnThis(),
-      update: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockResolvedValue({ data: null, error: null }),
-    });
-    mockedFrom.mockImplementation(fromSpy);
 
     const qc = createTestQueryClient();
     const { result } = renderHook(() => usePhysicalCount(), { wrapper: makeWrapper(qc) });
 
-    // actual == expected (15 == 15) → should skip all DB writes
+    // actual == expected (15 == 15) → should skip all RPC calls
     const entries = new Map([[productId, 15]]);
     const res = await result.current.submitPhysicalCount({
       entries,
@@ -292,14 +186,10 @@ describe('usePhysicalCount', () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
 
-    // No rows adjusted
     expect(res.data.adjustedRows).toHaveLength(0);
-    // All rows still appear in allRows
     expect(res.data.allRows).toHaveLength(1);
     expect(res.data.allRows[0]?.variance).toBe(0);
-
-    // No DB writes — from() should NOT have been called at all
-    expect(fromSpy).not.toHaveBeenCalled();
+    expect(mockedRpc).not.toHaveBeenCalled();
   });
 
   it('S8-04: skips only unchanged rows and adjusts changed ones in a mixed list', async () => {
@@ -311,37 +201,7 @@ describe('usePhysicalCount', () => {
       makeInventoryItem(changed, 'Wine', 8),
     ];
 
-    // Only the changed product calls DB
-    mockedFrom.mockImplementation((table: string) => {
-      if (table === 'inventory') {
-        return {
-          select: vi.fn().mockReturnThis(),
-          update: vi.fn().mockReturnThis(),
-          eq: vi.fn().mockReturnThis(),
-          single: vi
-            .fn()
-            .mockResolvedValueOnce({
-              data: { product_id: changed, quantity_on_hand: 8 },
-              error: null,
-            })
-            .mockResolvedValueOnce({
-              data: { product_id: changed, quantity_on_hand: 5 },
-              error: null,
-            }),
-        } as unknown as ReturnType<typeof supabase.from>;
-      }
-      if (table === 'stock_movements') {
-        return {
-          insert: vi.fn().mockReturnThis(),
-          select: vi.fn().mockReturnThis(),
-          single: vi.fn().mockResolvedValue({ data: { id: crypto.randomUUID() }, error: null }),
-        } as unknown as ReturnType<typeof supabase.from>;
-      }
-      return {
-        select: vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue({ data: null, error: null }),
-      } as unknown as ReturnType<typeof supabase.from>;
-    });
+    mockedRpc.mockResolvedValueOnce(rpcOk(5));
 
     const qc = createTestQueryClient();
     const { result } = renderHook(() => usePhysicalCount(), { wrapper: makeWrapper(qc) });
@@ -363,38 +223,65 @@ describe('usePhysicalCount', () => {
     expect(res.data.adjustedRows).toHaveLength(1);
     expect(res.data.adjustedRows[0]?.productId).toBe(changed);
     expect(res.data.allRows).toHaveLength(2);
+    expect(mockedRpc).toHaveBeenCalledTimes(1);
   });
 
   // -------------------------------------------------------------------------
-  // Error path — fetch failure
+  // STOCK_CHANGED: reported, loop continues (Review Focus #3)
   // -------------------------------------------------------------------------
 
-  it('S8-04: returns Result ok:false when inventory fetch fails for a changed product', async () => {
+  it('S8-04/Review-Focus-3: a STOCK_CHANGED rejection on one of three rows is reported and the other two apply', async () => {
+    const a = crypto.randomUUID();
+    const b = crypto.randomUUID();
+    const c = crypto.randomUUID();
+    const inventory: Inventory[] = [
+      makeInventoryItem(a, 'A', 10),
+      makeInventoryItem(b, 'B', 10),
+      makeInventoryItem(c, 'C', 10),
+    ];
+
+    mockedRpc
+      .mockResolvedValueOnce(rpcOk(8))
+      .mockResolvedValueOnce(rpcError('STOCK_CHANGED: expected 10 but stock is 6'))
+      .mockResolvedValueOnce(rpcOk(12));
+
+    const qc = createTestQueryClient();
+    const { result } = renderHook(() => usePhysicalCount(), { wrapper: makeWrapper(qc) });
+
+    const entries = new Map([
+      [a, 8],
+      [b, 9],
+      [c, 12],
+    ]);
+    const res = await result.current.submitPhysicalCount({
+      entries,
+      inventory,
+      staffId: 'staff-1',
+    });
+
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+
+    expect(mockedRpc).toHaveBeenCalledTimes(3);
+    expect(res.data.adjustedRows.map(r => r.productId).sort()).toEqual([a, c].sort());
+    expect(res.data.reportedRows).toHaveLength(1);
+    expect(res.data.reportedRows[0]?.productId).toBe(b);
+  });
+
+  // -------------------------------------------------------------------------
+  // Error path — a non-STOCK_CHANGED RPC failure still stops the submission
+  // -------------------------------------------------------------------------
+
+  it('S8-04: returns Result ok:false and stops the submission when the RPC refuses for another reason', async () => {
     const productId = crypto.randomUUID();
     const inventory: Inventory[] = [makeInventoryItem(productId, 'Rum', 10)];
 
-    mockedFrom.mockImplementation((table: string) => {
-      if (table === 'inventory') {
-        return {
-          select: vi.fn().mockReturnThis(),
-          update: vi.fn().mockReturnThis(),
-          eq: vi.fn().mockReturnThis(),
-          single: vi.fn().mockResolvedValue({
-            data: null,
-            error: { message: 'row not found', code: 'PGRST116' },
-          }),
-        } as unknown as ReturnType<typeof supabase.from>;
-      }
-      return {
-        select: vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue({ data: null, error: null }),
-      } as unknown as ReturnType<typeof supabase.from>;
-    });
+    mockedRpc.mockResolvedValueOnce(rpcError('AUTH_FORBIDDEN: not allowed to adjust stock'));
 
     const qc = createTestQueryClient();
     const { result } = renderHook(() => usePhysicalCount(), { wrapper: makeWrapper(qc) });
 
-    const entries = new Map([[productId, 5]]); // differs from 10 → triggers DB path
+    const entries = new Map([[productId, 5]]); // differs from 10 → triggers the RPC
     const res = await result.current.submitPhysicalCount({
       entries,
       inventory,
@@ -403,60 +290,7 @@ describe('usePhysicalCount', () => {
 
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(res.error.code).toBe('NOT_FOUND');
-  });
-
-  it('S8-04: returns Result ok:false when stock_movements insert fails', async () => {
-    const productId = crypto.randomUUID();
-    const inventory: Inventory[] = [makeInventoryItem(productId, 'Vodka', 10)];
-
-    mockedFrom.mockImplementation((table: string) => {
-      if (table === 'inventory') {
-        return {
-          select: vi.fn().mockReturnThis(),
-          update: vi.fn().mockReturnThis(),
-          eq: vi.fn().mockReturnThis(),
-          single: vi
-            .fn()
-            .mockResolvedValueOnce({
-              data: { product_id: productId, quantity_on_hand: 10 },
-              error: null,
-            })
-            .mockResolvedValueOnce({
-              data: { product_id: productId, quantity_on_hand: 3 },
-              error: null,
-            }),
-        } as unknown as ReturnType<typeof supabase.from>;
-      }
-      if (table === 'stock_movements') {
-        return {
-          insert: vi.fn().mockReturnThis(),
-          select: vi.fn().mockReturnThis(),
-          single: vi.fn().mockResolvedValue({
-            data: null,
-            error: { message: 'permission denied', code: '42501' },
-          }),
-        } as unknown as ReturnType<typeof supabase.from>;
-      }
-      return {
-        select: vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue({ data: null, error: null }),
-      } as unknown as ReturnType<typeof supabase.from>;
-    });
-
-    const qc = createTestQueryClient();
-    const { result } = renderHook(() => usePhysicalCount(), { wrapper: makeWrapper(qc) });
-
-    const entries = new Map([[productId, 3]]); // differs → triggers DB path
-    const res = await result.current.submitPhysicalCount({
-      entries,
-      inventory,
-      staffId: 'staff-1',
-    });
-
-    expect(res.ok).toBe(false);
-    if (res.ok) return;
-    expect(res.error.code).toBe('AUTH_FORBIDDEN');
+    expect(res.error.message).toContain('AUTH_FORBIDDEN');
   });
 
   // -------------------------------------------------------------------------

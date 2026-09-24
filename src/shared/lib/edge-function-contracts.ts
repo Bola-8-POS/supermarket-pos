@@ -1005,13 +1005,18 @@ export const ReceiveShipmentRequestSchema = z.object({
   supplierId: UuidSchema,
   items: z.array(ShipmentLineItemSchema).min(1).max(50),
   poId: UuidSchema.nullable().optional(),
+  idempotencyKey: UuidSchema.optional(),
 });
-export const ReceiveShipmentSuccessSchema = z.object({ shipmentId: UuidSchema });
+export const ReceiveShipmentSuccessSchema = z.object({
+  shipmentId: UuidSchema,
+  idempotent: z.boolean().optional(),
+});
 export type ReceiveShipmentRequest = z.infer<typeof ReceiveShipmentRequestSchema>;
 export type ReceiveShipmentSuccess = z.infer<typeof ReceiveShipmentSuccessSchema>;
 const ReceiveShipmentEnvelopeSchema = z.object({
   success: z.boolean(),
   shipmentId: UuidSchema.optional(),
+  idempotent: z.boolean().optional(),
   error: ProcessPaymentErrorBodySchema.optional(),
 });
 export async function callReceiveShipment(

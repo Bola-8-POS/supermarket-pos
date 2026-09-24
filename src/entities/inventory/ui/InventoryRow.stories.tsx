@@ -47,11 +47,8 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-const staffId = MOCK_IDS.staffManager;
-
 export const Normal: Story = {
   args: {
-    staffId,
     currentRole: 'manager',
     inventory: generateMockInventory({
       id: MOCK_IDS.invCorona,
@@ -70,7 +67,6 @@ export const Normal: Story = {
 
 export const LowStock: Story = {
   args: {
-    staffId,
     currentRole: 'manager',
     inventory: generateMockInventory({
       quantityOnHand: 2,
@@ -87,7 +83,6 @@ export const LowStock: Story = {
 
 export const OutOfStock: Story = {
   args: {
-    staffId,
     currentRole: 'manager',
     inventory: generateMockInventory({
       quantityOnHand: 0,

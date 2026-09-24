@@ -170,13 +170,8 @@ export function StockTab({ onOpenCatalog }: Props) {
   const [batchReason, setBatchReason] = useState<string>('');
 
   const columns = useMemo(
-    () =>
-      inventoryRowColumns(
-        tEntities,
-        staffId || '00000000-0000-0000-0000-000000000001',
-        currentRole
-      ),
-    [tEntities, staffId, currentRole]
+    () => inventoryRowColumns(tEntities, currentRole),
+    [tEntities, currentRole]
   );
 
   const uniqueCategories = useMemo(() => {
@@ -284,10 +279,6 @@ export function StockTab({ onOpenCatalog }: Props) {
   };
 
   const handleBatchSubmit = async () => {
-    if (!staffId) {
-      toast.error(t('inventoryPagePanel.signInToAdjust'));
-      return;
-    }
     const delta = Number.parseInt(batchDelta, 10);
     if (!batchProductId || Number.isNaN(delta) || delta === 0 || !batchReason) {
       toast.error(t('inventoryPagePanel.chooseProductAndDeltaAndReason'));
@@ -297,7 +288,7 @@ export function StockTab({ onOpenCatalog }: Props) {
       productId: batchProductId,
       quantityDelta: delta,
       reason: batchReason,
-      staffId,
+      notes: undefined,
     });
     if (!res.ok) {
       toast.error(res.error.message);

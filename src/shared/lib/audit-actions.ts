@@ -44,6 +44,7 @@ export const AuditActionSchema = z.enum([
   'inventory.deplete',
   'inventory.manual_adjust',
   'inventory.physical_count',
+  'inventory.adjust', // Wave 3a: adjust_inventory RPC (manual adjustment + physical count, single audit label for both)
   // Shipments
   'shipment.receive',
   // Prep

@@ -19,6 +19,8 @@ import {
   ProcessPaymentRequestSchema,
   ProcessSplitPaymentRequestSchema,
   ReceiptDataSchema,
+  ReceiveShipmentRequestSchema,
+  ReceiveShipmentSuccessSchema,
   SendReceiptEmailRequestSchema,
 } from './edge-function-contracts';
 
@@ -384,6 +386,41 @@ describe('ProcessSplitPaymentRequestSchema', () => {
       approverId: 'not-a-uuid',
     });
     expect(bad.success).toBe(false);
+  });
+});
+
+describe('ReceiveShipmentRequestSchema / ReceiveShipmentSuccessSchema', () => {
+  const baseReceiveShipmentRequest = {
+    supplierId: '5f1e2d3c-4b5a-4c6d-8e7f-9a0b1c2d3e4f',
+    items: [{ productId: '3a7c9e21-5f2b-4d81-9c3a-6e408f17b2d5', quantity: 1, costPrice: 10 }],
+  };
+
+  it('accepts an idempotencyKey uuid and rejects a non-uuid', () => {
+    const ok = ReceiveShipmentRequestSchema.safeParse({
+      ...baseReceiveShipmentRequest,
+      idempotencyKey: '11111111-1111-4111-8111-111111111111',
+    });
+    expect(ok.success).toBe(true);
+    const bad = ReceiveShipmentRequestSchema.safeParse({
+      ...baseReceiveShipmentRequest,
+      idempotencyKey: 'not-a-uuid',
+    });
+    expect(bad.success).toBe(false);
+  });
+
+  it('accepts a request with no idempotencyKey (older callers stay valid)', () => {
+    expect(ReceiveShipmentRequestSchema.safeParse(baseReceiveShipmentRequest).success).toBe(true);
+  });
+
+  it('accepts idempotent: true and omitted on the success schema, rejects a non-boolean', () => {
+    const shipmentId = '5f1e2d3c-4b5a-4c6d-8e7f-9a0b1c2d3e4f';
+    expect(
+      ReceiveShipmentSuccessSchema.safeParse({ shipmentId, idempotent: true }).success
+    ).toBe(true);
+    expect(ReceiveShipmentSuccessSchema.safeParse({ shipmentId }).success).toBe(true);
+    expect(
+      ReceiveShipmentSuccessSchema.safeParse({ shipmentId, idempotent: 'yes' }).success
+    ).toBe(false);
   });
 });
 

@@ -214,6 +214,9 @@ export type AppErrorCode =
   | 'PHOTO_REMOVE_FAILED' // Phase 31 Plan 04: the Storage delete or the products.photo_path clear failed
   | 'LICENSE_LOCKED' // licensing: terminal is locked (unlicensed/expired/suspended) — writes to the DB are refused
   | 'LICENSE_ERROR' // licensing: license server rejected activation/heartbeat (bad key, revoked, terminal limit)
+  | 'INVALID_DELTA' // adjust_inventory: quantity delta is zero/null
+  | 'INVALID_REASON' // adjust_inventory: reason is blank
+  | 'STOCK_CHANGED' // adjust_inventory: p_expected_quantity no longer matches the row (concurrent change)
   | 'UNKNOWN_ERROR';
 
 /**

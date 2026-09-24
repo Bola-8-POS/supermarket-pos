@@ -19,6 +19,7 @@ const BodySchema = z.object({
     .min(1)
     .max(50),
   poId: z.string().uuid().nullable().optional(),
+  idempotencyKey: z.string().uuid().optional(),
 });
 const headers = {
   'Content-Type': 'application/json',
@@ -70,6 +71,7 @@ Deno.serve(async req => {
       expiry_date: item.expiryDate ?? null,
     })),
     p_po_id: parsed.data.poId ?? null,
+    p_idempotency_key: parsed.data.idempotencyKey ?? null,
   });
   if (error || !data?.ok)
     return json(
@@ -82,5 +84,5 @@ Deno.serve(async req => {
       },
       data?.code === 'FORBIDDEN' ? 403 : 400
     );
-  return json({ success: true, shipmentId: data.shipmentId });
+  return json({ success: true, shipmentId: data.shipmentId, idempotent: data.idempotent });
 });

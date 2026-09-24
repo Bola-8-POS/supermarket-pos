@@ -1,11 +1,11 @@
-/* eslint-disable i18next/no-literal-string */
+/* eslint-disable i18next/no-literal-string, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return --
+   supabase.types.ts lags behind the adjust_inventory RPC (repo-wide cast pattern). */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryKeys } from '@entities/inventory';
 import type { Inventory } from '@shared/lib/domain';
 import { logger } from '@shared/lib/logger-instance';
-import { ok, supabaseMutation, supabaseQuery, type Result } from '@shared/lib/result';
+import { ok, supabaseMutation, type Result } from '@shared/lib/result';
 import { supabase } from '@shared/lib/supabase';
-import type { Tables } from '@shared/lib/supabase.types';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -21,10 +21,12 @@ export type PhysicalCountVarianceRow = {
 };
 
 export type PhysicalCountResult = {
-  /** Only products where actual != expected */
+  /** Only products where actual != expected and the adjustment applied */
   adjustedRows: PhysicalCountVarianceRow[];
   /** All products (for full variance display) */
   allRows: PhysicalCountVarianceRow[];
+  /** Changed products whose adjustment did not apply (stock changed since the count started) */
+  reportedRows: PhysicalCountVarianceRow[];
 };
 
 type PhysicalCountInput = {
@@ -53,7 +55,7 @@ export function usePhysicalCount() {
 
   const mutation = useMutation({
     mutationFn: async (input: PhysicalCountInput): Promise<Result<PhysicalCountResult>> => {
-      const { entries, inventory, staffId } = input;
+      const { entries, inventory } = input;
 
       const allRows: PhysicalCountVarianceRow[] = inventory.map(item => {
         const actual = entries.get(item.productId) ?? item.quantityOnHand;
@@ -71,7 +73,7 @@ export function usePhysicalCount() {
 
       if (changedRows.length === 0) {
         logger.info('physical_count.no_changes', { total: allRows.length });
-        return ok({ adjustedRows: [], allRows });
+        return ok({ adjustedRows: [], allRows, reportedRows: [] });
       }
 
       logger.info('physical_count.submitting', {
@@ -79,66 +81,52 @@ export function usePhysicalCount() {
         total: allRows.length,
       });
 
-      // Process each changed product sequentially to avoid race conditions
+      // Process each changed product sequentially, through the adjust_inventory
+      // RPC (locks the row, checks p_expected_quantity, writes the ledger and
+      // audit rows together). p_expected_quantity is the stock level the count
+      // screen showed when the count started (row.expectedStock), not a fresh
+      // re-fetch — a mismatch means another write landed on this row mid-count.
+      const adjustedRows: PhysicalCountVarianceRow[] = [];
+      const reportedRows: PhysicalCountVarianceRow[] = [];
+
       for (const row of changedRows) {
-        // Fetch current quantity to compute safe delta
-        const fetchRes = await supabaseQuery<Tables<'inventory'>>(() =>
-          supabase.from('inventory').select('*').eq('product_id', row.productId).single()
+        const rpcRes = await supabaseMutation(() =>
+          (supabase as any).rpc('adjust_inventory', {
+            p_product_id: row.productId,
+            p_quantity_delta: row.variance,
+            p_reason: 'physical_count',
+            p_notes: null,
+            p_expected_quantity: row.expectedStock,
+          })
         );
 
-        if (!fetchRes.ok) {
-          logger.error('physical_count.fetch_failed', {
+        if (!rpcRes.ok) {
+          if (rpcRes.error.message.includes('STOCK_CHANGED')) {
+            logger.warn('physical_count.stock_changed', { productId: row.productId });
+            reportedRows.push(row);
+            continue;
+          }
+          logger.error('physical_count.adjust_failed', {
             productId: row.productId,
-            message: fetchRes.error.message,
+            message: rpcRes.error.message,
           });
-          return fetchRes;
+          return rpcRes;
         }
 
-        const currentQty = fetchRes.data.quantity_on_hand;
-        const newQty = row.actualCount;
-        const delta = newQty - currentQty;
-
-        // Update inventory quantity
-        const updateRes = await supabaseMutation<Tables<'inventory'>>(() =>
-          supabase
-            .from('inventory')
-            .update({ quantity_on_hand: newQty })
-            .eq('product_id', row.productId)
-            .select()
-            .single()
-        );
-
-        if (!updateRes.ok) {
-          logger.error('physical_count.update_failed', {
-            productId: row.productId,
-            message: updateRes.error.message,
-          });
-          return updateRes;
+        const data = rpcRes.data as { ok: boolean; quantityOnHand: number } | null;
+        if (!data?.ok) {
+          logger.error('physical_count.adjust_no_result', { productId: row.productId });
+          reportedRows.push(row);
+          continue;
         }
-
-        // Write stock_movements entry
-        const logInsert = {
-          product_id: row.productId,
-          quantity_delta: delta,
-          reason: 'physical_count',
-          staff_id: staffId,
-        };
-
-        const logRes = await supabaseMutation(() =>
-          supabase.from('stock_movements').insert(logInsert).select().single()
-        );
-
-        if (!logRes.ok) {
-          logger.error('physical_count.log_failed', {
-            productId: row.productId,
-            message: logRes.error.message,
-          });
-          return logRes;
-        }
+        adjustedRows.push(row);
       }
 
-      logger.info('physical_count.success', { changed: changedRows.length });
-      return ok({ adjustedRows: changedRows, allRows });
+      logger.info('physical_count.success', {
+        adjusted: adjustedRows.length,
+        reported: reportedRows.length,
+      });
+      return ok({ adjustedRows, allRows, reportedRows });
     },
 
     onSuccess: result => {

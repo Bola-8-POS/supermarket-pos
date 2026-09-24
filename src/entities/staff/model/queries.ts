@@ -225,6 +225,11 @@ export function useShiftClosePreview(shiftId: string | null, staffId: string | n
             .select('amount')
             .in('tab_id', tabIds)
             .eq('processed_by', staffId)
+            .eq('is_deleted', false)
+            // Mirrors get_caja_report's `status IS DISTINCT FROM 'reopened_void'`:
+            // an `.or()` (not `.neq()`) so a null `status` (pre-status rows) is
+            // still counted, not silently dropped by PostgREST.
+            .or('status.is.null,status.neq.reopened_void')
         ),
         supabaseQuery<{ clock_in: string }>(() =>
           supabase.from('shifts').select('clock_in').eq('id', shiftId).single()

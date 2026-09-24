@@ -84,11 +84,9 @@ function UnitCell({ inventory }: { inventory: Inventory }) {
 
 function QuantityAdjustCell({
   inventory,
-  staffId,
   currentRole,
 }: {
   inventory: Inventory;
-  staffId: string;
   currentRole: StaffRole | null | undefined;
 }) {
   const adjust = useMutationAdjustInventory();
@@ -102,7 +100,7 @@ function QuantityAdjustCell({
         productId: inventory.productId,
         quantityDelta: delta,
         reason: InventoryAdjustReason.MANUAL_ADJUSTMENT,
-        staffId,
+        notes: undefined,
       },
       {
         onSuccess: data => {
@@ -134,7 +132,6 @@ function QuantityAdjustCell({
 
 export type InventoryRowProps = {
   inventory: Inventory;
-  staffId: string;
   currentRole: StaffRole | null | undefined;
   className?: string;
 };
@@ -142,7 +139,7 @@ export type InventoryRowProps = {
 /**
  * Full table row for inventory (use with `inventoryRowColumns` + DataTable for parity).
  */
-export function InventoryRow({ inventory, staffId, currentRole, className }: InventoryRowProps) {
+export function InventoryRow({ inventory, currentRole, className }: InventoryRowProps) {
   return (
     <TableRow className={cn(className)}>
       <TableCell>
@@ -161,7 +158,7 @@ export function InventoryRow({ inventory, staffId, currentRole, className }: Inv
         <StatusCell inventory={inventory} />
       </TableCell>
       <TableCell>
-        <QuantityAdjustCell inventory={inventory} staffId={staffId} currentRole={currentRole} />
+        <QuantityAdjustCell inventory={inventory} currentRole={currentRole} />
       </TableCell>
       <TableCell>
         <UnitCell inventory={inventory} />
@@ -183,7 +180,6 @@ export function InventoryRow({ inventory, staffId, currentRole, className }: Inv
 /* eslint-disable react-refresh/only-export-components -- non-component export paired with entity row */
 export function inventoryRowColumns(
   t: TFunction<'entities'>,
-  staffId: string,
   currentRole: StaffRole | null | undefined
 ) {
   return [
@@ -227,9 +223,7 @@ export function inventoryRowColumns(
       header: ({ column }) => (
         <SortHeader column={column} title={t('inventoryRow.columns.onHand')} />
       ),
-      cell: ({ row }) => (
-        <QuantityAdjustCell inventory={row.original} staffId={staffId} currentRole={currentRole} />
-      ),
+      cell: ({ row }) => <QuantityAdjustCell inventory={row.original} currentRole={currentRole} />,
       sortingFn: 'basic',
     }),
     ch.accessor('unit', {

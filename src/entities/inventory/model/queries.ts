@@ -5,7 +5,6 @@ import { useSettings } from '@entities/settings';
 import type {
   Inventory,
   InventoryAlert,
-  InventoryLog,
   NearExpiryAlert,
   Product,
   StockMovement,
@@ -29,7 +28,7 @@ import {
 import { supabase } from '@shared/lib/supabase';
 import type { Tables } from '@shared/lib/supabase.types';
 import { useInventoryStore } from './store';
-import { InventorySchema, InventoryLogSchema } from './types';
+import { InventorySchema } from './types';
 
 export const inventoryKeys = {
   all: ['inventory'] as const,
@@ -307,6 +306,12 @@ export function useNearExpiryAlerts() {
 
 type AdjustInventoryContext = { previousList?: Result<Inventory[]> };
 
+/**
+ * One RPC (`adjust_inventory`) locks the stock row, checks `p_expected_quantity`
+ * when given, updates `inventory`, and writes the `stock_movements` ledger row
+ * and the audit row together — the caller is read from the session server-side,
+ * so no `staffId` is threaded through here anymore.
+ */
 export function useMutationAdjustInventory() {
   const queryClient = useQueryClient();
 
@@ -315,88 +320,54 @@ export function useMutationAdjustInventory() {
       productId,
       quantityDelta,
       reason,
-      staffId,
+      notes,
     }: {
       productId: string;
       quantityDelta: number;
       reason: string;
-      staffId: string;
-    }): Promise<Result<{ inventory: Inventory; log: InventoryLog }>> => {
-      const currentRes = await supabaseQuery<Tables<'inventory'>>(() =>
-        supabase.from('inventory').select('*').eq('product_id', productId).single()
+      notes: string | undefined;
+    }): Promise<Result<{ quantityOnHand: number; movementId: string }>> => {
+      const rpcRes = await supabaseMutation(() =>
+        /* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return --
+           supabase.types.ts lags behind the adjust_inventory RPC (repo-wide cast pattern;
+           no-explicit-any/no-unsafe-assignment/no-unsafe-member-access/no-unsafe-argument are
+           already disabled at the top of this file). */
+        (supabase as any).rpc('adjust_inventory', {
+          p_product_id: productId,
+          p_quantity_delta: quantityDelta,
+          p_reason: reason,
+          p_notes: notes ?? null,
+          p_expected_quantity: null,
+        })
+        /* eslint-enable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return */
       );
 
-      if (!currentRes.ok) {
-        logger.error('inventory.adjust.fetch_failed', { message: currentRes.error.message });
-        return currentRes;
+      if (!rpcRes.ok) {
+        const { message, raw } = rpcRes.error;
+        if (message.includes('AUTH_FORBIDDEN')) {
+          return err({ code: 'AUTH_FORBIDDEN', message, raw });
+        }
+        if (message.includes('INVALID_DELTA')) {
+          return err({ code: 'INVALID_DELTA', message, raw });
+        }
+        if (message.includes('INVALID_REASON')) {
+          return err({ code: 'INVALID_REASON', message, raw });
+        }
+        if (message.includes('STOCK_CHANGED')) {
+          return err({ code: 'STOCK_CHANGED', message, raw });
+        }
+        if (message.includes('NOT_FOUND')) {
+          return err({ code: 'NOT_FOUND', message, raw });
+        }
+        logger.error('inventory.adjust.rpc_failed', { message });
+        return rpcRes;
       }
 
-      const newQuantity = currentRes.data.quantity_on_hand + quantityDelta;
-      if (newQuantity < 0) {
-        logger.error('inventory.adjust.negative', { productId, newQuantity });
-        return err(unknownError('quantity_negative'));
+      const data = rpcRes.data as { ok: boolean; quantityOnHand: number; movementId: string } | null;
+      if (!data?.ok) {
+        return err(unknownError('adjust_inventory_no_result'));
       }
-
-      const updateRes = await supabaseMutation<Tables<'inventory'>>(() =>
-        supabase
-          .from('inventory')
-          .update({ quantity_on_hand: newQuantity })
-          .eq('product_id', productId)
-          .select()
-          .single()
-      );
-
-      if (!updateRes.ok) {
-        logger.error('inventory.adjust.update_failed', {
-          message: updateRes.error.message,
-        });
-        return updateRes;
-      }
-      if (updateRes.data === null) {
-        return err(unknownError('no_row'));
-      }
-
-      const logInsert = {
-        product_id: productId,
-        quantity_delta: quantityDelta,
-        reason,
-        staff_id: staffId,
-      };
-
-      const logRes = await supabaseMutation<Tables<'stock_movements'>>(() =>
-        supabase.from('stock_movements').insert(logInsert).select().single()
-      );
-
-      if (!logRes.ok) {
-        logger.error('inventory.adjust.log_failed', {
-          message: logRes.error.message,
-        });
-        return logRes;
-      }
-      if (logRes.data === null) {
-        return err(unknownError('no_row'));
-      }
-
-      try {
-        const inventory = InventorySchema.parse({
-          id: updateRes.data.id,
-          productId: updateRes.data.product_id,
-          quantityOnHand: updateRes.data.quantity_on_hand,
-          lowStockThreshold: updateRes.data.low_stock_threshold,
-          unit: updateRes.data.unit,
-        });
-        const log = InventoryLogSchema.parse({
-          id: logRes.data.id,
-          productId: logRes.data.product_id,
-          quantityDelta: logRes.data.quantity_delta,
-          reason: logRes.data.reason as InventoryLog['reason'],
-          staffId: logRes.data.staff_id,
-          createdAt: new Date(logRes.data.created_at),
-        });
-        return ok({ inventory, log });
-      } catch (e) {
-        return err(unknownError(e));
-      }
+      return ok({ quantityOnHand: data.quantityOnHand, movementId: data.movementId });
     },
 
     onMutate: async ({ productId, quantityDelta }) => {
@@ -434,9 +405,18 @@ export function useMutationAdjustInventory() {
         }
         return;
       }
-      void queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
+      const { productId } = variables;
+      const { quantityOnHand } = result.data;
+      useInventoryStore.setState(s => ({
+        inventory: s.inventory.map(i => (i.productId === productId ? { ...i, quantityOnHand } : i)),
+      }));
+      useInventoryStore.getState().refreshAlerts();
+      queryClient.setQueryData<Result<Inventory[]>>(inventoryKeys.all, old => {
+        if (!old?.ok) return old;
+        return ok(old.data.map(i => (i.productId === productId ? { ...i, quantityOnHand } : i)));
+      });
       void queryClient.invalidateQueries({ queryKey: inventoryKeys.log() });
-      void queryClient.invalidateQueries({ queryKey: inventoryKeys.product(variables.productId) });
+      void queryClient.invalidateQueries({ queryKey: inventoryKeys.product(productId) });
     },
 
     onError: (_e, _v, ctx) => {
