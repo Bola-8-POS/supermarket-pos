@@ -705,18 +705,18 @@ describe('hardened mapper fallbacks never surface raw server text as message', (
     expect(error.details).toBe('some raw db detail');
   });
 
-  it('mapProcessPaymentEdgeError default branch', () => {
+  it('mapProcessPaymentEdgeError default branch keeps the edge code in details, for logs', () => {
     const error = mapProcessPaymentEdgeError('SOME_UNKNOWN_CODE', 'raw rpc detail');
     expect(error.code).toBe('SUPABASE_ERROR');
     expect(error.message).toBe(generic);
-    expect(error.details).toBe('raw rpc detail');
+    expect(error.details).toBe('SOME_UNKNOWN_CODE: raw rpc detail');
   });
 
-  it('mapProcessSplitPaymentEdgeError default branch', () => {
+  it('mapProcessSplitPaymentEdgeError default branch keeps the edge code in details, for logs', () => {
     const error = mapProcessSplitPaymentEdgeError('SOME_UNKNOWN_CODE', 'raw rpc detail');
     expect(error.code).toBe('SUPABASE_ERROR');
     expect(error.message).toBe(generic);
-    expect(error.details).toBe('raw rpc detail');
+    expect(error.details).toBe('SOME_UNKNOWN_CODE: raw rpc detail');
   });
 
   it('mapStaffSignInEdgeError is untouched — a short server code, not free text', () => {

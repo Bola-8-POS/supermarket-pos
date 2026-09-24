@@ -227,6 +227,7 @@ jobs:
         # "Prefer Git Bash" step above.
         shell: bash
         run: |
+          test -d dist || exit 1
           if grep -rEl "sk-ant-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{32,}|VITE_OPENAI_API_KEY" dist/; then exit 1; fi
 
       - name: Publish release to customer repo via gh CLI (WINDOWS.md #55)

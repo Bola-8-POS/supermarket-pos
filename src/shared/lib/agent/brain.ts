@@ -60,6 +60,26 @@ function trimHistory(history: Message[]): Message[] {
   return firstUserIdx === -1 ? [] : trimmed.slice(firstUserIdx);
 }
 
+// RATE_LIMITED and a role-gate FORBIDDEN are both already translated,
+// user-facing messages from mapAgentProxyErrorBody — retrying immediately or
+// falling back to Ollama would hide that message behind a generic offline
+// notice for something retrying can't fix anyway.
+const NO_RETRY_ERROR_CODES = new Set(['RATE_LIMITED', 'AUTH_FORBIDDEN']);
+
+function asUserFacingResult(
+  error: { code: string; message: string },
+  toolsExecuted: string[]
+): AgentResult | null {
+  if (!NO_RETRY_ERROR_CODES.has(error.code)) return null;
+  return {
+    text: error.message,
+    toolsExecuted,
+    usedFallback: false,
+    awaitingConfirmation: false,
+    pendingConfirmation: null,
+  };
+}
+
 function detectLanguage(text: string): 'es' | 'en' {
   const spanishPattern =
     /\b(el|la|los|las|un|una|de|en|que|es|por|con|para|como|del|al|se|no|si|ya|su|le|más|pero|este|esta|hay|cómo|cuánto|cuántos|qué|tienes|tiene)\b/i;
@@ -164,7 +184,11 @@ export async function runAgent(
         tools: allToolDefinitions,
         messages,
       });
-      if (!firstResult.ok) throw new Error(firstResult.error.message);
+      if (!firstResult.ok) {
+        const userFacing = asUserFacingResult(firstResult.error, toolsExecuted);
+        if (userFacing) return userFacing;
+        throw new Error(firstResult.error.message);
+      }
       let response = firstResult.data;
 
       let loopCount = 0;
@@ -238,7 +262,11 @@ export async function runAgent(
           tools: allToolDefinitions,
           messages,
         });
-        if (!loopResult.ok) throw new Error(loopResult.error.message);
+        if (!loopResult.ok) {
+          const userFacing = asUserFacingResult(loopResult.error, toolsExecuted);
+          if (userFacing) return userFacing;
+          throw new Error(loopResult.error.message);
+        }
         response = loopResult.data;
       }
 

@@ -42,6 +42,7 @@ describe.skipIf(skip)('settings restore', () => {
   let managerToken = '';
   let categoryId = '';
   let weightProductId = '';
+  let newProductId = '';
   // The RPC always deletes every product_modifiers row and reinserts the
   // snapshot's own set (no merge semantics for the link table) — a restore
   // called with an empty product_modifiers array would strip the shared
@@ -139,6 +140,10 @@ describe.skipIf(skip)('settings restore', () => {
       const { error } = await db.from('products').delete().eq('id', weightProductId);
       if (error) throw new Error(`delete weighted product: ${error.message}`);
     }
+    if (newProductId) {
+      const { error } = await db.from('products').delete().eq('id', newProductId);
+      if (error) throw new Error(`delete restore-inserted product: ${error.message}`);
+    }
     if (categoryId) {
       const { error } = await db.from('categories').delete().eq('id', categoryId);
       if (error) throw new Error(`delete category: ${error.message}`);
@@ -173,10 +178,21 @@ describe.skipIf(skip)('settings restore', () => {
     const { status, json } = await callRestore(adminToken, { backupId });
     expect(status).toBe(500);
     expect(json.ok).toBe(false);
+    expect(json.error.code).toBe('RESTORE_FAILED');
 
     const { data: categoryRow, error } = await db.from('categories').select('name').eq('id', categoryId).single();
     expect(error).toBeNull();
     expect(categoryRow.name).toBe(`${TAG}category_before`);
+
+    // The whole RPC transaction rolled back, including the backup row's own
+    // update — a real rollback, not just the products/categories tables.
+    const { data: backupRow, error: backupErr } = await db
+      .from('settings_backups')
+      .select('restored_at')
+      .eq('id', backupId)
+      .single();
+    expect(backupErr).toBeNull();
+    expect(backupRow.restored_at).toBeNull();
   });
 
   it('restores a valid snapshot and marks the backup restored', async () => {
@@ -224,6 +240,34 @@ describe.skipIf(skip)('settings restore', () => {
       .single();
     expect(error).toBeNull();
     expect(productRow.sold_by_weight).toBe(true);
+  });
+
+  it('inserts a new-id product whose snapshot omits sold_by_weight with the column default, not null', async () => {
+    newProductId = crypto.randomUUID();
+    const backupId = await makeBackup('new_id_default', {
+      settings: [],
+      categories: [],
+      // No `sold_by_weight` key and this id does not exist yet — the merge
+      // has no existing row to fall back to, so it must use the column's
+      // own catalog default (false) rather than leaving it null.
+      products: [
+        { id: newProductId, name: `${TAG}new_product`, category_id: categoryId, base_price: 5 },
+      ],
+      modifiers: [],
+      product_modifiers: originalProductModifiers,
+    });
+
+    const { status, json } = await callRestore(adminToken, { backupId });
+    expect(status).toBe(200);
+    expect(json).toEqual({ ok: true });
+
+    const { data: productRow, error } = await db
+      .from('products')
+      .select('sold_by_weight')
+      .eq('id', newProductId)
+      .single();
+    expect(error).toBeNull();
+    expect(productRow.sold_by_weight).toBe(false);
   });
 
   it('refuses a manager with 403 FORBIDDEN', async () => {

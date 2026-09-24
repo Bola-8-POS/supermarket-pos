@@ -210,4 +210,17 @@ describe('runAgent', () => {
     expect(result.toolsExecuted).toContain('open_tab');
     expect(result.text).toMatch(/went wrong/i);
   });
+
+  it('surfaces a rate-limit refusal directly instead of retrying or falling back to Ollama', async () => {
+    mockCallAgentProxy.mockResolvedValue({
+      ok: false,
+      error: { code: 'RATE_LIMITED', message: 'Too many requests. Try again in 30s.' },
+    });
+
+    const result = await runAgent('hello', 'admin', []);
+
+    expect(mockCallAgentProxy).toHaveBeenCalledTimes(1);
+    expect(result.usedFallback).toBe(false);
+    expect(result.text).toBe('Too many requests. Try again in 30s.');
+  });
 });

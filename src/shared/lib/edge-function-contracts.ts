@@ -234,8 +234,13 @@ export function mapProcessPaymentEdgeError(
       return { code: 'VALIDATION_ERROR', message };
     default:
       // The server's own text never reaches AppError.message unmapped — it
-      // is kept in `details` for logs, not shown to the user.
-      return { code: 'SUPABASE_ERROR', message: i18n.t('common:edgeErrors.generic'), details: message };
+      // is kept in `details` for logs, not shown to the user. The edge code
+      // is prefixed too, so an unknown code is still visible in the logs.
+      return {
+        code: 'SUPABASE_ERROR',
+        message: i18n.t('common:edgeErrors.generic'),
+        details: `${code ?? 'UNKNOWN'}: ${message}`,
+      };
   }
 }
 
@@ -1239,7 +1244,13 @@ export function mapProcessSplitPaymentEdgeError(
     case 'UNAUTHORIZED':
       return { code: 'AUTH_REQUIRED', message };
     default:
-      return { code: 'SUPABASE_ERROR', message: i18n.t('common:edgeErrors.generic'), details: message };
+      // The edge code is prefixed onto details too, so an unknown code is
+      // still visible in the logs.
+      return {
+        code: 'SUPABASE_ERROR',
+        message: i18n.t('common:edgeErrors.generic'),
+        details: `${code ?? 'UNKNOWN'}: ${message}`,
+      };
   }
 }
 

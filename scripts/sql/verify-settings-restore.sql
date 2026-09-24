@@ -63,18 +63,27 @@ BEGIN
     RAISE EXCEPTION 'rate_limit_hit privileges are wrong';
   END IF;
 
-  -- 6. rate_limits table: RLS on, no direct grants to PUBLIC/anon/authenticated.
+  -- 6. rate_limits table: RLS on, no direct grants to PUBLIC/anon/authenticated
+  --    on any statement type -- only rate_limit_hit (service_role, SECURITY
+  --    DEFINER) touches this table.
   IF NOT (SELECT relrowsecurity FROM pg_class WHERE relname = 'rate_limits' AND relnamespace = 'public'::regnamespace) THEN
     RAISE EXCEPTION 'rate_limits does not have row level security enabled';
   END IF;
   IF has_table_privilege('anon', 'public.rate_limits', 'SELECT')
-     OR has_table_privilege('authenticated', 'public.rate_limits', 'SELECT') THEN
-    RAISE EXCEPTION 'rate_limits is directly readable by anon or authenticated';
+     OR has_table_privilege('authenticated', 'public.rate_limits', 'SELECT')
+     OR has_table_privilege('anon', 'public.rate_limits', 'INSERT')
+     OR has_table_privilege('authenticated', 'public.rate_limits', 'INSERT')
+     OR has_table_privilege('anon', 'public.rate_limits', 'UPDATE')
+     OR has_table_privilege('authenticated', 'public.rate_limits', 'UPDATE')
+     OR has_table_privilege('anon', 'public.rate_limits', 'DELETE')
+     OR has_table_privilege('authenticated', 'public.rate_limits', 'DELETE') THEN
+    RAISE EXCEPTION 'rate_limits is directly writable or readable by anon or authenticated';
   END IF;
 
   -- 7. Behavioral smoke test: allow up to the limit, then refuse without
-  --    incrementing further, inside a rolled-back subtransaction so nothing
-  --    here is left behind.
+  --    incrementing further. Commits (this DO block is not a savepoint), so
+  --    the test row is deleted explicitly at the end instead of relying on
+  --    a rollback.
   DECLARE
     v_key text := 'zz_verify_rate_limit_' || gen_random_uuid()::text;
     v1 integer; v2 integer; v3 integer; v_count integer;
@@ -87,6 +96,21 @@ BEGIN
     SELECT hit_count INTO v_count FROM rate_limits WHERE rate_key = v_key;
     IF v_count <> 2 THEN RAISE EXCEPTION 'rate_limit_hit incremented hit_count on a refusal (got %)', v_count; END IF;
     DELETE FROM rate_limits WHERE rate_key = v_key;
+  END;
+
+  -- 8. rate_limit_hit rejects a bad argument (p_limit < 1) with INVALID_ARGUMENT.
+  DECLARE
+    v_raised text;
+  BEGIN
+    BEGIN
+      PERFORM rate_limit_hit('zz_verify_bad_args', 0, 60);
+      v_raised := NULL;
+    EXCEPTION WHEN OTHERS THEN
+      v_raised := SQLERRM;
+    END;
+    IF v_raised IS DISTINCT FROM 'INVALID_ARGUMENT' THEN
+      RAISE EXCEPTION 'rate_limit_hit(p_limit=0) did not raise INVALID_ARGUMENT (got %)', COALESCE(v_raised, '<no error>');
+    END IF;
   END;
 END $$;
 SELECT 'verify-settings-restore: ok' AS result;

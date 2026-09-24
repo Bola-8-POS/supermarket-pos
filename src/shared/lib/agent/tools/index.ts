@@ -49,7 +49,9 @@ function redactForModel(value: unknown): unknown {
   if (value !== null && typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
-      if (/pin/i.test(key) || /email/i.test(key)) continue;
+      // Anchored so a future key like `shipping`/`mapping`/`topping` (all of
+      // which contain "pin" as a substring) doesn't get dropped by accident.
+      if (/^(pin|.*_pin)$|email/i.test(key)) continue;
       if (/phone/i.test(key) && typeof v === 'string') {
         out[key] = v.length > 4 ? `***${v.slice(-4)}` : v;
         continue;
