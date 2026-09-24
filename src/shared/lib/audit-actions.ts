@@ -78,4 +78,6 @@ export const AuditActionSchema = z.enum([
   // Screen lock (Phase 21)
   'screen.lock',
   'screen.unlock',
+  // Receipts (Wave 3b, S-11)
+  'receipt.emailed',
 ]);
