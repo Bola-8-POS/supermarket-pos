@@ -2,20 +2,26 @@
 -- idempotency key.
 
 DROP POLICY IF EXISTS "purchase_orders_manage" ON public.purchase_orders;
-CREATE POLICY purchase_orders_select ON public.purchase_orders FOR SELECT
+DROP POLICY IF EXISTS "purchase_orders_select" ON public.purchase_orders;
+DROP POLICY IF EXISTS "purchase_orders_insert" ON public.purchase_orders;
+DROP POLICY IF EXISTS "purchase_orders_update_draft" ON public.purchase_orders;
+DROP POLICY IF EXISTS "purchase_orders_delete_draft" ON public.purchase_orders;
+CREATE POLICY purchase_orders_select ON public.purchase_orders FOR SELECT TO authenticated
   USING (EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role = get_user_role() AND rp.action = 'manage_products'));
-CREATE POLICY purchase_orders_insert ON public.purchase_orders FOR INSERT
-  WITH CHECK (EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role = get_user_role() AND rp.action = 'manage_products'));
-CREATE POLICY purchase_orders_update_draft ON public.purchase_orders FOR UPDATE
+CREATE POLICY purchase_orders_insert ON public.purchase_orders FOR INSERT TO authenticated
+  WITH CHECK (status = 'draft' AND EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role = get_user_role() AND rp.action = 'manage_products'));
+CREATE POLICY purchase_orders_update_draft ON public.purchase_orders FOR UPDATE TO authenticated
   USING (status = 'draft' AND EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role = get_user_role() AND rp.action = 'manage_products'))
   WITH CHECK (status = 'draft' AND EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role = get_user_role() AND rp.action = 'manage_products'));
-CREATE POLICY purchase_orders_delete_draft ON public.purchase_orders FOR DELETE
+CREATE POLICY purchase_orders_delete_draft ON public.purchase_orders FOR DELETE TO authenticated
   USING (status = 'draft' AND EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role = get_user_role() AND rp.action = 'manage_products'));
 
 DROP POLICY IF EXISTS "purchase_order_items_manage" ON public.purchase_order_items;
-CREATE POLICY purchase_order_items_select ON public.purchase_order_items FOR SELECT
+DROP POLICY IF EXISTS "purchase_order_items_select" ON public.purchase_order_items;
+DROP POLICY IF EXISTS "purchase_order_items_write_draft" ON public.purchase_order_items;
+CREATE POLICY purchase_order_items_select ON public.purchase_order_items FOR SELECT TO authenticated
   USING (EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role = get_user_role() AND rp.action = 'manage_products'));
-CREATE POLICY purchase_order_items_write_draft ON public.purchase_order_items FOR ALL
+CREATE POLICY purchase_order_items_write_draft ON public.purchase_order_items FOR ALL TO authenticated
   USING (EXISTS (SELECT 1 FROM purchase_orders po WHERE po.id = purchase_order_id AND po.status = 'draft')
          AND EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role = get_user_role() AND rp.action = 'manage_products'))
   WITH CHECK (EXISTS (SELECT 1 FROM purchase_orders po WHERE po.id = purchase_order_id AND po.status = 'draft')
@@ -50,8 +56,8 @@ $function$;
 ALTER TABLE public.shipments ADD COLUMN IF NOT EXISTS idempotency_key text;
 CREATE UNIQUE INDEX IF NOT EXISTS shipments_idempotency_key_idx ON public.shipments (idempotency_key) WHERE idempotency_key IS NOT NULL;
 
-DROP FUNCTION public.receive_shipment(uuid, uuid, jsonb, uuid);
-CREATE FUNCTION public.receive_shipment(p_staff_id uuid, p_supplier_id uuid, p_items jsonb, p_po_id uuid DEFAULT NULL, p_idempotency_key text DEFAULT NULL)
+DROP FUNCTION IF EXISTS public.receive_shipment(uuid, uuid, jsonb, uuid);
+CREATE OR REPLACE FUNCTION public.receive_shipment(p_staff_id uuid, p_supplier_id uuid, p_items jsonb, p_po_id uuid DEFAULT NULL, p_idempotency_key text DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
   v_shipment_id uuid;

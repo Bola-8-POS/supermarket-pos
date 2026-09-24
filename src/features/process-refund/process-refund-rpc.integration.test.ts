@@ -442,9 +442,17 @@ async function seedSingleLineTab(
     modifierPriceDelta?: number;
     weightGrams?: number | null;
     paymentAmount: number;
+    staffId: string;
+    shiftId: string;
   },
 ): Promise<SingleLineSeed> {
-  const { staffId, shiftId } = await getStaffAndShift(svc);
+  // Explicit staffId/shiftId, not getStaffAndShift(svc): that helper picks
+  // *some* existing manager/admin profile (no ORDER BY), which can and did
+  // pick up this describe block's own throwaway `manager` fixture — every
+  // seeded tab/order/shift then belonged to it, and shifts is never cleaned
+  // up by cleanup(), so the fixture profile outlived the test run and got
+  // picked up again by unrelated tests' own "any manager" lookups.
+  const { staffId, shiftId } = opts;
   const { data: tab, error: tabErr } = await svc
     .from('tabs')
     .insert({
@@ -507,6 +515,9 @@ describe.skipIf(!hasAnonEnv)('process_refund — per-line bounds (wave 3a)', () 
   const tabIds: string[] = [];
   let regularProductId = '';
   let weighedProductId = '';
+  let boxProductId = '';
+  let looseProductId = '';
+  let shiftId = '';
 
   async function makeFixture(f: BoundsFixture): Promise<void> {
     const { data, error } = await svc.auth.admin.createUser({ email: f.email, password: f.pin, email_confirm: true });
@@ -534,8 +545,28 @@ describe.skipIf(!hasAnonEnv)('process_refund — per-line bounds (wave 3a)', () 
 
   async function removeFixture(f: BoundsFixture): Promise<void> {
     if (!f.id) return;
-    await svc.from('profiles').delete().eq('id', f.id);
-    await svc.auth.admin.deleteUser(f.id);
+    // Defense against cross-test contamination: another integration test's
+    // "pick any manager/admin" seed helper (getStaffAndShift, used by this
+    // file's own older describe block above and by other files) can adopt
+    // a still-live fixture profile as its staff member before this file's
+    // own teardown runs, attaching stock_movements/shifts rows this block
+    // never created. Delete by staff_id directly so a leftover reference
+    // never blocks the profile delete below.
+    const movDel = await svc.from('stock_movements').delete().eq('staff_id', f.id);
+    expect(movDel.error).toBeNull();
+    const shiftDel = await svc.from('shifts').delete().eq('staff_id', f.id);
+    expect(shiftDel.error).toBeNull();
+    // process_refund also writes the legacy singular audit_log table
+    // (actor_id = the approver) for backward compat; cleanup() never
+    // touches that table, so it is swept here too.
+    const legacyAuditDel = await svc.from('audit_log').delete().eq('actor_id', f.id);
+    expect(legacyAuditDel.error).toBeNull();
+    await svc.from('pin_attempts').delete().like('attempt_key', `%${f.id}%`);
+    const profDel = await svc.from('profiles').delete().eq('id', f.id).select('id');
+    expect(profDel.error).toBeNull();
+    expect(profDel.data).toHaveLength(1);
+    const { error: authErr } = await svc.auth.admin.deleteUser(f.id);
+    expect(authErr).toBeNull();
   }
 
   async function refund(item: SingleLineSeed, body: Array<{ order_item_id: string; qty: number; amount: number; restock: boolean }>) {
@@ -591,6 +622,49 @@ describe.skipIf(!hasAnonEnv)('process_refund — per-line bounds (wave 3a)', () 
     weighedProductId = weighed.id as string;
     const { error: invErr } = await svc.from('inventory').insert({ product_id: weighedProductId, quantity_on_hand: 5000 });
     if (invErr) throw new Error(`weighed product inventory insert: ${invErr.message}`);
+
+    // A box (parent) + loose (open-unit child) product pair, for the I-1
+    // regression: a refund must restock a loose line by the refunded
+    // quantity, not the whole order line.
+    const { data: box, error: boxErr } = await svc
+      .from('products')
+      .insert({
+        name: '__refund_bounds_test__box_product',
+        category_id: category.id,
+        base_price: 100,
+        is_active: true,
+        units_per_package: 20,
+      })
+      .select('id')
+      .single();
+    if (boxErr || !box) throw new Error(`box product insert: ${boxErr?.message}`);
+    boxProductId = box.id as string;
+    const { error: boxInvErr } = await svc.from('inventory').insert({ product_id: boxProductId, quantity_on_hand: 5 });
+    if (boxInvErr) throw new Error(`box product inventory insert: ${boxInvErr.message}`);
+
+    const { data: loose, error: looseErr } = await svc
+      .from('products')
+      .insert({
+        name: '__refund_bounds_test__loose_product',
+        category_id: category.id,
+        base_price: 7.5,
+        is_active: true,
+        parent_product_id: boxProductId,
+      })
+      .select('id')
+      .single();
+    if (looseErr || !loose) throw new Error(`loose product insert: ${looseErr?.message}`);
+    looseProductId = loose.id as string;
+
+    // One shift, owned by this block's own cashier fixture — explicit, not
+    // getStaffAndShift's "pick any manager/admin" (see removeFixture above).
+    const { data: shift, error: shiftErr } = await svc
+      .from('shifts')
+      .insert({ staff_id: cashier.id, opening_cash: 0 })
+      .select('id')
+      .single();
+    if (shiftErr || !shift) throw new Error(`shift insert: ${shiftErr?.message}`);
+    shiftId = shift.id as string;
   });
 
   afterEach(async () => {
@@ -602,7 +676,19 @@ describe.skipIf(!hasAnonEnv)('process_refund — per-line bounds (wave 3a)', () 
   });
 
   afterAll(async () => {
-    for (const productId of [regularProductId, weighedProductId]) {
+    // Loose product first: open_units/audit_logs reference the box, and
+    // the loose product's own stock_movements ('sale'/'correction' rows
+    // from order_item insert/delete) are swept by product_id below too.
+    if (boxProductId) {
+      const { data: units } = await svc.from('open_units').select('id').eq('product_id', boxProductId);
+      const unitIds = ((units as { id: string }[] | null) ?? []).map(u => u.id);
+      if (unitIds.length > 0) {
+        await svc.from('audit_logs').delete().in('entity_id', unitIds);
+        const unitDel = await svc.from('open_units').delete().in('id', unitIds);
+        expect(unitDel.error).toBeNull();
+      }
+    }
+    for (const productId of [regularProductId, weighedProductId, looseProductId, boxProductId]) {
       if (!productId) continue;
       const movDel = await svc.from('stock_movements').delete().eq('product_id', productId);
       expect(movDel.error).toBeNull();
@@ -611,11 +697,15 @@ describe.skipIf(!hasAnonEnv)('process_refund — per-line bounds (wave 3a)', () 
       const prodDel = await svc.from('products').delete().eq('id', productId);
       expect(prodDel.error).toBeNull();
     }
+    if (shiftId) {
+      const shiftDel = await svc.from('shifts').delete().eq('id', shiftId);
+      expect(shiftDel.error).toBeNull();
+    }
     for (const f of fixtures) await removeFixture(f);
   });
 
   it('refuses a refund quantity above the line: REFUND_QTY_EXCEEDS_LINE', async () => {
-    const item = await seedSingleLineTab(svc, { productId: regularProductId, quantity: 2, unitPrice: 10, paymentAmount: 20 });
+    const item = await seedSingleLineTab(svc, { productId: regularProductId, quantity: 2, unitPrice: 10, paymentAmount: 20, staffId: cashier.id, shiftId });
     tabIds.push(item.tabId);
     const { data, error } = await refund(item, [{ order_item_id: item.itemId, qty: 3, amount: 10, restock: false }]);
     expect(data).toBeNull();
@@ -627,7 +717,7 @@ describe.skipIf(!hasAnonEnv)('process_refund — per-line bounds (wave 3a)', () 
     // payment-level cap (REFUND_EXCEEDS_ORIGINAL) never fires — only the
     // per-line remaining-quantity cap (3 total, 2 already refunded) is
     // under test.
-    const item = await seedSingleLineTab(svc, { productId: regularProductId, quantity: 3, unitPrice: 10, paymentAmount: 1000 });
+    const item = await seedSingleLineTab(svc, { productId: regularProductId, quantity: 3, unitPrice: 10, paymentAmount: 1000, staffId: cashier.id, shiftId });
     tabIds.push(item.tabId);
     const first = await refund(item, [{ order_item_id: item.itemId, qty: 2, amount: 20, restock: false }]);
     expect(first.error).toBeNull();
@@ -640,7 +730,7 @@ describe.skipIf(!hasAnonEnv)('process_refund — per-line bounds (wave 3a)', () 
     // paymentAmount (100) is well above the requested 15 so the payment-level
     // cap (REFUND_EXCEEDS_ORIGINAL, checked first) does not fire — only the
     // per-line cap (unit_price * qty = 10) is under test here.
-    const item = await seedSingleLineTab(svc, { productId: regularProductId, quantity: 1, unitPrice: 10, paymentAmount: 100 });
+    const item = await seedSingleLineTab(svc, { productId: regularProductId, quantity: 1, unitPrice: 10, paymentAmount: 100, staffId: cashier.id, shiftId });
     tabIds.push(item.tabId);
     const { data, error } = await refund(item, [{ order_item_id: item.itemId, qty: 1, amount: 15, restock: false }]);
     expect(data).toBeNull();
@@ -651,7 +741,7 @@ describe.skipIf(!hasAnonEnv)('process_refund — per-line bounds (wave 3a)', () 
     // amount is non-zero (not 0) so v_refund_total > 0 and the refunds row
     // itself can be inserted (refunds_amount_check) before the per-item loop
     // reaches the qty <= 0 guard and rolls the whole transaction back.
-    const item = await seedSingleLineTab(svc, { productId: regularProductId, quantity: 1, unitPrice: 10, paymentAmount: 10 });
+    const item = await seedSingleLineTab(svc, { productId: regularProductId, quantity: 1, unitPrice: 10, paymentAmount: 10, staffId: cashier.id, shiftId });
     tabIds.push(item.tabId);
     const { data, error } = await refund(item, [{ order_item_id: item.itemId, qty: 0, amount: 5, restock: false }]);
     expect(data).toBeNull();
@@ -665,6 +755,8 @@ describe.skipIf(!hasAnonEnv)('process_refund — per-line bounds (wave 3a)', () 
       unitPrice: 20,
       weightGrams: 1500,
       paymentAmount: 20,
+      staffId: cashier.id,
+      shiftId,
     });
     tabIds.push(item.tabId);
     const { data: before } = await svc.from('inventory').select('quantity_on_hand').eq('product_id', weighedProductId).single();
@@ -688,8 +780,41 @@ describe.skipIf(!hasAnonEnv)('process_refund — per-line bounds (wave 3a)', () 
     expect(Number(movement.quantity_delta)).toBe(1500);
   });
 
+  it('restocks a loose (open-unit) line by the refunded quantity, not the whole line (I-1)', async () => {
+    // An active open unit for the box, with room to credit back into.
+    const { data: unit, error: unitErr } = await svc
+      .from('open_units')
+      .insert({ product_id: boxProductId, remaining_count: 5, status: 'active' })
+      .select('id')
+      .single();
+    if (unitErr || !unit) throw new Error(`open unit insert: ${unitErr?.message}`);
+
+    const item = await seedSingleLineTab(svc, {
+      productId: looseProductId,
+      quantity: 3,
+      unitPrice: 7.5,
+      paymentAmount: 22.5,
+      staffId: cashier.id,
+      shiftId,
+    });
+    tabIds.push(item.tabId);
+
+    // Refund 1 of 3: before the fix this credited the whole line (3), not
+    // the refunded quantity (1).
+    const first = await refund(item, [{ order_item_id: item.itemId, qty: 1, amount: 7.5, restock: true }]);
+    expect(first.error).toBeNull();
+    const { data: afterFirst } = await svc.from('open_units').select('remaining_count').eq('id', unit.id).single();
+    expect(afterFirst.remaining_count).toBe(6);
+
+    // A second partial refund of 1: rises by 1 again, not a second full-line credit.
+    const second = await refund(item, [{ order_item_id: item.itemId, qty: 1, amount: 7.5, restock: true }]);
+    expect(second.error).toBeNull();
+    const { data: afterSecond } = await svc.from('open_units').select('remaining_count').eq('id', unit.id).single();
+    expect(afterSecond.remaining_count).toBe(7);
+  });
+
   it('restocks a regular line by its quantity', async () => {
-    const item = await seedSingleLineTab(svc, { productId: regularProductId, quantity: 2, unitPrice: 10, paymentAmount: 20 });
+    const item = await seedSingleLineTab(svc, { productId: regularProductId, quantity: 2, unitPrice: 10, paymentAmount: 20, staffId: cashier.id, shiftId });
     tabIds.push(item.tabId);
     const { data: before } = await svc.from('inventory').select('quantity_on_hand').eq('product_id', regularProductId).single();
     const beforeQty = Number(before?.quantity_on_hand ?? 0);
@@ -702,7 +827,7 @@ describe.skipIf(!hasAnonEnv)('process_refund — per-line bounds (wave 3a)', () 
   });
 
   it('the refund payment row names the caller as processed_by and the approver as approved_by', async () => {
-    const item = await seedSingleLineTab(svc, { productId: regularProductId, quantity: 1, unitPrice: 10, paymentAmount: 10 });
+    const item = await seedSingleLineTab(svc, { productId: regularProductId, quantity: 1, unitPrice: 10, paymentAmount: 10, staffId: cashier.id, shiftId });
     tabIds.push(item.tabId);
     const { data: refundId, error } = await refund(item, [{ order_item_id: item.itemId, qty: 1, amount: 10, restock: false }]);
     expect(error).toBeNull();

@@ -74,9 +74,22 @@ describe.skipIf(skip)('adjust_inventory RPC', () => {
 
   async function removeFixture(f: Fixture): Promise<void> {
     if (!f.id) return;
+    // Defense against cross-test contamination: another integration test's
+    // "pick any staff" seed helper can adopt a still-live fixture profile as
+    // its staff member before this file's own teardown runs, attaching
+    // stock_movements/shifts rows this file never created. Delete by
+    // staff_id directly so a leftover reference never blocks the profile
+    // delete below.
+    const movDel = await db.from('stock_movements').delete().eq('staff_id', f.id);
+    expect(movDel.error).toBeNull();
+    const shiftDel = await db.from('shifts').delete().eq('staff_id', f.id);
+    expect(shiftDel.error).toBeNull();
     await db.from('pin_attempts').delete().like('attempt_key', `%${f.id}%`);
-    await db.from('profiles').delete().eq('id', f.id);
-    await db.auth.admin.deleteUser(f.id);
+    const profDel = await db.from('profiles').delete().eq('id', f.id).select('id');
+    expect(profDel.error).toBeNull();
+    expect(profDel.data).toHaveLength(1);
+    const { error: authErr } = await db.auth.admin.deleteUser(f.id);
+    expect(authErr).toBeNull();
   }
 
   async function currentQty(): Promise<number> {
@@ -145,19 +158,24 @@ describe.skipIf(skip)('adjust_inventory RPC', () => {
     expect(movements![0].staff_id).toBe(manager.id);
     expect(Number(movements![0].quantity_delta)).toBe(5);
 
+    // No .limit(1): capping the query at 1 row would make "exactly one"
+    // vacuous — it would pass even if the RPC wrote a second row.
     const { data: auditRows } = await db
       .from('audit_logs')
       .select('actor_id')
       .eq('action', 'inventory.adjust')
-      .eq('entity_id', inventoryRowId)
-      .order('created_at', { ascending: false })
-      .limit(1);
+      .eq('entity_id', inventoryRowId);
     expect(auditRows).toHaveLength(1);
     expect(auditRows![0].actor_id).toBe(manager.id);
   });
 
   it('refuses a stale expected quantity: STOCK_CHANGED, stock and ledger unchanged', async () => {
     const before = await currentQty();
+    const { count: movementsBefore } = await db
+      .from('stock_movements')
+      .select('id', { count: 'exact', head: true })
+      .eq('product_id', productId);
+
     const { data, error } = await manager.client.rpc('adjust_inventory', {
       p_product_id: productId,
       p_quantity_delta: 3,
@@ -167,6 +185,12 @@ describe.skipIf(skip)('adjust_inventory RPC', () => {
     expect(data).toBeNull();
     expect(error?.message).toContain('STOCK_CHANGED');
     expect(await currentQty()).toBe(before);
+
+    const { count: movementsAfter } = await db
+      .from('stock_movements')
+      .select('id', { count: 'exact', head: true })
+      .eq('product_id', productId);
+    expect(movementsAfter).toBe(movementsBefore);
   });
 
   it('refuses a zero delta: INVALID_DELTA', async () => {

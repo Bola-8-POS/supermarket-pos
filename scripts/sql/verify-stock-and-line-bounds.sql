@@ -34,7 +34,9 @@ BEGIN
     RAISE EXCEPTION 'remove_tab_item is missing the active-caller gate';
   END IF;
 
-  -- 3. process_refund: per-line bounds, approver recorded, open-unit restock active.
+  -- 3. process_refund: per-line bounds, approver recorded, open-unit restock
+  --    active and restocking by the refunded quantity (consume_open_unit),
+  --    not the whole line (deplete_for_order_item read order_items.quantity).
   IF (SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = 'process_refund') <> 1 THEN
     RAISE EXCEPTION 'process_refund must exist exactly once';
   END IF;
@@ -44,10 +46,10 @@ BEGIN
       AND prosrc LIKE '%REFUND_QTY_EXCEEDS_LINE%'
       AND prosrc LIKE '%REFUND_AMOUNT_EXCEEDS_LINE%'
       AND prosrc LIKE '%approved_by%'
-      AND prosrc LIKE '%(-1)::smallint%'
+      AND prosrc LIKE '%consume_open_unit(v_line.product_id, (v_item->>''qty'')::integer%'
       AND prosrc NOT LIKE '%undefined_function%'
   ) THEN
-    RAISE EXCEPTION 'process_refund is missing the per-line bounds or the active restock branch';
+    RAISE EXCEPTION 'process_refund is missing the per-line bounds or restocks a loose product by the whole line instead of the refunded quantity';
   END IF;
 
   -- 4. restore_inventory_on_refund_item: weighed restock.
@@ -68,8 +70,8 @@ BEGIN
     RAISE EXCEPTION 'restore_inventory_on_order_item_delete does not name the real actor';
   END IF;
 
-  -- 6. adjust_inventory: one RPC, locks the row, service-only-ish privileges
-  --    (authenticated yes, anon no), ledger + audit in the body.
+  -- 6. adjust_inventory: one RPC, locks the row, granted to authenticated
+  --    and service_role, refused to anon, ledger + audit in the body.
   IF (SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = 'adjust_inventory') <> 1 THEN
     RAISE EXCEPTION 'adjust_inventory must exist exactly once';
   END IF;

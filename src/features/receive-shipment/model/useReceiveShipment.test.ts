@@ -87,4 +87,39 @@ describe('useReceiveShipment', () => {
     expect(keyOf(2)).toBeTruthy();
     expect(keyOf(2)).not.toBe(firstKey);
   });
+
+  it('regenerates the key when the request changes after a failed attempt, keeps it when unchanged', async () => {
+    mockCallReceiveShipment
+      .mockResolvedValueOnce(err({ code: 'SUPABASE_ERROR', message: 'network blip' }))
+      .mockResolvedValueOnce(err({ code: 'SUPABASE_ERROR', message: 'network blip' }))
+      .mockResolvedValueOnce(ok({ shipmentId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' }));
+
+    const { result } = renderHook(() => useReceiveShipment(), {
+      wrapper: makeWrapper(queryClient),
+    });
+
+    // Attempt 1 fails; a key is generated. A failure alone never clears it —
+    // the failed response may have actually committed on the server.
+    await result.current.mutateAsync(baseRequest);
+    const firstKey = keyOf(0);
+    expect(firstKey).toBeTruthy();
+
+    // The exact same request resubmitted (an ordinary retry): same key, so
+    // a committed-but-lost first attempt replays instead of double-receiving.
+    await result.current.mutateAsync(baseRequest);
+    expect(keyOf(1)).toBe(firstKey);
+
+    // The user edits a line before resubmitting: a new key. Without this,
+    // a lost response from the failed attempt above would let the edited
+    // submission silently replay the earlier, edited-away one instead of
+    // sending the edit.
+    const editedRequest: ReceiveShipmentRequest = {
+      ...baseRequest,
+      items: [{ ...baseRequest.items[0]!, quantity: 2 }],
+    };
+    await result.current.mutateAsync(editedRequest);
+    expect(mockCallReceiveShipment).toHaveBeenCalledTimes(3);
+    expect(keyOf(2)).toBeTruthy();
+    expect(keyOf(2)).not.toBe(firstKey);
+  });
 });

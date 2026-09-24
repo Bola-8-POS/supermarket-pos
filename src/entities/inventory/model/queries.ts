@@ -343,7 +343,7 @@ export function useMutationAdjustInventory() {
       );
 
       if (!rpcRes.ok) {
-        const { message, raw } = rpcRes.error;
+        const { message, detail, raw } = rpcRes.error;
         if (message.includes('AUTH_FORBIDDEN')) {
           return err({ code: 'AUTH_FORBIDDEN', message, raw });
         }
@@ -358,6 +358,19 @@ export function useMutationAdjustInventory() {
         }
         if (message.includes('NOT_FOUND')) {
           return err({ code: 'NOT_FOUND', message, raw });
+        }
+        // The UPDATE inside adjust_inventory can fail its own CHECK
+        // constraint (quantity_on_hand_non_negative, SQLSTATE 23514) rather
+        // than the RPC's own INVALID_DELTA/STOCK_CHANGED guards — for
+        // example a stale expected quantity race that still lands below
+        // zero. parseSupabaseError already turns a 23514 into a generic
+        // VALIDATION_ERROR with the raw constraint text folded into
+        // `detail`; recognize that one constraint by name and report it
+        // with the same readable code the rest of the app uses for a
+        // negative-stock refusal instead of falling through to a raw
+        // database message in the toast.
+        if (detail?.includes('quantity_on_hand_non_negative')) {
+          return err({ code: 'INVENTORY_NEGATIVE', message: 'This adjustment would take stock below zero.', raw });
         }
         logger.error('inventory.adjust.rpc_failed', { message });
         return rpcRes;

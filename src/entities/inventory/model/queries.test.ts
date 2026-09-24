@@ -500,6 +500,39 @@ describe('useMutationAdjustInventory', () => {
     expect(res.error.message).toBe(message);
   });
 
+  it('maps a quantity_on_hand_non_negative check-constraint failure to INVENTORY_NEGATIVE', async () => {
+    // Not an RPC-raised custom message (those default to SQLSTATE P0001 and
+    // survive parseSupabaseError untouched, like the five cases above) —
+    // this is the UPDATE inside adjust_inventory itself hitting the
+    // inventory table's own CHECK constraint, SQLSTATE 23514.
+    // parseSupabaseError turns that into a generic VALIDATION_ERROR whose
+    // `.message` is a fixed "Please check the highlighted fields." string
+    // and whose `.detail` carries the original constraint text.
+    mockedRpc.mockResolvedValueOnce({
+      data: null,
+      error: {
+        message: 'new row for relation "inventory" violates check constraint "quantity_on_hand_non_negative"',
+        code: '23514',
+      },
+    } as never);
+
+    const qc = createTestQueryClient();
+    const { result } = renderHook(() => useMutationAdjustInventory(), {
+      wrapper: makeWrapper(qc),
+    });
+
+    const res = await result.current.mutateAsync({
+      productId: crypto.randomUUID(),
+      quantityDelta: -100,
+      reason: 'manual_adjustment',
+      notes: undefined,
+    });
+
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.code).toBe('INVENTORY_NEGATIVE');
+  });
+
   it('passes an unmatched error through unchanged (no five-way prefix match)', async () => {
     mockedRpc.mockResolvedValueOnce(rpcError('some other database failure'));
 

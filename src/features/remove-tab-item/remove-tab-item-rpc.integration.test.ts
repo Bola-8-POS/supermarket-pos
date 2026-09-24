@@ -74,9 +74,22 @@ describe.skipIf(skip)('remove_tab_item RPC — active-caller gate', () => {
 
   async function removeFixture(f: Fixture): Promise<void> {
     if (!f.id) return;
+    // Defense against cross-test contamination: another integration test's
+    // "pick any staff" seed helper can adopt a still-live fixture profile as
+    // its staff member before this file's own teardown runs, attaching
+    // stock_movements/shifts rows this file never created. Delete by
+    // staff_id directly so a leftover reference never blocks the profile
+    // delete below.
+    const movDel = await db.from('stock_movements').delete().eq('staff_id', f.id);
+    expect(movDel.error).toBeNull();
+    const shiftDel = await db.from('shifts').delete().eq('staff_id', f.id);
+    expect(shiftDel.error).toBeNull();
     await db.from('pin_attempts').delete().like('attempt_key', `%${f.id}%`);
-    await db.from('profiles').delete().eq('id', f.id);
-    await db.auth.admin.deleteUser(f.id);
+    const profDel = await db.from('profiles').delete().eq('id', f.id).select('id');
+    expect(profDel.error).toBeNull();
+    expect(profDel.data).toHaveLength(1);
+    const { error: authErr } = await db.auth.admin.deleteUser(f.id);
+    expect(authErr).toBeNull();
   }
 
   async function seedTab(status: 'open' | 'paid', quantity: number): Promise<{ tabId: string; itemId: string }> {
@@ -158,7 +171,6 @@ describe.skipIf(skip)('remove_tab_item RPC — active-caller gate', () => {
   afterAll(async () => {
     for (const tabId of [...tabIds]) await cleanupTab(tabId).catch(() => undefined);
     if (shiftId) await db.from('shifts').delete().eq('id', shiftId);
-    for (const f of fixtures) await removeFixture(f);
 
     const movDel = await db.from('stock_movements').delete().eq('product_id', productId);
     expect(movDel.error).toBeNull();
@@ -166,6 +178,10 @@ describe.skipIf(skip)('remove_tab_item RPC — active-caller gate', () => {
     expect(invDel.error).toBeNull();
     const prodDel = await db.from('products').delete().eq('id', productId);
     expect(prodDel.error).toBeNull();
+
+    // Dependents (stock_movements/shifts) cleaned above and inside
+    // removeFixture itself — profiles must delete last.
+    for (const f of fixtures) await removeFixture(f);
   });
 
   it('refuses a kitchen session', async () => {

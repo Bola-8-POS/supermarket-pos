@@ -126,11 +126,6 @@ describe.skipIf(skip)('purchase order guards', () => {
     for (const shipmentId of shipmentIds) await db.from('shipments').delete().eq('id', shipmentId);
     for (const poId of [...poIds]) await cleanupPo(poId).catch(() => undefined);
     if (supplierId) await db.from('suppliers').delete().eq('id', supplierId);
-    if (manager.id) {
-      await db.from('pin_attempts').delete().like('attempt_key', `%${manager.id}%`);
-      await db.from('profiles').delete().eq('id', manager.id);
-      await db.auth.admin.deleteUser(manager.id);
-    }
 
     const movDel = await db.from('stock_movements').delete().eq('product_id', productId);
     expect(movDel.error).toBeNull();
@@ -138,6 +133,23 @@ describe.skipIf(skip)('purchase order guards', () => {
     expect(invDel.error).toBeNull();
     const prodDel = await db.from('products').delete().eq('id', productId);
     expect(prodDel.error).toBeNull();
+
+    if (manager.id) {
+      // Defense against cross-test contamination (see
+      // remove-tab-item-rpc.integration.test.ts's removeFixture comment):
+      // sweep by staff_id directly, not only by this file's own tracked ids,
+      // before the profile delete itself.
+      const staffMovDel = await db.from('stock_movements').delete().eq('staff_id', manager.id);
+      expect(staffMovDel.error).toBeNull();
+      const shiftDel = await db.from('shifts').delete().eq('staff_id', manager.id);
+      expect(shiftDel.error).toBeNull();
+      await db.from('pin_attempts').delete().like('attempt_key', `%${manager.id}%`);
+      const profDel = await db.from('profiles').delete().eq('id', manager.id).select('id');
+      expect(profDel.error).toBeNull();
+      expect(profDel.data).toHaveLength(1);
+      const { error: authErr } = await db.auth.admin.deleteUser(manager.id);
+      expect(authErr).toBeNull();
+    }
   });
 
   it('a draft PO updated through update_purchase_order_atomic replaces its items', async () => {
@@ -176,6 +188,16 @@ describe.skipIf(skip)('purchase order guards', () => {
     const { data: items } = await db.from('purchase_order_items').select('quantity').eq('purchase_order_id', poId);
     expect(items).toHaveLength(1);
     expect(items![0].quantity).toBe(1);
+  });
+
+  it('a manager cannot insert a PO that is already received: 42501 (M-3)', async () => {
+    const { data, error } = await manager.client
+      .from('purchase_orders')
+      .insert({ supplier_id: supplierId, status: 'received', created_by: manager.id })
+      .select('id');
+    expect(data).toBeNull();
+    expect(error).not.toBeNull();
+    expect(error!.code).toBe('42501');
   });
 
   it('a client delete on a received PO affects zero rows; the row is still present', async () => {

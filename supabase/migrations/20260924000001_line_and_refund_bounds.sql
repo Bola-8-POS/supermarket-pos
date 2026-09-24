@@ -160,7 +160,7 @@ BEGIN
   -- 7. Insert refund_items + optionally call deplete_for_order_item
   FOR v_item IN SELECT * FROM jsonb_array_elements(p_items)
   LOOP
-    SELECT oi.id, oi.quantity, oi.unit_price, COALESCE(oi.modifier_price_delta, 0) AS modifier_price_delta
+    SELECT oi.id, oi.product_id, oi.quantity, oi.unit_price, COALESCE(oi.modifier_price_delta, 0) AS modifier_price_delta
       INTO v_line
       FROM order_items oi
       JOIN orders o ON o.id = oi.order_id
@@ -200,7 +200,11 @@ BEGIN
     );
 
     IF (v_item->>'restock')::boolean THEN
-      PERFORM deplete_for_order_item((v_item->>'order_item_id')::uuid, (-1)::smallint, true);
+      -- consume_open_unit, not deplete_for_order_item: the latter reads
+      -- order_items.quantity (the whole line) and would credit an
+      -- open-unit product by the full line quantity on every partial
+      -- refund; the refunded quantity is what must go back.
+      PERFORM consume_open_unit(v_line.product_id, (v_item->>'qty')::integer, v_line.id, (-1)::smallint, true);
     END IF;
   END LOOP;
 
