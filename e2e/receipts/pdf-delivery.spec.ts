@@ -14,6 +14,12 @@
  * send-receipt-email edge function (Resend sandbox), and asserts the plain
  * "Receipt sent." toast is shown (not the "…without PDF attachment" variant)
  * — proving the PDF-attachment path succeeded end-to-end.
+ *
+ * Test 3 (I-8, wave 3b/S-11): signs in as the seeded Kitchen Test account and
+ * calls send-receipt-email directly with that session's own access token
+ * (read off the browser's persisted Supabase session, same way the app
+ * itself would send it), asserting the role gate refuses it with 403
+ * FORBIDDEN before any Resend call is attempted.
  */
 
 import { expect, test, type Page } from '../fixtures';
@@ -201,5 +207,51 @@ test.describe('Receipt PDF delivery', () => {
 
     expect(typeof capturedPdfBase64).toBe('string');
     expect((capturedPdfBase64 ?? '').length).toBeGreaterThan(0);
+  });
+
+  test('a kitchen-role session is refused by send-receipt-email (403 FORBIDDEN)', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await loginAs(page, 'kitchen');
+
+    const supabaseUrl = process.env['VITE_SUPABASE_URL'];
+    const anonKey = process.env['VITE_SUPABASE_ANON_KEY'];
+    if (!supabaseUrl || !anonKey) {
+      throw new Error('Missing VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY');
+    }
+
+    const result = await page.evaluate(
+      async ({ supabaseUrl, anonKey }) => {
+        // supabase-js persists the session under `sb-<project-ref>-auth-token`
+        // — read the kitchen session's own access token straight off
+        // localStorage rather than hardcoding the project ref.
+        const storageKey = Object.keys(localStorage).find(
+          k => k.startsWith('sb-') && k.endsWith('-auth-token')
+        );
+        const raw = storageKey ? localStorage.getItem(storageKey) : null;
+        const session: { access_token?: string } | null = raw ? JSON.parse(raw) : null;
+        const token = session?.access_token ?? '';
+
+        const res = await fetch(`${supabaseUrl}/functions/v1/send-receipt-email`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: anonKey,
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            email: 'e2e-kitchen-403@example.com',
+            receiptPlainText: 'kitchen-role-gate e2e probe',
+          }),
+        });
+        const body: unknown = await res.json().catch(() => null);
+        return { status: res.status, body };
+      },
+      { supabaseUrl, anonKey }
+    );
+
+    expect(result.status).toBe(403);
+    expect((result.body as { error?: { code?: string } } | null)?.error?.code).toBe('FORBIDDEN');
   });
 });
