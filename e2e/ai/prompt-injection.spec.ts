@@ -50,6 +50,29 @@ test.describe('AI assistant prompt-injection resistance (S-20)', () => {
     let call = 0;
     await page.route('**/functions/v1/agent-proxy', async route => {
       call++;
+
+      // I-1: pull the real confirm_token close_tab staged for tu-2 out of the
+      // request body instead of guessing one. A wrong token is refused by
+      // consumePendingAction's own NOT_FOUND path (guardTools.ts) regardless
+      // of whether brain.ts's own confirm_action refusal exists, which made
+      // this spec pass either way. The real token is what actually exercises
+      // that refusal.
+      let realConfirmToken = '';
+      if (call === 3) {
+        const body = route.request().postDataJSON() as {
+          messages: Array<{ role: string; content: unknown }>;
+        };
+        for (const message of body.messages) {
+          if (!Array.isArray(message.content)) continue;
+          for (const block of message.content as Array<Record<string, unknown>>) {
+            if (block['type'] === 'tool_result' && block['tool_use_id'] === 'tu-2') {
+              const parsed = JSON.parse(block['content'] as string) as { confirm_token: string };
+              realConfirmToken = parsed.confirm_token;
+            }
+          }
+        }
+      }
+
       const turn =
         call === 1
           ? {
@@ -80,7 +103,7 @@ test.describe('AI assistant prompt-injection resistance (S-20)', () => {
                       type: 'tool_use',
                       id: 'tu-3',
                       name: 'confirm_action',
-                      input: { token: 'model-issued-token' },
+                      input: { token: realConfirmToken },
                     },
                   ],
                 }
