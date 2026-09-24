@@ -91,7 +91,7 @@ BEGIN
   -- 7. purchase_orders / purchase_order_items: no FOR ALL policy on
   --    purchase_orders; UPDATE and DELETE policies are draft-only; exactly
   --    one FOR ALL policy on purchase_order_items, also draft-only.
-  IF EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'purchase_orders' AND cmd = '*') THEN
+  IF EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'purchase_orders' AND cmd = 'ALL') THEN
     RAISE EXCEPTION 'purchase_orders still has a FOR ALL policy';
   END IF;
   IF NOT EXISTS (
@@ -104,11 +104,11 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'purchase_orders DELETE policy is not draft-only';
   END IF;
-  IF (SELECT count(*) FROM pg_policies WHERE tablename = 'purchase_order_items' AND cmd = '*') <> 1 THEN
+  IF (SELECT count(*) FROM pg_policies WHERE tablename = 'purchase_order_items' AND cmd = 'ALL') <> 1 THEN
     RAISE EXCEPTION 'purchase_order_items must have exactly one FOR ALL policy';
   END IF;
   IF NOT EXISTS (
-    SELECT 1 FROM pg_policies WHERE tablename = 'purchase_order_items' AND cmd = '*' AND qual LIKE '%draft%'
+    SELECT 1 FROM pg_policies WHERE tablename = 'purchase_order_items' AND cmd = 'ALL' AND qual LIKE '%draft%'
   ) THEN
     RAISE EXCEPTION 'purchase_order_items FOR ALL policy is not draft-only';
   END IF;
