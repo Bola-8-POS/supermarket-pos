@@ -11,7 +11,7 @@
  * Service role client is used only for data seeding (bypasses RLS).
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 // ── Env guards ────────────────────────────────────────────────────────────────
 
@@ -403,4 +403,308 @@ describe('process_refund RPC (integration)', () => {
       expect(refundId).toBeTruthy();
     },
   );
+});
+
+// ── Wave 3a: per-line refund bounds ─────────────────────────────────────────
+//
+// Self-contained fixtures (random PIN, staff-sign-in edge function) so these
+// tests do not depend on the E2E_MANAGER_NAME/E2E_MANAGER_PIN preset-profile
+// env vars the older tests above use.
+
+const hasAnonEnv =
+  hasEnv &&
+  typeof process.env['VITE_SUPABASE_ANON_KEY'] === 'string' &&
+  process.env['VITE_SUPABASE_ANON_KEY'] !== '';
+
+const randomPin6 = (): string => String(100000 + Math.floor(Math.random() * 900000));
+
+interface BoundsFixture {
+  id: string;
+  name: string;
+  email: string;
+  role: 'manager' | 'cashier';
+  pin: string;
+  client: any;
+}
+
+interface SingleLineSeed {
+  tabId: string;
+  paymentId: string;
+  itemId: string;
+}
+
+async function seedSingleLineTab(
+  svc: any,
+  opts: {
+    productId: string;
+    quantity: number;
+    unitPrice: number;
+    modifierPriceDelta?: number;
+    weightGrams?: number | null;
+    paymentAmount: number;
+  },
+): Promise<SingleLineSeed> {
+  const { staffId, shiftId } = await getStaffAndShift(svc);
+  const { data: tab, error: tabErr } = await svc
+    .from('tabs')
+    .insert({
+      customer_name: `Refund Bounds Tab ${Date.now()}`,
+      staff_id: staffId,
+      shift_id: shiftId,
+      status: 'paid',
+      closed_at: new Date().toISOString(),
+    })
+    .select('id')
+    .single();
+  if (tabErr || !tab) throw new Error(`seedSingleLineTab: tab insert failed: ${tabErr?.message ?? 'no row'}`);
+
+  const { data: order, error: orderErr } = await svc
+    .from('orders')
+    .insert({ tab_id: tab.id, staff_id: staffId, status: 'served' })
+    .select('id')
+    .single();
+  if (orderErr || !order) throw new Error(`seedSingleLineTab: order insert failed: ${orderErr?.message ?? 'no row'}`);
+
+  const { data: item, error: itemErr } = await svc
+    .from('order_items')
+    .insert({
+      order_id: order.id,
+      product_id: opts.productId,
+      quantity: opts.quantity,
+      unit_price: opts.unitPrice,
+      modifier_price_delta: opts.modifierPriceDelta ?? 0,
+      weight_grams: opts.weightGrams ?? null,
+    })
+    .select('id')
+    .single();
+  if (itemErr || !item) throw new Error(`seedSingleLineTab: item insert failed: ${itemErr?.message ?? 'no row'}`);
+
+  const { data: payment, error: payErr } = await svc
+    .from('payments')
+    .insert({
+      tab_id: tab.id,
+      amount: opts.paymentAmount,
+      method: 'cash',
+      processed_by: staffId,
+      idempotency_key: `seed-refund-bounds-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    })
+    .select('id')
+    .single();
+  if (payErr || !payment) throw new Error(`seedSingleLineTab: payment insert failed: ${payErr?.message ?? 'no row'}`);
+
+  return { tabId: tab.id as string, paymentId: payment.id as string, itemId: item.id as string };
+}
+
+describe.skipIf(!hasAnonEnv)('process_refund — per-line bounds (wave 3a)', () => {
+  const svc = getServiceDb();
+  const stamp = String(Date.now());
+  const anonUrl = process.env['VITE_SUPABASE_URL']!;
+  const anonKey = process.env['VITE_SUPABASE_ANON_KEY']!;
+
+  const manager: BoundsFixture = { id: '', name: `__refund_bounds_test__manager`, email: `__refund_bounds_test__m_${stamp}@test.local`, role: 'manager', pin: randomPin6(), client: null };
+  const cashier: BoundsFixture = { id: '', name: `__refund_bounds_test__cashier`, email: `__refund_bounds_test__c_${stamp}@test.local`, role: 'cashier', pin: randomPin6(), client: null };
+  const fixtures = [manager, cashier];
+  const tabIds: string[] = [];
+  let regularProductId = '';
+  let weighedProductId = '';
+
+  async function makeFixture(f: BoundsFixture): Promise<void> {
+    const { data, error } = await svc.auth.admin.createUser({ email: f.email, password: f.pin, email_confirm: true });
+    if (error || !data.user) throw new Error(`create user ${f.name}: ${error?.message}`);
+    f.id = data.user.id as string;
+    const { error: profileErr } = await svc
+      .from('profiles')
+      .upsert({ id: f.id, name: f.name, email: f.email, role: f.role, pin: f.pin, is_active: true });
+    if (profileErr) throw new Error(`profile upsert ${f.name}: ${profileErr.message}`);
+  }
+
+  async function signIn(f: BoundsFixture): Promise<void> {
+    const res = await fetch(`${anonUrl}/functions/v1/staff-sign-in`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: anonKey },
+      body: JSON.stringify({ staffId: f.id, pin: f.pin }),
+    });
+    const json = await res.json().catch(() => null);
+    if (res.status !== 200) throw new Error(`sign in ${f.name}: ${res.status} ${JSON.stringify(json)}`);
+    const client = createClient(anonUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
+    const { error } = await client.auth.setSession({ access_token: json.accessToken, refresh_token: json.refreshToken });
+    if (error) throw new Error(`setSession ${f.name}: ${error.message}`);
+    f.client = client;
+  }
+
+  async function removeFixture(f: BoundsFixture): Promise<void> {
+    if (!f.id) return;
+    await svc.from('profiles').delete().eq('id', f.id);
+    await svc.auth.admin.deleteUser(f.id);
+  }
+
+  async function refund(item: SingleLineSeed, body: Array<{ order_item_id: string; qty: number; amount: number; restock: boolean }>) {
+    return (cashier.client as any).rpc('process_refund', {
+      p_original_payment_id: item.paymentId,
+      p_items: body,
+      p_reason: 'other',
+      p_approval_id: await approval(cashier.client, manager.pin),
+    });
+  }
+
+  beforeAll(async () => {
+    for (const f of fixtures) await makeFixture(f);
+    await signIn(manager);
+    await signIn(cashier);
+
+    const { data: product } = await svc
+      .from('products')
+      .select('id')
+      .eq('is_active', true)
+      .eq('sold_by_weight', false)
+      .is('parent_product_id', null)
+      .limit(1)
+      .single();
+    if (!product) throw new Error('no eligible regular product found');
+    regularProductId = product.id as string;
+
+    const { data: category } = await svc.from('categories').select('id').limit(1).single();
+    if (!category) throw new Error('no category found');
+    const { data: weighed, error: weighedErr } = await svc
+      .from('products')
+      .insert({
+        name: '__refund_bounds_test__weighed_product',
+        category_id: category.id,
+        base_price: 1,
+        sold_by_weight: true,
+        is_active: true,
+      })
+      .select('id')
+      .single();
+    if (weighedErr || !weighed) throw new Error(`weighed product insert: ${weighedErr?.message}`);
+    weighedProductId = weighed.id as string;
+    const { error: invErr } = await svc.from('inventory').insert({ product_id: weighedProductId, quantity_on_hand: 5000 });
+    if (invErr) throw new Error(`weighed product inventory insert: ${invErr.message}`);
+  });
+
+  afterEach(async () => {
+    for (const tabId of [...tabIds]) {
+      await cleanup(svc, tabId).catch(() => undefined);
+    }
+    tabIds.length = 0;
+    await svc.from('manager_approvals').delete().eq('caller_id', cashier.id);
+  });
+
+  afterAll(async () => {
+    if (weighedProductId) {
+      await svc.from('inventory').delete().eq('product_id', weighedProductId);
+      await svc.from('products').delete().eq('id', weighedProductId);
+    }
+    for (const f of fixtures) await removeFixture(f);
+  });
+
+  it('refuses a refund quantity above the line: REFUND_QTY_EXCEEDS_LINE', async () => {
+    const item = await seedSingleLineTab(svc, { productId: regularProductId, quantity: 2, unitPrice: 10, paymentAmount: 20 });
+    tabIds.push(item.tabId);
+    const { data, error } = await refund(item, [{ order_item_id: item.itemId, qty: 3, amount: 10, restock: false }]);
+    expect(data).toBeNull();
+    expect(error?.message).toContain('REFUND_QTY_EXCEEDS_LINE');
+  });
+
+  it('refuses a second refund whose quantity sums above the line', async () => {
+    // paymentAmount (1000) is far above the two $20 refunds combined so the
+    // payment-level cap (REFUND_EXCEEDS_ORIGINAL) never fires — only the
+    // per-line remaining-quantity cap (3 total, 2 already refunded) is
+    // under test.
+    const item = await seedSingleLineTab(svc, { productId: regularProductId, quantity: 3, unitPrice: 10, paymentAmount: 1000 });
+    tabIds.push(item.tabId);
+    const first = await refund(item, [{ order_item_id: item.itemId, qty: 2, amount: 20, restock: false }]);
+    expect(first.error).toBeNull();
+    const second = await refund(item, [{ order_item_id: item.itemId, qty: 2, amount: 20, restock: false }]);
+    expect(second.data).toBeNull();
+    expect(second.error?.message).toContain('REFUND_QTY_EXCEEDS_LINE');
+  });
+
+  it('refuses a refund amount above the line cap: REFUND_AMOUNT_EXCEEDS_LINE', async () => {
+    // paymentAmount (100) is well above the requested 15 so the payment-level
+    // cap (REFUND_EXCEEDS_ORIGINAL, checked first) does not fire — only the
+    // per-line cap (unit_price * qty = 10) is under test here.
+    const item = await seedSingleLineTab(svc, { productId: regularProductId, quantity: 1, unitPrice: 10, paymentAmount: 100 });
+    tabIds.push(item.tabId);
+    const { data, error } = await refund(item, [{ order_item_id: item.itemId, qty: 1, amount: 15, restock: false }]);
+    expect(data).toBeNull();
+    expect(error?.message).toContain('REFUND_AMOUNT_EXCEEDS_LINE');
+  });
+
+  it('refuses a non-positive refund quantity: REFUND_ITEM_INVALID', async () => {
+    // amount is non-zero (not 0) so v_refund_total > 0 and the refunds row
+    // itself can be inserted (refunds_amount_check) before the per-item loop
+    // reaches the qty <= 0 guard and rolls the whole transaction back.
+    const item = await seedSingleLineTab(svc, { productId: regularProductId, quantity: 1, unitPrice: 10, paymentAmount: 10 });
+    tabIds.push(item.tabId);
+    const { data, error } = await refund(item, [{ order_item_id: item.itemId, qty: 0, amount: 5, restock: false }]);
+    expect(data).toBeNull();
+    expect(error?.message).toContain('REFUND_ITEM_INVALID');
+  });
+
+  it('restocks a weighed line in grams, not units', async () => {
+    const item = await seedSingleLineTab(svc, {
+      productId: weighedProductId,
+      quantity: 1,
+      unitPrice: 20,
+      weightGrams: 1500,
+      paymentAmount: 20,
+    });
+    tabIds.push(item.tabId);
+    const { data: before } = await svc.from('inventory').select('quantity_on_hand').eq('product_id', weighedProductId).single();
+    const beforeQty = Number(before?.quantity_on_hand ?? 0);
+
+    const { data, error } = await refund(item, [{ order_item_id: item.itemId, qty: 1, amount: 20, restock: true }]);
+    expect(error).toBeNull();
+    expect(data).toBeTruthy();
+
+    const { data: after } = await svc.from('inventory').select('quantity_on_hand').eq('product_id', weighedProductId).single();
+    expect(Number(after.quantity_on_hand)).toBe(beforeQty + 1500);
+
+    const { data: movement } = await svc
+      .from('stock_movements')
+      .select('quantity_delta')
+      .eq('product_id', weighedProductId)
+      .eq('reason', 'refund')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+    expect(Number(movement.quantity_delta)).toBe(1500);
+  });
+
+  it('restocks a regular line by its quantity', async () => {
+    const item = await seedSingleLineTab(svc, { productId: regularProductId, quantity: 2, unitPrice: 10, paymentAmount: 20 });
+    tabIds.push(item.tabId);
+    const { data: before } = await svc.from('inventory').select('quantity_on_hand').eq('product_id', regularProductId).single();
+    const beforeQty = Number(before?.quantity_on_hand ?? 0);
+
+    const { error } = await refund(item, [{ order_item_id: item.itemId, qty: 2, amount: 20, restock: true }]);
+    expect(error).toBeNull();
+
+    const { data: after } = await svc.from('inventory').select('quantity_on_hand').eq('product_id', regularProductId).single();
+    expect(Number(after.quantity_on_hand)).toBe(beforeQty + 2);
+  });
+
+  it('the refund payment row names the caller as processed_by and the approver as approved_by', async () => {
+    const item = await seedSingleLineTab(svc, { productId: regularProductId, quantity: 1, unitPrice: 10, paymentAmount: 10 });
+    tabIds.push(item.tabId);
+    const { data: refundId, error } = await refund(item, [{ order_item_id: item.itemId, qty: 1, amount: 10, restock: false }]);
+    expect(error).toBeNull();
+
+    const { data: negPayment } = await svc
+      .from('payments')
+      .select('processed_by, approved_by')
+      .eq('refund_id', refundId)
+      .single();
+    expect(negPayment.processed_by).toBe(cashier.id);
+    expect(negPayment.approved_by).toBe(manager.id);
+  });
+
+  // Not exercised: a sold_by_weight order_items row with quantity = 0.
+  // order_items carries CHECK (quantity > 0) (quantity_positive, added in
+  // 20260414000004_tabs_and_orders.sql, long before this wave) — no insert
+  // or update, service role or not, can produce such a row, so the
+  // restore_inventory_on_refund_item NULLIF(oi.quantity, 0) guard the plan
+  // asks this case to pin can only ever protect a pre-constraint legacy row
+  // today. See task-1-report.md for the full note.
 });
