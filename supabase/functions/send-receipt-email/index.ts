@@ -50,7 +50,11 @@ Deno.serve(async (req: Request) => {
     return fail(req, 403, 'FORBIDDEN', { envelope: 'nested' });
   }
 
-  const dailyLimit = Number(Deno.env.get('RECEIPT_EMAIL_DAILY_LIMIT') ?? DEFAULT_DAILY_LIMIT);
+  // A non-numeric override (e.g. a typo'd env value) falls back to the
+  // default instead of sending NaN into rate_limit_hit, which would raise
+  // INVALID_ARGUMENT and turn every receipt email into a 500.
+  const parsedLimit = Number(Deno.env.get('RECEIPT_EMAIL_DAILY_LIMIT'));
+  const dailyLimit = Number.isFinite(parsedLimit) ? parsedLimit : DEFAULT_DAILY_LIMIT;
   const limitResult = await rateLimit(admin, `receipt-email:${caller.id}`, dailyLimit, RATE_LIMIT_WINDOW_SECONDS);
   if (!limitResult.ok) {
     return fail(req, 500, 'INTERNAL', { envelope: 'nested', detail: 'rate_limit_hit failed' });
