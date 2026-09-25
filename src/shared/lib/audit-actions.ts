@@ -80,4 +80,7 @@ export const AuditActionSchema = z.enum([
   'screen.unlock',
   // Receipts (Wave 3b)
   'receipt.emailed',
+  // Audit (wave 3c): the historic-payload scrub's own record, written once
+  // per project by a data migration, not by record_audit().
+  'audit.redact_keys',
 ]);
