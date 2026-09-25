@@ -203,8 +203,10 @@ describe.skipIf(skip)("process_refund's p_caja_session_id (integration)", () => 
     if (cajaAId) await db.from('caja_sessions').delete().eq('id', cajaAId);
     if (cajaBId) await db.from('caja_sessions').delete().eq('id', cajaBId);
     await db.from('audit_logs').delete().eq('actor_id', managerId);
+    await db.from('audit_log').delete().eq('actor_id', managerId);
     for (const [table, column] of [
       ['manager_approvals', 'caller_id'],
+      ['stock_movements', 'staff_id'],
       ['shifts', 'staff_id'],
     ] as const) {
       await db.from(table).delete().eq(column, managerId);

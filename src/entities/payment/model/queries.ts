@@ -106,6 +106,10 @@ type ReceiptPaymentRow = {
   discount_type: 'percent' | 'fixed' | null;
   discount_value: number | null;
   discount_amount: number | null;
+  status: string;
+  is_refund: boolean;
+  tax_rate_percent: number | null;
+  tax_inclusive: boolean | null;
 };
 
 /**
@@ -131,7 +135,7 @@ export async function fetchReceiptDataForPayment(tabId: string): Promise<Receipt
     db
       .from('payments')
       .select(
-        'amount, method, processed_at, tendered_amount, reference_number, discount_scope, discount_type, discount_value, discount_amount'
+        'amount, method, processed_at, tendered_amount, reference_number, discount_scope, discount_type, discount_value, discount_amount, status, is_refund, tax_rate_percent, tax_inclusive'
       )
       .eq('tab_id', tabId)
       .order('processed_at', { ascending: true }),
@@ -194,9 +198,19 @@ export async function fetchReceiptDataForPayment(tabId: string): Promise<Receipt
   const discountLeg = legs.find(leg => leg.discount_amount != null);
 
   const general = settingsRow?.value as { storeName?: string; address?: string } | null;
+  // Prefer the rate/inclusive flag snapshotted on the sale's own payment legs
+  // (the rate that applied when the charge was made) over today's setting —
+  // a reprint after the billing rate changes must still match the original
+  // print to the cent. Only completed, non-refund legs count; the stored
+  // tax_amount itself is not summed here (it exists for reports), the
+  // charged total is redecomposed with the stored rate instead, so rounding
+  // matches the original print regardless of per-leg rounding.
+  const taxLegs = legs.filter(leg => leg.status === 'completed' && !leg.is_refund);
+  const hasStoredTax =
+    taxLegs.length > 0 && taxLegs.every(leg => leg.tax_rate_percent != null && leg.tax_inclusive != null);
   const billing = billingRow?.value as { taxRatePercent?: number; taxInclusive?: boolean } | null;
-  const taxRatePercent = billing?.taxRatePercent ?? 16;
-  const taxInclusive = billing?.taxInclusive ?? true;
+  const taxRatePercent = hasStoredTax ? (taxLegs[0]!.tax_rate_percent as number) : billing?.taxRatePercent ?? 16;
+  const taxInclusive = hasStoredTax ? (taxLegs[0]!.tax_inclusive as boolean) : billing?.taxInclusive ?? true;
   const { subtotal, taxAmount, total } = decomposeTax(chargedAmount, taxRatePercent, taxInclusive);
 
   return ReceiptDataSchema.parse({
