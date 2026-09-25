@@ -49,6 +49,8 @@ function makeCajaReport(overrides: Partial<CajaReport> = {}): CajaReport {
     cashReconciliation: {
       openingCash: 500,
       cashSales: 800.25,
+      cashIn: 30,
+      cashOut: 20,
       expectedCash: 1300.25,
       closingCash: null,
       variance: null,

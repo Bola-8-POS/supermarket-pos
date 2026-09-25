@@ -76,6 +76,8 @@ function makeCajaReport(): CajaReport {
     cashReconciliation: {
       openingCash: 500,
       cashSales: 700,
+      cashIn: 30,
+      cashOut: 20,
       expectedCash: 1200,
       closingCash: null,
       variance: null,

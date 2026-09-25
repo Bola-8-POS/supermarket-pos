@@ -57,6 +57,8 @@
       "item": "Concepto",
       "amount": "Monto",
       "openingCash": "Efectivo de apertura",
+      "cashIn": "Entradas",
+      "cashOut": "Salidas",
       "expectedCash": "Efectivo esperado",
       "closingCash": "Efectivo de cierre",
       "variance": "Varianza",

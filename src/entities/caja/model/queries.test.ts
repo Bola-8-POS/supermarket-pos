@@ -542,6 +542,8 @@ describe('useMutationCloseCaja', () => {
     const cashReconciliation = {
       openingCash: 100,
       cashSales: 50,
+      cashIn: 0,
+      cashOut: 0,
       expectedCash: 150,
       closingCash: 140,
       variance: -10,

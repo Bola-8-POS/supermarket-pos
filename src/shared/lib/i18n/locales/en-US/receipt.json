@@ -57,6 +57,8 @@
       "item": "Item",
       "amount": "Amount",
       "openingCash": "Opening Cash",
+      "cashIn": "Paid In",
+      "cashOut": "Paid Out",
       "expectedCash": "Expected Cash",
       "closingCash": "Closing Cash",
       "variance": "Variance",

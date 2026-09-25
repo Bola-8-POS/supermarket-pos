@@ -75,20 +75,23 @@ export function cajaReportToWorkbook(report: CajaReport): XLSX.WorkBook {
   XLSX.utils.book_append_sheet(wb, wsStaff, 'Staff');
 
   const rec = report.cashReconciliation;
-  const reconData = [
-    ['Item', 'Amount'],
+  // A running row counter (not literal cell addresses) so a row inserted
+  // above (cashIn/cashOut) never desyncs the money-cell overrides below it.
+  const reconRows: [string, number | string][] = [
     ['Opening Cash', rec.openingCash],
     ['Cash Sales', rec.cashSales],
+    ['Cash In', rec.cashIn],
+    ['Cash Out', rec.cashOut],
     ['Expected Cash', rec.expectedCash],
     ['Closing Cash', rec.closingCash ?? '—'],
     ['Variance', rec.variance ?? '—'],
   ];
-  const wsRecon = XLSX.utils.aoa_to_sheet(reconData);
-  wsRecon['B2'] = moneyCell(rec.openingCash);
-  wsRecon['B3'] = moneyCell(rec.cashSales);
-  wsRecon['B4'] = moneyCell(rec.expectedCash);
-  if (rec.closingCash !== null) wsRecon['B5'] = moneyCell(rec.closingCash);
-  if (rec.variance !== null) wsRecon['B6'] = moneyCell(rec.variance);
+  const wsRecon = XLSX.utils.aoa_to_sheet([['Item', 'Amount'], ...reconRows]);
+  reconRows.forEach(([, value], i) => {
+    if (typeof value === 'number') {
+      wsRecon[cellAddr('B', i + 2)] = moneyCell(value);
+    }
+  });
   XLSX.utils.book_append_sheet(wb, wsRecon, 'Cash Reconciliation');
 
   return wb;

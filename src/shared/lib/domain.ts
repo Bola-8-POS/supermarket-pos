@@ -1060,6 +1060,9 @@ export const CajaReportSummarySchema = z.object({
 export const CashReconciliationSchema = z.object({
   openingCash: MoneySchema,
   cashSales: MoneySchema,
+  // Defaults keep a pre-wave-3c server response (which has neither key) parseable.
+  cashIn: z.number().multipleOf(0.01).default(0),
+  cashOut: z.number().multipleOf(0.01).default(0),
   expectedCash: MoneySchema,
   closingCash: MoneySchema.nullable(),
   variance: z.number().nullable(),

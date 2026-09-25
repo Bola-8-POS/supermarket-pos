@@ -567,6 +567,18 @@ export function CajaDashboard() {
               </div>
               <div className="flex justify-between">
                 <dt className="text-muted-foreground">
+                  {t('cajaDashboard.closeSummary.cashIn')}
+                </dt>
+                <dd className="font-mono">{formatMoney(closeSummary.cashIn)}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">
+                  {t('cajaDashboard.closeSummary.cashOut')}
+                </dt>
+                <dd className="font-mono">{formatMoney(closeSummary.cashOut)}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">
                   {t('cajaDashboard.closeSummary.expectedCash')}
                 </dt>
                 <dd className="font-mono">{formatMoney(closeSummary.expectedCash)}</dd>

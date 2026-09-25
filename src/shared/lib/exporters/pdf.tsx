@@ -97,6 +97,8 @@ function CajaReportDoc({ report, locale }: { report: CajaReport; locale: Locale 
         {[
           [tr('pdf.caja.openingCash'), fmt(locale, report.cashReconciliation.openingCash)],
           [tr('pdf.caja.cashSales'), fmt(locale, report.cashReconciliation.cashSales)],
+          [tr('pdf.caja.cashIn'), fmt(locale, report.cashReconciliation.cashIn)],
+          [tr('pdf.caja.cashOut'), fmt(locale, report.cashReconciliation.cashOut)],
           [tr('pdf.caja.expectedCash'), fmt(locale, report.cashReconciliation.expectedCash)],
           [
             tr('pdf.caja.closingCash'),

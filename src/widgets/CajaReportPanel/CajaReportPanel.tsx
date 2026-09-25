@@ -187,6 +187,14 @@ export function CajaReportPanel() {
                   value: report.cashReconciliation.cashSales,
                 },
                 {
+                  label: t('cajaReportPanel.cashIn'),
+                  value: report.cashReconciliation.cashIn,
+                },
+                {
+                  label: t('cajaReportPanel.cashOut'),
+                  value: report.cashReconciliation.cashOut,
+                },
+                {
                   label: t('cajaReportPanel.expectedInDrawer'),
                   value: report.cashReconciliation.expectedCash,
                 },
