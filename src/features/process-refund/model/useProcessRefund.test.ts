@@ -164,6 +164,7 @@ describe('useProcessRefund', () => {
       p_reason: baseInput.reason,
       p_approval_id: baseMutationInput.approvalId,
       p_approver_id: baseMutationInput.approverId,
+      p_caja_session_id: null,
     });
   });
 
@@ -178,6 +179,23 @@ describe('useProcessRefund', () => {
     expect(res.ok).toBe(false);
     if (!res.ok) {
       expect(res.error.code).toBe('AUTH_FORBIDDEN');
+    }
+  });
+
+  it('returns CAJA_SESSION_NOT_OPEN with a translated message when the named session is not open', async () => {
+    mockedRpc.mockResolvedValue({
+      data: null,
+      error: { message: 'CAJA_SESSION_NOT_OPEN', code: 'P0001' },
+    } as never);
+
+    const wrapper = makeWrapper(queryClient);
+    const { result } = renderHook(() => useProcessRefund(), { wrapper });
+
+    const res = await result.current.mutateAsync(baseMutationInput);
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.code).toBe('CAJA_SESSION_NOT_OPEN');
     }
   });
 });

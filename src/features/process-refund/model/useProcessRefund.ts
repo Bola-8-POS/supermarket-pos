@@ -9,6 +9,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { ProcessRefundInputSchema, refundKeys, type ProcessRefundInput } from '@entities/refund';
+import { useCajaStore } from '@entities/caja';
 import { tabKeys } from '@entities/tab';
 import i18n from '@shared/lib/i18n';
 import type { AppErrorCode, Result } from '@shared/lib/result';
@@ -52,6 +53,7 @@ export function useProcessRefund() {
           p_reason: parsed.data.reason,
           p_approval_id: input.approvalId,
           p_approver_id: input.approverId,
+          p_caja_session_id: useCajaStore.getState().currentCaja?.id ?? null,
         })
         /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return */
       );
@@ -64,6 +66,9 @@ export function useProcessRefund() {
         }
         if (rpcRes.error.message.includes('AUTH_FORBIDDEN')) {
           return err({ code: 'AUTH_FORBIDDEN' as AppErrorCode, message: i18n.t('featOrders:processRefund.authForbidden') });
+        }
+        if (rpcRes.error.message.includes('CAJA_SESSION_NOT_OPEN')) {
+          return err({ code: 'CAJA_SESSION_NOT_OPEN' as AppErrorCode, message: i18n.t('featOrders:processRefund.cajaNotOpen') });
         }
         return err({
           code: rpcRes.error.code,

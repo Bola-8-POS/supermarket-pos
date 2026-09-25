@@ -60,6 +60,7 @@
     "exceedsOriginal": "Refund amount exceeds the remaining refundable balance.",
     "itemNotInOriginalOrder": "One or more items were not part of the original order.",
     "authForbidden": "Manager approval is required to process a refund.",
+    "cajaNotOpen": "The cash register for this refund is closed. Open a register and try again.",
     "genericError": "Could not process refund. Check your connection and try again.",
     "refundProcessed": "Refund of {{amount}} processed.",
     "title": "Process refund",

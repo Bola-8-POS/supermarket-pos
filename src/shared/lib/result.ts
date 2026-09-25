@@ -217,6 +217,7 @@ export type AppErrorCode =
   | 'INVALID_DELTA' // adjust_inventory: quantity delta is zero/null
   | 'INVALID_REASON' // adjust_inventory: reason is blank
   | 'STOCK_CHANGED' // adjust_inventory: p_expected_quantity no longer matches the row (concurrent change)
+  | 'CAJA_SESSION_NOT_OPEN' // process_refund: the named p_caja_session_id is not an open session
   | 'UNKNOWN_ERROR';
 
 /**

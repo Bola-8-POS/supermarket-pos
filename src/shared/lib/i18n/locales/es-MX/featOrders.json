@@ -60,6 +60,7 @@
     "exceedsOriginal": "El monto del reembolso excede el saldo reembolsable restante.",
     "itemNotInOriginalOrder": "Uno o más artículos no formaban parte del pedido original.",
     "authForbidden": "Se requiere aprobación de un gerente para procesar un reembolso.",
+    "cajaNotOpen": "La caja para este reembolso está cerrada. Abre una caja e intenta de nuevo.",
     "genericError": "No se pudo procesar el reembolso. Revisa tu conexión e intenta de nuevo.",
     "refundProcessed": "Reembolso de {{amount}} procesado.",
     "title": "Procesar reembolso",
