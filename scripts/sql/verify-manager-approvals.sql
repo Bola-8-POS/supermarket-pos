@@ -45,13 +45,16 @@ BEGIN
 
   -- 3. Each override RPC exists once, takes p_approval_id (no PIN argument) and p_approver_id last,
   --    resolves through the helper, no longer compares a pin column itself, and names the approver in what it records.
+  --    process_refund (wave 3c) is the one exception: it gains a sixth
+  --    argument, p_caja_session_id, after p_approver_id.
   FOREACH v_name IN ARRAY v_names LOOP
     IF (SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = v_name) <> 1 THEN
       RAISE EXCEPTION '% must exist exactly once (an extra overload breaks PostgREST)', v_name;
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = v_name
-                   AND pg_get_function_identity_arguments(oid) LIKE '%p_approver_id uuid') THEN
-      RAISE EXCEPTION '% does not take p_approver_id as its last argument', v_name;
+                   AND (pg_get_function_identity_arguments(oid) LIKE '%p_approver_id uuid'
+                        OR (v_name = 'process_refund' AND pg_get_function_identity_arguments(oid) LIKE '%p_approver_id uuid, p_caja_session_id uuid'))) THEN
+      RAISE EXCEPTION '% does not take p_approver_id as its last argument (or, for process_refund, second-to-last)', v_name;
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = v_name
                    AND pg_get_function_identity_arguments(oid) LIKE '%p_approval_id uuid%'
