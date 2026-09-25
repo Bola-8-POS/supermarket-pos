@@ -65,6 +65,8 @@ const CAJA_REPORT: CajaReport = {
   cashReconciliation: {
     openingCash: 500,
     cashSales: 600,
+    cashIn: 0,
+    cashOut: 0,
     expectedCash: 1100,
     closingCash: null,
     variance: null,

@@ -206,11 +206,13 @@ export async function fetchReceiptDataForPayment(tabId: string): Promise<Receipt
   // charged total is redecomposed with the stored rate instead, so rounding
   // matches the original print regardless of per-leg rounding.
   const taxLegs = legs.filter(leg => leg.status === 'completed' && !leg.is_refund);
-  const hasStoredTax =
-    taxLegs.length > 0 && taxLegs.every(leg => leg.tax_rate_percent != null && leg.tax_inclusive != null);
+  const storedTaxLeg =
+    taxLegs.length > 0 && taxLegs.every(leg => leg.tax_rate_percent != null && leg.tax_inclusive != null)
+      ? taxLegs[0]
+      : undefined;
   const billing = billingRow?.value as { taxRatePercent?: number; taxInclusive?: boolean } | null;
-  const taxRatePercent = hasStoredTax ? (taxLegs[0]!.tax_rate_percent as number) : billing?.taxRatePercent ?? 16;
-  const taxInclusive = hasStoredTax ? (taxLegs[0]!.tax_inclusive as boolean) : billing?.taxInclusive ?? true;
+  const taxRatePercent = storedTaxLeg ? (storedTaxLeg.tax_rate_percent as number) : billing?.taxRatePercent ?? 16;
+  const taxInclusive = storedTaxLeg ? (storedTaxLeg.tax_inclusive as boolean) : billing?.taxInclusive ?? true;
   const { subtotal, taxAmount, total } = decomposeTax(chargedAmount, taxRatePercent, taxInclusive);
 
   return ReceiptDataSchema.parse({

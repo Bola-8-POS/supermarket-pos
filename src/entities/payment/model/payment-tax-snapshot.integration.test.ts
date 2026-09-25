@@ -2,7 +2,6 @@
 // mock in test-setup.ts, matching receipt-reconstruction.integration.test.ts:
 // fetchReceiptDataForPayment reads through the app's shared `supabase`
 // singleton (RLS-checked), not a service-role client.
-import { vi } from 'vitest';
 vi.unmock('@shared/lib/supabase');
 
 /**
@@ -19,7 +18,7 @@ vi.unmock('@shared/lib/supabase');
  * Run: npx vitest run src/entities/payment/model/payment-tax-snapshot.integration.test.ts
  */
 import { createClient } from '@supabase/supabase-js';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { supabase } from '@shared/lib/supabase';
 import { fetchReceiptDataForPayment } from './queries';
