@@ -9,25 +9,6 @@ use serde::{Deserialize, Serialize};
 const BROKER_URL: &str = "http://127.0.0.1:8973";
 const BROKER_CONNECT_TIMEOUT_MS: u64 = 1500;
 
-/// Same secret-resolution logic as `printer.rs::resolve_broker_secret` — a
-/// second, independent implementation (no shared crate needed for one
-/// function, matching that file's own precedent).
-fn resolve_broker_secret() -> String {
-    let base = std::env::var("ProgramData").unwrap_or_else(|_| "C:\\ProgramData".to_string());
-    let path = std::path::PathBuf::from(base)
-        .join("PrintBroker")
-        .join("client-secret.txt");
-    if let Ok(content) = std::fs::read_to_string(&path) {
-        if let Some(first_line) = content.lines().next() {
-            let trimmed = first_line.trim();
-            if !trimmed.is_empty() {
-                return trimmed.to_string();
-            }
-        }
-    }
-    "dev-only-insecure-secret-CHANGE-AT-INSTALL".to_string()
-}
-
 fn broker_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_millis(BROKER_CONNECT_TIMEOUT_MS))
@@ -123,9 +104,10 @@ pub struct PrinterList {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn list_printers() -> Result<PrinterList, String> {
     let client = broker_client()?;
+    let secret = crate::commands::broker_secret::resolve_broker_secret()?;
     let resp = client
         .get(format!("{BROKER_URL}/printers"))
-        .bearer_auth(resolve_broker_secret())
+        .bearer_auth(secret)
         .send()
         .await
         .map_err(|e| format!("broker unreachable: {e}"))?;
@@ -139,10 +121,11 @@ pub async fn list_printers() -> Result<PrinterList, String> {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn get_print_jobs(filters: PrintJobFiltersReq, page_param: u32) -> Result<PrintJobsPage, String> {
     let client = broker_client()?;
+    let secret = crate::commands::broker_secret::resolve_broker_secret()?;
     let query = filters.to_query_string(page_param);
     let resp = client
         .get(format!("{BROKER_URL}/jobs?{query}"))
-        .bearer_auth(resolve_broker_secret())
+        .bearer_auth(secret)
         .send()
         .await
         .map_err(|e| format!("broker unreachable: {e}"))?;
@@ -156,9 +139,10 @@ pub async fn get_print_jobs(filters: PrintJobFiltersReq, page_param: u32) -> Res
 #[tauri::command(rename_all = "camelCase")]
 pub async fn get_print_job(job_id: String) -> Result<PrintJobDetailResp, String> {
     let client = broker_client()?;
+    let secret = crate::commands::broker_secret::resolve_broker_secret()?;
     let resp = client
         .get(format!("{BROKER_URL}/jobs/{job_id}"))
-        .bearer_auth(resolve_broker_secret())
+        .bearer_auth(secret)
         .send()
         .await
         .map_err(|e| format!("broker unreachable: {e}"))?;

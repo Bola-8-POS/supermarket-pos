@@ -1,5 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import '@shared/lib/zod-config';
 import '@shared/lib/i18n';
 import { logger } from '@shared/lib/logger-instance';
 import { App } from './app/App';

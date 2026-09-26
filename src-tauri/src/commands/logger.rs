@@ -24,6 +24,28 @@ const MAX_LOG_FILE_BYTES: u64 = 10 * 1024 * 1024;
 /// registered message DLL (raw string, no formatted description).
 const EVENT_SOURCE: &str = "Supermarket POS";
 
+/// Per-entry size guard: an unbounded renderer-supplied log line (a large
+/// error payload, a stack trace) could otherwise grow one log line without
+/// bound. Entries over this size are truncated, not rejected — the caller
+/// gets no signal either way, and a truncated record is still useful.
+const MAX_LOG_ENTRY_BYTES: usize = 16 * 1024;
+const TRUNCATION_MARKER: &str = "...[truncated]";
+
+/// Truncates an oversize entry to `MAX_LOG_ENTRY_BYTES` on a UTF-8 char
+/// boundary (never splitting a multi-byte character) and appends
+/// `TRUNCATION_MARKER`. An entry already within the cap is returned
+/// unchanged.
+fn clamp_log_entry(entry: &str) -> String {
+    if entry.len() <= MAX_LOG_ENTRY_BYTES {
+        return entry.to_string();
+    }
+    let mut cut = MAX_LOG_ENTRY_BYTES;
+    while cut > 0 && !entry.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{}{}", &entry[..cut], TRUNCATION_MARKER)
+}
+
 /// Gets the log directory path
 fn get_log_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let app_data_dir = app
@@ -98,6 +120,8 @@ fn rotate_by_size_if_needed(log_file: &PathBuf) {
 /// Writes a log entry to the current log file
 #[tauri::command]
 pub fn write_log(app: AppHandle, entry: String) -> Result<(), String> {
+    let entry = clamp_log_entry(&entry);
+
     // Get current log file path
     let log_file = get_current_log_file(&app)?;
     rotate_by_size_if_needed(&log_file);
@@ -179,6 +203,25 @@ mod tests {
         let expected = format!("bar-pos-{}.log", now.format("%Y-%m-%d"));
         assert!(expected.starts_with("bar-pos-"));
         assert!(expected.ends_with(".log"));
+    }
+
+    #[test]
+    fn clamp_log_entry_truncates_oversize_and_keeps_small() {
+        let small = "a short entry";
+        assert_eq!(clamp_log_entry(small), small);
+
+        let oversized = "x".repeat(MAX_LOG_ENTRY_BYTES + 500);
+        let clamped = clamp_log_entry(&oversized);
+        assert!(clamped.len() < oversized.len());
+        assert!(clamped.ends_with(TRUNCATION_MARKER));
+        assert_eq!(clamped.len(), MAX_LOG_ENTRY_BYTES + TRUNCATION_MARKER.len());
+
+        // A multi-byte character sitting exactly on the cut boundary must
+        // not be split — the clamp only cuts on a char boundary.
+        let multi_byte_heavy = "é".repeat(MAX_LOG_ENTRY_BYTES); // 2 bytes each
+        let clamped_multi = clamp_log_entry(&multi_byte_heavy);
+        assert!(clamped_multi.ends_with(TRUNCATION_MARKER));
+        assert!(std::str::from_utf8(clamped_multi.as_bytes()).is_ok());
     }
 
     #[test]

@@ -1,6 +1,5 @@
 mod commands;
 
-use commands::agent::agent_index_status;
 use commands::logger::write_log;
 use commands::print_audit::{get_print_job, get_print_jobs, list_printers};
 use commands::printer::{open_cash_drawer, print_raw_text, print_receipt, test_print};
@@ -254,7 +253,6 @@ pub fn run() {
             get_print_job,
             list_printers,
             get_runtime_config,
-            agent_index_status,
             write_log
         ])
         .run(tauri::generate_context!())

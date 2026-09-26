@@ -4,6 +4,7 @@
 //! This module only ESC/POS-encodes the pre-formatted lines it receives; it
 //! holds zero receipt-label strings.
 
+#[cfg(not(target_os = "windows"))]
 use std::fs;
 #[cfg(not(target_os = "windows"))]
 use std::io::Write;
@@ -225,30 +226,6 @@ fn write_fallback_ack(bytes: &[u8]) -> Result<PrintJobAck, String> {
 const BROKER_URL: &str = "http://127.0.0.1:8973";
 const BROKER_CONNECT_TIMEOUT_MS: u64 = 1500;
 
-/// Wave-2 (Plan 19-02) placeholder: reads the per-store secret from
-/// `%ProgramData%\PrintBroker\client-secret.txt` (first line, trimmed) when
-/// present; falls back to a hardcoded dev-only secret otherwise. This
-/// function's signature does not change in 19-02 — only what the file
-/// contains (a real per-store install-time-generated secret) changes. This is
-/// a second, independent implementation of the same logic as
-/// `broker/src/http.rs`'s `resolve_broker_secret()` — no shared crate needed
-/// for one function.
-fn resolve_broker_secret() -> String {
-    let base = std::env::var("ProgramData").unwrap_or_else(|_| "C:\\ProgramData".to_string());
-    let path = std::path::PathBuf::from(base)
-        .join("PrintBroker")
-        .join("client-secret.txt");
-    if let Ok(content) = fs::read_to_string(&path) {
-        if let Some(first_line) = content.lines().next() {
-            let trimmed = first_line.trim();
-            if !trimmed.is_empty() {
-                return trimmed.to_string();
-            }
-        }
-    }
-    "dev-only-insecure-secret-CHANGE-AT-INSTALL".to_string()
-}
-
 /// Submits a print job to the store-local broker over authenticated HTTP.
 /// Never falls back to a direct-WinSpool path on failure — an unreachable
 /// broker, a rejected job, or a persistence failure must surface as a real
@@ -266,6 +243,7 @@ async fn submit_to_broker_to(
     printer_name: &str,
     origin: &str,
 ) -> Result<PrintJobAck, String> {
+    let secret = crate::commands::broker_secret::resolve_broker_secret()?;
     let client = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_millis(BROKER_CONNECT_TIMEOUT_MS))
         .build()
@@ -280,7 +258,7 @@ async fn submit_to_broker_to(
 
     let resp = client
         .post(format!("{broker_url}/jobs"))
-        .bearer_auth(resolve_broker_secret())
+        .bearer_auth(secret)
         .json(&body)
         .send()
         .await

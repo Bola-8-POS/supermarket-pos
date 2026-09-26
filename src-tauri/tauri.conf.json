@@ -22,7 +22,9 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.supabase.co https://*.supabase.in; font-src 'self' data:; connect-src 'self' data: ipc: http://ipc.localhost https://*.supabase.co https://*.supabase.in wss://*.supabase.co wss://*.supabase.in http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; worker-src 'self' blob:; object-src 'none'; frame-src 'none'; base-uri 'self'; form-action 'self'",
+      "devCsp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.supabase.co https://*.supabase.in; font-src 'self' data:; connect-src 'self' data: ipc: http://ipc.localhost https://*.supabase.co https://*.supabase.in wss://*.supabase.co wss://*.supabase.in http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; worker-src 'self' blob:; object-src 'none'; frame-src 'none'; base-uri 'self'; form-action 'self'",
+      "dangerousDisableAssetCspModification": ["style-src"]
     }
   },
   "bundle": {
@@ -39,7 +41,8 @@
     ],
     "resources": {
       "../broker/target/release/broker.exe": "broker/broker.exe",
-      "cert/selfsigned.cer": "cert/selfsigned.cer"
+      "cert/selfsigned.cer": "cert/selfsigned.cer",
+      "cert/subject.txt": "cert/subject.txt"
     },
     "windows": {
       "nsis": {
