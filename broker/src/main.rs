@@ -51,9 +51,11 @@ fn parse_command(args: &[String]) -> Command {
 }
 
 /// The actual print-broker work loop (worker thread + HTTP server) — moved
-/// verbatim from Plan 19-01's `fn main()` body. Shared by the real SCM entry
-/// point (`scm::service_main`, Windows only).
-fn run_broker(shutdown: Arc<AtomicBool>) {
+/// verbatim from Plan 19-01's `fn main()` body, plus the already-resolved
+/// bearer `secret` (Plan wave-3c: the caller resolves it once, before the
+/// service reports `Running` to the SCM, and fails closed if it can't).
+/// Shared by the real SCM entry point (`scm::service_main`, Windows only).
+fn run_broker(shutdown: Arc<AtomicBool>, secret: String) {
     let db_path = ledger::default_db_path();
     ledger::log(&format!(
         "=== print-broker starting, db={} ===",
@@ -66,7 +68,8 @@ fn run_broker(shutdown: Arc<AtomicBool>) {
     let worker_handle =
         std::thread::spawn(move || delivery::run_worker(worker_shutdown, &worker_db_path));
 
-    http::run_http_server(shutdown.clone(), &db_path, &format!("0.0.0.0:{}", http::PORT));
+    let bind_addr = format!("{}:{}", http::BIND_ADDR, http::PORT);
+    http::run_http_server(shutdown.clone(), &db_path, &bind_addr, secret);
     shutdown.store(true, Ordering::SeqCst);
     let _ = worker_handle.join();
     ledger::log("=== print-broker exiting ===");
@@ -88,9 +91,11 @@ mod scm {
     windows_service::define_windows_service!(ffi_service_main, service_main);
 
     /// Real SCM entry point (Pattern 4, 19-RESEARCH.md): registers a control
-    /// handler (Stop -> signal shutdown, Interrogate -> NoError), reports
-    /// Running, then runs the same worker/HTTP-server pair Plan 19-01 already
-    /// wired via `run_broker`.
+    /// handler (Stop -> signal shutdown, Interrogate -> NoError), resolves
+    /// the bearer secret BEFORE reporting Running (wave-3c: fail closed — a
+    /// broker that cannot resolve a real secret must never bind the port),
+    /// then runs the same worker/HTTP-server pair Plan 19-01 already wired
+    /// via `run_broker`.
     pub fn service_main(_args: Vec<OsString>) {
         let shutdown = Arc::new(AtomicBool::new(false));
         let control_shutdown = shutdown.clone();
@@ -117,6 +122,26 @@ mod scm {
             }
         };
 
+        let secret = match crate::http::resolve_broker_secret() {
+            Ok(s) => s,
+            Err(e) => {
+                crate::ledger::log_error(&format!(
+                    "broker secret unavailable, refusing to start: {e}"
+                ));
+                let failed_status = ServiceStatus {
+                    service_type: ServiceType::OWN_PROCESS,
+                    current_state: ServiceState::Stopped,
+                    controls_accepted: ServiceControlAccept::empty(),
+                    exit_code: ServiceExitCode::ServiceSpecific(1),
+                    checkpoint: 0,
+                    wait_hint: Duration::default(),
+                    process_id: None,
+                };
+                let _ = status_handle.set_service_status(failed_status);
+                return;
+            }
+        };
+
         let running_status = ServiceStatus {
             service_type: ServiceType::OWN_PROCESS,
             current_state: ServiceState::Running,
@@ -131,7 +156,7 @@ mod scm {
             return;
         }
 
-        crate::run_broker(shutdown);
+        crate::run_broker(shutdown, secret);
 
         let stopped_status = ServiceStatus {
             service_type: ServiceType::OWN_PROCESS,

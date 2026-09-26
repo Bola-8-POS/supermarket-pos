@@ -12,6 +12,7 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use base64::Engine;
 use rusqlite::{params, Connection, OptionalExtension, ToSql};
@@ -23,27 +24,41 @@ use crate::ledger::{now_iso, open_db, record_event};
 /// Production port. LAN/VPN firewall scoping is Plan 19-02's job, not this plan's.
 pub const PORT: u16 = 8973;
 
-/// Resolves the broker's bearer secret. Prefers the loaded `BrokerConfig`
-/// (Plan 19-02, `config::load_or_init()` — generates a real per-store secret
-/// on first run if none exists yet, otherwise reads the existing one back
-/// unchanged) and falls back to the pre-19-02 direct file-read shape (kept
-/// for any dev instance still pointed at an old config file layout, and as a
-/// defense-in-depth path if `load_or_init()`'s write ever fails).
-pub fn resolve_broker_secret() -> String {
-    let cfg = crate::config::load_or_init();
-    if !cfg.bearer_secret.trim().is_empty() {
-        return cfg.bearer_secret;
+/// All interfaces, deliberately: the broker also serves other machines on
+/// the store's LAN, not only the local Tauri app. Firewall scoping to
+/// the local subnet happens in the installer (`windows/hooks.nsh`), not
+/// here.
+pub const BIND_ADDR: &str = "0.0.0.0";
+
+/// Resolves the broker's bearer secret from the on-disk config/secret files.
+/// Thin wrapper over `config::resolve_secret` — no insecure literal fallback
+/// remains: a blank config secret with no usable secret file is now an
+/// error, not a silently-accepted default.
+pub fn resolve_broker_secret() -> Result<String, String> {
+    crate::config::resolve_secret()
+}
+
+/// Constant-time (no early exit inside the fold) comparison of a raw header
+/// value against the expected `Bearer <secret>` string. A length mismatch is
+/// still folded over the longer side's length before being combined with the
+/// byte-difference accumulator, so the comparison time does not depend on
+/// where the strings first diverge. An empty `expected` never matches
+/// anything (a blank/misconfigured secret must never authenticate).
+fn bearer_matches(header_value: &str, expected: &str) -> bool {
+    if expected.is_empty() {
+        return false;
     }
-    let path = crate::ledger::data_dir().join("client-secret.txt");
-    if let Ok(content) = std::fs::read_to_string(&path) {
-        if let Some(first_line) = content.lines().next() {
-            let trimmed = first_line.trim();
-            if !trimmed.is_empty() {
-                return trimmed.to_string();
-            }
-        }
+    let a = header_value.as_bytes();
+    let b = expected.as_bytes();
+    let len_ok = a.len() == b.len();
+    let max_len = a.len().max(b.len());
+    let mut diff: u8 = 0;
+    for i in 0..max_len {
+        let x = a.get(i).copied().unwrap_or(0);
+        let y = b.get(i).copied().unwrap_or(0);
+        diff |= x ^ y;
     }
-    "dev-only-insecure-secret-CHANGE-AT-INSTALL".to_string()
+    len_ok && diff == 0
 }
 
 #[derive(Deserialize)]
@@ -344,14 +359,29 @@ fn to_tiny_http_response(result: HttpResult) -> Response<std::io::Cursor<Vec<u8>
         .with_header(Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap())
 }
 
-pub fn run_http_server(shutdown: Arc<AtomicBool>, db_path: &Path, bind_addr: &str) {
-    let secret = resolve_broker_secret();
+/// `secret` is already resolved by the caller (`main.rs`, before the service
+/// reports `Running` to the SCM) — this function never resolves or refuses
+/// to serve on a missing secret itself. The request loop polls
+/// `server.recv_timeout` instead of blocking on `server.incoming_requests()`
+/// so `shutdown` is checked at least twice a second even with no traffic;
+/// `sc stop` then completes within about half a second instead of waiting
+/// for the next request, which matters for an upgrade replacing the locked
+/// `broker.exe` file.
+pub fn run_http_server(shutdown: Arc<AtomicBool>, db_path: &Path, bind_addr: &str, secret: String) {
     let server = Server::http(bind_addr).expect("bind http server");
     crate::ledger::log(&format!(
         "http server listening on {bind_addr} (db={})",
         db_path.display()
     ));
-    for mut request in server.incoming_requests() {
+    loop {
+        if shutdown.load(AtomicOrdering::SeqCst) {
+            break;
+        }
+        let mut request = match server.recv_timeout(Duration::from_millis(500)) {
+            Ok(Some(r)) => r,
+            Ok(None) => continue,
+            Err(_) => continue,
+        };
         if shutdown.load(AtomicOrdering::SeqCst) {
             break;
         }
@@ -359,7 +389,7 @@ pub fn run_http_server(shutdown: Arc<AtomicBool>, db_path: &Path, bind_addr: &st
             .headers()
             .iter()
             .find(|h| h.field.as_str().as_str().eq_ignore_ascii_case("Authorization"))
-            .map(|h| h.value.as_str() == format!("Bearer {secret}"))
+            .map(|h| bearer_matches(h.value.as_str(), &format!("Bearer {secret}")))
             .unwrap_or(false);
 
         let url = request.url().to_string();
@@ -405,7 +435,7 @@ pub fn run_http_server(shutdown: Arc<AtomicBool>, db_path: &Path, bind_addr: &st
             }
         } else if method == Method::Get && (url == "/jobs" || url.starts_with("/jobs?")) {
             // Checked BEFORE the /jobs/{id} branch below so a bare /jobs or
-            // /jobs?... never falls into the single-job-lookup path.
+            // /jobs?... never falls into that path.
             let query_string = url.splitn(2, '?').nth(1).unwrap_or("");
             let _ = request.respond(to_tiny_http_response(handle_list_jobs(&conn, query_string)));
         } else if method == Method::Get && url.starts_with("/jobs/") {
@@ -617,16 +647,20 @@ mod tests {
         (status, resp)
     }
 
-    // Test 2: POST /jobs with no Authorization header, or the wrong bearer
-    // value, returns 401 and the jobs table row count is unchanged. Spins up
-    // the real run_http_server on a fixed non-production test port (never
-    // 8973, to avoid colliding with a real running broker) and drives it with
-    // a minimal raw-HTTP client — this is the one test that needs a genuine
-    // HTTP round trip since the auth check lives inline in run_http_server's
-    // request loop, before any handler (and thus before any SQLite write) runs.
+    // Test 2: POST /jobs with no Authorization header, the wrong bearer
+    // value, or the old insecure default literal, returns 401 and the jobs
+    // table row count is unchanged. Spins up the real run_http_server on a
+    // fixed non-production test port (never 8973, to avoid colliding with a
+    // real running broker) started with an explicit, known secret (the new
+    // run_http_server signature requires one — there is no literal fallback
+    // any more) and drives it with a minimal raw-HTTP client — this is the
+    // one test that needs a genuine HTTP round trip since the auth check
+    // lives inline in run_http_server's request loop, before any handler
+    // (and thus before any SQLite write) runs.
     #[test]
     fn missing_or_wrong_auth_header_rejected_401_before_any_sqlite_write() {
         const TEST_ADDR: &str = "127.0.0.1:18980";
+        const TEST_SECRET: &str = "test-fixed-secret-for-401-test";
         let path = temp_db_path("auth-401");
         let _ = std::fs::remove_file(&path);
         let _ = open_db(&path); // ensure schema exists up front
@@ -634,7 +668,7 @@ mod tests {
         let shutdown = Arc::new(AtomicBool::new(false));
         let db_path_clone = path.clone();
         std::thread::spawn(move || {
-            run_http_server(shutdown, &db_path_clone, TEST_ADDR);
+            run_http_server(shutdown, &db_path_clone, TEST_ADDR, TEST_SECRET.to_string());
         });
         std::thread::sleep(std::time::Duration::from_millis(300));
 
@@ -646,9 +680,64 @@ mod tests {
         let (status_wrong_auth, _) = raw_http_post(TEST_ADDR, "/jobs", Some("Bearer totally-wrong-secret"), body);
         assert_eq!(status_wrong_auth, 401);
 
+        let (status_old_literal, _) = raw_http_post(
+            TEST_ADDR,
+            "/jobs",
+            Some("Bearer dev-only-insecure-secret-CHANGE-AT-INSTALL"),
+            body,
+        );
+        assert_eq!(status_old_literal, 401);
+
         let conn = open_db(&path);
         let count: i64 = conn.query_row("SELECT COUNT(*) FROM jobs", [], |r| r.get(0)).unwrap();
         assert_eq!(count, 0);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // bearer_matches: equal -> true; one byte different -> false; different
+    // length -> false; empty expected -> false (a blank secret must never
+    // authenticate anything).
+    #[test]
+    fn bearer_matches_is_exact() {
+        assert!(bearer_matches("Bearer abc123", "Bearer abc123"));
+        assert!(!bearer_matches("Bearer abc124", "Bearer abc123"));
+        assert!(!bearer_matches("Bearer abc12", "Bearer abc123"));
+        assert!(!bearer_matches("", ""));
+        assert!(!bearer_matches("anything", ""));
+    }
+
+    // BIND_ADDR stays "0.0.0.0" on purpose: the broker also serves
+    // other machines on the store LAN, not only the local Tauri app.
+    #[test]
+    fn bind_addr_is_all_interfaces() {
+        assert_eq!(BIND_ADDR, "0.0.0.0");
+    }
+
+    // The recv_timeout loop must notice `shutdown` and return even when no
+    // request ever arrives, bounded well under the 3s test timeout (the
+    // production poll interval is 500ms).
+    #[test]
+    fn server_returns_after_shutdown_without_a_request() {
+        let path = temp_db_path("shutdown-no-request");
+        let _ = std::fs::remove_file(&path);
+        let _ = open_db(&path);
+
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let shutdown_clone = shutdown.clone();
+        let db_path_clone = path.clone();
+        let handle = std::thread::spawn(move || {
+            run_http_server(shutdown_clone, &db_path_clone, "127.0.0.1:18981", "unused-secret".to_string());
+        });
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        shutdown.store(true, AtomicOrdering::SeqCst);
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = handle.join();
+            let _ = tx.send(());
+        });
+        rx.recv_timeout(Duration::from_secs(3))
+            .expect("server thread did not exit within 3s of shutdown being set");
         let _ = std::fs::remove_file(&path);
     }
 }

@@ -266,7 +266,23 @@ fn apply_status_bits_outcome(conn: &Connection, id: &str, ts: &str, outcome: Sta
 /// instead of racing against the real `%ProgramData%\PrintBroker\`
 /// filesystem path.
 pub fn worker_tick(conn: &Connection) {
-    let cfg = config::load_or_init();
+    // A config load failure here must not stop delivery of jobs already
+    // accepted (the HTTP boundary is what fails closed on a bad secret, not
+    // this background worker) — fall back to defaults and log it.
+    let cfg = match config::load_or_init() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            crate::ledger::log_error(&format!(
+                "worker_tick: broker config unavailable, using defaults: {e}"
+            ));
+            BrokerConfig {
+                port: crate::http::PORT,
+                bearer_secret: String::new(),
+                retention_days: config::DEFAULT_RETENTION_DAYS,
+                retry: retry::RetryPolicy::default(),
+            }
+        }
+    };
     worker_tick_with_config(conn, &cfg);
 }
 

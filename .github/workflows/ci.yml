@@ -114,6 +114,10 @@ jobs:
         working-directory: broker
         run: cargo build --release
 
+      - name: Broker unit tests
+        working-directory: broker
+        run: cargo test
+
       - name: generate build cert (Phase 20, DEP-01)
         # tauri.conf.json's bundle.resources unconditionally references
         # cert/selfsigned.cer, and build.rs checks that file exists at

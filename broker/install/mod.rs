@@ -18,7 +18,8 @@ mod imp {
     use std::ffi::OsString;
 
     use windows_service::service::{
-        ServiceAccess, ServiceErrorControl, ServiceInfo, ServiceStartType, ServiceType,
+        ServiceAccess, ServiceErrorControl, ServiceInfo, ServiceStartType, ServiceState,
+        ServiceType,
     };
     use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 
@@ -34,8 +35,10 @@ mod imp {
 
     pub fn install() -> Result<(), String> {
         // Ensure the per-store secret + config exist before the service ever
-        // starts (idempotent — only generates a secret when absent).
-        crate::config::load_or_init();
+        // starts (idempotent — only generates a secret when absent). A
+        // present-but-corrupt config is now a hard error instead of a
+        // silent secret regeneration.
+        crate::config::load_or_init()?;
 
         let manager =
             ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CREATE_SERVICE)
@@ -101,15 +104,39 @@ mod imp {
         let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
             .map_err(|e| format!("open SCM failed: {e}"))?;
         let service = manager
-            .open_service(SERVICE_NAME, ServiceAccess::STOP | ServiceAccess::DELETE)
+            .open_service(
+                SERVICE_NAME,
+                ServiceAccess::STOP | ServiceAccess::DELETE | ServiceAccess::QUERY_STATUS,
+            )
             .map_err(|e| format!("open_service failed: {e}"))?;
         let _ = service.stop();
+        // Bounded wait for the service to actually reach Stopped before
+        // deleting it: a still-stopping service marked for deletion fails
+        // the next `install` with 1072. Never blocks indefinitely — if
+        // query_status itself errors, or the service is still not stopped
+        // after 10s, delete proceeds anyway rather than hang the uninstall.
+        wait_for_stopped(&service, std::time::Duration::from_secs(10));
         service
             .delete()
             .map_err(|e| format!("delete_service failed: {e}"))?;
         // Deliberately does NOT delete %ProgramData%\PrintBroker\ — the audit
         // ledger and config must survive an app uninstall/reinstall.
         Ok(())
+    }
+
+    fn wait_for_stopped(service: &windows_service::service::Service, timeout: std::time::Duration) {
+        let start = std::time::Instant::now();
+        loop {
+            match service.query_status() {
+                Ok(status) if status.current_state == ServiceState::Stopped => return,
+                Ok(_) => {}
+                Err(_) => return,
+            }
+            if start.elapsed() >= timeout {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
     }
 }
 
