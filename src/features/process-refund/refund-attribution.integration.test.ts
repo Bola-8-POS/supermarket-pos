@@ -216,7 +216,7 @@ describe.skipIf(skip)("process_refund's p_caja_session_id (integration)", () => 
     await db.auth.admin.deleteUser(managerId);
   });
 
-  it('attributes a refund to the named open session, refuses a closed or other-terminal-but-closed session, and falls back to NULL when omitted', async () => {
+  it('attributes a refund to the named open session, refuses a closed session, and falls back to NULL when omitted', async () => {
     // 1. Refund $40 attributed to open session B.
     const { data: refundId1, error: refundErr1 } = await managerClient.rpc('process_refund', {
       p_original_payment_id: paymentId,
@@ -285,5 +285,17 @@ describe.skipIf(skip)("process_refund's p_caja_session_id (integration)", () => 
     // Review Focus 2: an old client that omits p_caja_session_id still gets
     // its tax snapshot written.
     expect(refundPayment3?.tax_rate_percent).not.toBeNull();
+
+    // The row's caja_session_id is NULL, but caja_session_payments() falls
+    // back to the tab's own session (A) for a NULL-attributed payment — so
+    // this $10 refund lands in A's live report even though A is closed and
+    // its drawer reconciliation was already frozen at close. Only this
+    // refund falls back to A; the $40 refund from step 1 was attributed
+    // explicitly to B. Live: 100 (the original sale) - 10 (this refund) = 90.
+    // Frozen: still 100, unchanged since close.
+    const { data: reportA2, error: reportA2Err } = await db.rpc('get_caja_report', { p_caja_id: cajaAId });
+    expect(reportA2Err).toBeNull();
+    expect(reportA2.summary.cashSales).toBe(90);
+    expect(reportA2.cashReconciliation.cashSales).toBe(100);
   });
 });

@@ -3,6 +3,7 @@ import { renderHook } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { useCajaStore } from '@entities/caja';
 import { ProcessRefundInputSchema } from '@entities/refund';
 import { supabase } from '@shared/lib/supabase';
 
@@ -130,6 +131,7 @@ describe('useProcessRefund', () => {
   afterEach(() => {
     vi.clearAllMocks();
     queryClient.clear();
+    useCajaStore.setState({ currentCaja: null, isCajaOpen: false });
   });
 
   it('returns VALIDATION_ERROR and never calls the RPC on malformed input', async () => {
@@ -166,6 +168,35 @@ describe('useProcessRefund', () => {
       p_approver_id: baseMutationInput.approverId,
       p_caja_session_id: null,
     });
+  });
+
+  it('calls supabase.rpc with the open caja session id when one is open', async () => {
+    useCajaStore.setState({
+      currentCaja: {
+        id: 'caja-1',
+        terminalId: 'POS-1',
+        openedAt: new Date('2026-04-21T08:00:00.000Z'),
+        closedAt: null,
+        openedBy: 'staff-uuid-001',
+        closedBy: null,
+        openingCash: 500,
+        closingCash: null,
+        notes: null,
+        status: 'open',
+      },
+      isCajaOpen: true,
+    });
+    mockedRpc.mockResolvedValue({ data: 'refund-id-123', error: null } as never);
+
+    const wrapper = makeWrapper(queryClient);
+    const { result } = renderHook(() => useProcessRefund(), { wrapper });
+
+    await result.current.mutateAsync(baseMutationInput);
+
+    expect(mockedRpc).toHaveBeenCalledWith(
+      'process_refund',
+      expect.objectContaining({ p_caja_session_id: 'caja-1' })
+    );
   });
 
   it('returns AUTH_FORBIDDEN when the RPC returns null (approval refused)', async () => {
