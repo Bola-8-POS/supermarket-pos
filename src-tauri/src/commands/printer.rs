@@ -235,15 +235,20 @@ const BROKER_CONNECT_TIMEOUT_MS: u64 = 1500;
 ///
 /// `broker_url` is a parameter (not the hardcoded `BROKER_URL` constant
 /// directly) purely so tests can point this at an in-process mock HTTP
-/// listener instead of the real broker — every real caller goes through the
-/// `submit_to_broker` thin wrapper below, which always uses `BROKER_URL`.
+/// listener instead of the real broker; `secret` is a parameter for the same
+/// reason — resolving it from `%ProgramData%\PrintBroker\client-secret.txt`
+/// inside this function would make every test that calls it depend on the
+/// host machine's real broker install (it would only pass on a machine that
+/// happens to have one). Every real caller goes through the `submit_to_broker`
+/// thin wrapper below, which always uses `BROKER_URL` and resolves the real
+/// secret.
 async fn submit_to_broker_to(
     broker_url: &str,
+    secret: &str,
     payload: &[u8],
     printer_name: &str,
     origin: &str,
 ) -> Result<PrintJobAck, String> {
-    let secret = crate::commands::broker_secret::resolve_broker_secret()?;
     let client = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_millis(BROKER_CONNECT_TIMEOUT_MS))
         .build()
@@ -258,7 +263,7 @@ async fn submit_to_broker_to(
 
     let resp = client
         .post(format!("{broker_url}/jobs"))
-        .bearer_auth(secret)
+        .bearer_auth(secret.to_string())
         .json(&body)
         .send()
         .await
@@ -275,7 +280,8 @@ async fn submit_to_broker(
     printer_name: &str,
     origin: &str,
 ) -> Result<PrintJobAck, String> {
-    submit_to_broker_to(BROKER_URL, payload, printer_name, origin).await
+    let secret = crate::commands::broker_secret::resolve_broker_secret()?;
+    submit_to_broker_to(BROKER_URL, &secret, payload, printer_name, origin).await
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -337,6 +343,13 @@ pub async fn test_print(printer_name: Option<String>) -> Result<PrintJobAck, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Fixed value for every test below that calls `submit_to_broker_to`
+    /// directly — the mock broker never checks it, but a real secret
+    /// parameter (rather than resolving `%ProgramData%\PrintBroker\
+    /// client-secret.txt` inside `submit_to_broker_to` itself) means these
+    /// tests never depend on the host machine having a broker installed.
+    const TEST_SECRET: &str = "test-secret-for-mock-broker";
 
     /// Encodes a solid-color `width`x`height` RGB fixture as an in-memory PNG,
     /// exercising the real `image::load_from_memory` decode path in tests
@@ -475,6 +488,7 @@ mod tests {
 
         let result = tauri::async_runtime::block_on(submit_to_broker_to(
             &broker_url,
+            TEST_SECRET,
             &bytes,
             &default_printer_name(),
             "receipt",
@@ -493,6 +507,7 @@ mod tests {
 
         let result = tauri::async_runtime::block_on(submit_to_broker_to(
             &broker_url,
+            TEST_SECRET,
             &bytes,
             &default_printer_name(),
             "receipt",
@@ -511,6 +526,7 @@ mod tests {
 
         let result = tauri::async_runtime::block_on(submit_to_broker_to(
             &broker_url,
+            TEST_SECRET,
             &DRAWER_PULSE,
             &default_printer_name(),
             "cash_drawer",
@@ -527,6 +543,7 @@ mod tests {
 
         let result = tauri::async_runtime::block_on(submit_to_broker_to(
             &broker_url,
+            TEST_SECRET,
             &DRAWER_PULSE,
             &default_printer_name(),
             "cash_drawer",

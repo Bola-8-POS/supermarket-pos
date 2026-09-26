@@ -51,29 +51,43 @@
 ; total) — a service that never reaches STOPPED gets a logged warning, not a
 ; hang. A `sc query` that itself reports 1060 (service not installed) exits
 ; the wait immediately: a fresh install has nothing to wait for.
+;
+; `nsExec::ExecToStack` pushes two values (the output text, then the exit
+; code on top), not one — every call here is followed by two Pops: the first
+; into $0 (the exit code, checked below) and the second into $2 (the output
+; text, deliberately discarded; $2 is saved/restored around the whole macro
+; like every other register it touches, so this never disturbs a caller's
+; own $2, e.g. ReadCertSubject's return value). The loop itself uses
+; LogicLib's `${Do}`/`${ExitDo}`/`${Loop}` rather than named labels, because
+; this macro is `!insertmacro`d twice (PREINSTALL and PREUNINSTALL) — fixed
+; labels inlined into the same compiled script twice would be a duplicate-
+; label error; LogicLib's constructs generate a fresh unique label pair on
+; every expansion.
 !macro WaitBrokerStopped
   Push $0
   Push $1
+  Push $2
   StrCpy $1 0
   nsExec::ExecToStack 'cmd /c sc query PrintBrokerService'
   Pop $0
-  ${If} $0 S== "1060"
-    Goto broker_stopped_done
+  Pop $2
+  ${IfNot} $0 S== "1060"
+    ${Do}
+      nsExec::ExecToStack 'cmd /c sc query PrintBrokerService | findstr /C:"STOPPED"'
+      Pop $0
+      Pop $2
+      ${If} $0 S== "0"
+        ${ExitDo}
+      ${EndIf}
+      IntOp $1 $1 + 1
+      ${If} $1 >= 20
+        DetailPrint "Store Print Broker did not report STOPPED after 10s; continuing anyway."
+        ${ExitDo}
+      ${EndIf}
+      Sleep 500
+    ${Loop}
   ${EndIf}
-  broker_stopped_loop:
-    nsExec::ExecToStack 'cmd /c sc query PrintBrokerService | findstr /C:"STOPPED"'
-    Pop $0
-    ${If} $0 S== "0"
-      Goto broker_stopped_done
-    ${EndIf}
-    IntOp $1 $1 + 1
-    ${If} $1 >= 20
-      DetailPrint "Store Print Broker did not report STOPPED after 10s; continuing anyway."
-      Goto broker_stopped_done
-    ${EndIf}
-    Sleep 500
-    Goto broker_stopped_loop
-  broker_stopped_done:
+  Pop $2
   Pop $1
   Pop $0
 !macroend

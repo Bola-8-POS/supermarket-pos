@@ -104,9 +104,24 @@ if ($PfxPath) {
         if ($resolvedPassword) {
             $importArgs['Password'] = ConvertTo-SecureString -String $resolvedPassword -AsPlainText -Force
         }
-        $cert = Import-PfxCertificate @importArgs
+        # A commercial code-signing PFX usually bundles its issuing chain
+        # alongside the leaf certificate; Import-PfxCertificate imports every
+        # certificate the file contains and returns all of them as an array.
+        # Only the leaf (the one with a private key) is the certificate this
+        # build signs with.
+        $importedCerts = @(Import-PfxCertificate @importArgs)
     } catch {
         Fail "Import-PfxCertificate ($PfxPath) failed: $($_.Exception.Message)"
+    }
+    $cert = $importedCerts | Where-Object HasPrivateKey | Select-Object -First 1
+    if (-not $cert) {
+        Fail "Import-PfxCertificate ($PfxPath) imported no certificate with a private key."
+    }
+    # Any other certificate the PFX also imported (intermediates/roots) is
+    # not needed after this and must not linger in the store.
+    $otherImportedCerts = $importedCerts | Where-Object { $_.Thumbprint -ne $cert.Thumbprint }
+    foreach ($otherCert in $otherImportedCerts) {
+        Remove-Item -LiteralPath (Join-Path $certStoreLocation $otherCert.Thumbprint) -Force -ErrorAction SilentlyContinue
     }
     Write-Host "OK: imported cert $($cert.Subject), store=$certStoreLocation, thumbprint=$($cert.Thumbprint)" -ForegroundColor Green
 } else {

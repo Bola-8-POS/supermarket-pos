@@ -25,11 +25,8 @@ pub(crate) fn resolve_broker_secret() -> Result<String, String> {
 /// counter's point of view, the same outcome (no print happened).
 pub(crate) fn resolve_broker_secret_at(path: &Path) -> Result<String, String> {
     if let Ok(content) = std::fs::read_to_string(path) {
-        if let Some(first_line) = content.lines().next() {
-            let trimmed = first_line.trim();
-            if !trimmed.is_empty() {
-                return Ok(trimmed.to_string());
-            }
+        if let Some(non_blank) = content.lines().map(str::trim).find(|l| !l.is_empty()) {
+            return Ok(non_blank.to_string());
         }
     }
     Err("broker unreachable: secret file missing".to_string())
@@ -60,6 +57,18 @@ mod tests {
         std::fs::write(&path, "the-secret-value\nsecond-line\n").unwrap();
         let result = resolve_broker_secret_at(&path).unwrap();
         assert_eq!(result, "the-secret-value");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn resolve_broker_secret_at_skips_a_leading_blank_line() {
+        let path = std::env::temp_dir().join(format!(
+            "broker-secret-test-leading-blank-{}.txt",
+            std::process::id()
+        ));
+        std::fs::write(&path, "\nsecret\n").unwrap();
+        let result = resolve_broker_secret_at(&path).unwrap();
+        assert_eq!(result, "secret");
         let _ = std::fs::remove_file(&path);
     }
 

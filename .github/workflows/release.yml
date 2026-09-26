@@ -189,28 +189,58 @@ jobs:
           $subjectArg = "CN=$($override.bundle.publisher)"
 
           # A long-lived, per-customer certificate is opt-in per environment:
-          # when both secrets are set, decode the PFX
-          # to a runner-temp file and import it instead of generating a fresh
-          # self-signed cert every release. CODE_SIGNING_PFX_PASSWORD is
-          # passed to the script via the environment, never a command-line
-          # argument (see that script's -PfxPassword doc comment).
+          # when both secrets are set, decode the PFX to a runner-temp file
+          # and import it instead of generating a fresh self-signed cert
+          # every release. CODE_SIGNING_PFX_PASSWORD is passed to child
+          # PowerShell processes via the environment, never a command-line
+          # argument (see generate-build-cert.ps1's -PfxPassword doc
+          # comment). The leaf thumbprint and the temp PFX path are written
+          # to GITHUB_OUTPUT BEFORE generate-build-cert.ps1 ever runs, so the
+          # always() cleanup step below can remove the imported key and the
+          # decoded PFX even if that script fails partway through (a
+          # non-ASCII CN, an export error, a PFX with an unexpected shape).
           $pfxTempPath = $null
           $certArgs = @('-Subject', $subjectArg)
           if ($env:CODE_SIGNING_PFX_BASE64 -and $env:CODE_SIGNING_PFX_PASSWORD) {
             $pfxTempPath = Join-Path $env:RUNNER_TEMP 'code-signing.pfx'
             [IO.File]::WriteAllBytes($pfxTempPath, [Convert]::FromBase64String($env:CODE_SIGNING_PFX_BASE64))
+            echo "pfx_temp_path=$pfxTempPath" >> $env:GITHUB_OUTPUT
+
+            # Get-PfxData (like Import-PfxCertificate/New-SelfSignedCertificate
+            # elsewhere in this step) needs Windows PowerShell 5.1, not pwsh —
+            # written to a scratch .ps1 and run with -File so the PFX password
+            # never has to survive command-line string escaping.
+            $leafThumbprintScriptPath = Join-Path $env:RUNNER_TEMP 'get-leaf-thumbprint.ps1'
+            $leafThumbprintScriptLines = @(
+              'param([Parameter(Mandatory)][string]$PfxPath)',
+              '$securePassword = ConvertTo-SecureString -String $env:CODE_SIGNING_PFX_PASSWORD -AsPlainText -Force',
+              '(Get-PfxData -FilePath $PfxPath -Password $securePassword).EndEntityCertificates[0].Thumbprint'
+            )
+            Set-Content -LiteralPath $leafThumbprintScriptPath -Value $leafThumbprintScriptLines
+            $leafThumbprint = (powershell -File $leafThumbprintScriptPath -PfxPath $pfxTempPath | Select-Object -Last 1).ToString().Trim()
+            Remove-Item -LiteralPath $leafThumbprintScriptPath -Force -ErrorAction SilentlyContinue
+            if ($leafThumbprint -notmatch '^[0-9A-Fa-f]{40}$') {
+              Write-Host "FAILED: could not determine the leaf certificate thumbprint from the PFX (got '$leafThumbprint')." -ForegroundColor Red
+              exit 1
+            }
+            echo "thumbprint=$leafThumbprint" >> $env:GITHUB_OUTPUT
+
             $certArgs += @('-PfxPath', $pfxTempPath)
           }
 
           $output = powershell -File scripts/generate-build-cert.ps1 @certArgs
-          $thumbprint = ($output | Select-Object -Last 1).ToString().Trim()
-          if ($thumbprint -notmatch '^[0-9A-Fa-f]{40}$') {
-            Write-Host "FAILED: unexpected thumbprint output: '$thumbprint'" -ForegroundColor Red
+          $scriptThumbprint = ($output | Select-Object -Last 1).ToString().Trim()
+          if ($scriptThumbprint -notmatch '^[0-9A-Fa-f]{40}$') {
+            Write-Host "FAILED: unexpected thumbprint output: '$scriptThumbprint'" -ForegroundColor Red
             exit 1
           }
-          echo "thumbprint=$thumbprint" >> $env:GITHUB_OUTPUT
-          if ($pfxTempPath) {
-            echo "pfx_temp_path=$pfxTempPath" >> $env:GITHUB_OUTPUT
+          if (-not $pfxTempPath) {
+            # Self-signed path: no import happened up front, so the
+            # thumbprint is only known now.
+            echo "thumbprint=$scriptThumbprint" >> $env:GITHUB_OUTPUT
+          } elseif ($scriptThumbprint -ne $leafThumbprint) {
+            Write-Host "FAILED: generate-build-cert.ps1 reported thumbprint '$scriptThumbprint', which does not match the PFX leaf thumbprint '$leafThumbprint' computed up front." -ForegroundColor Red
+            exit 1
           }
 
       - uses: tauri-apps/tauri-action@v0.6.2

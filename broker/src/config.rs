@@ -110,11 +110,8 @@ pub fn resolve_secret_at(config_file: &Path, secret_file: &Path) -> Result<Strin
         }
     }
     if let Ok(content) = std::fs::read_to_string(secret_file) {
-        if let Some(first_line) = content.lines().next() {
-            let trimmed = first_line.trim();
-            if !trimmed.is_empty() {
-                return Ok(trimmed.to_string());
-            }
+        if let Some(non_blank) = content.lines().map(str::trim).find(|l| !l.is_empty()) {
+            return Ok(non_blank.to_string());
         }
     }
     Err(format!("broker secret missing: {}", secret_file.display()))
@@ -213,6 +210,20 @@ mod tests {
         assert!(err.contains("secret missing"), "unexpected error message: {err}");
 
         let _ = std::fs::remove_file(&config_file);
+        let _ = std::fs::remove_file(&secret_file);
+    }
+
+    // The secret file's first non-blank line is used, not strictly its
+    // first line — a leading blank line (a stray newline before the real
+    // value) must not turn a present secret into a missing one.
+    #[test]
+    fn resolve_secret_at_skips_a_leading_blank_line_in_the_secret_file() {
+        let (config_file, secret_file) = temp_paths("leading-blank-line");
+        let _ = std::fs::remove_file(&config_file);
+        std::fs::write(&secret_file, "\nsecret\n").unwrap();
+
+        assert_eq!(resolve_secret_at(&config_file, &secret_file).unwrap(), "secret");
+
         let _ = std::fs::remove_file(&secret_file);
     }
 

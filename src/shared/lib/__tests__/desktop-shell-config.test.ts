@@ -10,7 +10,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DESKTOP_CSP, DESKTOP_DEV_CSP, SUPABASE_HOSTS, WEB_CSP } from '../../../../scripts/csp';
+import { DESKTOP_CSP, DESKTOP_DEV_CSP, isAllowedBackendUrl, SUPABASE_HOSTS, WEB_CSP } from '../../../../scripts/csp';
 
 const ROOT = process.cwd();
 
@@ -118,6 +118,19 @@ describe('WEB_CSP excludes desktop-only origins', () => {
 
   it('has no 127.0.0.1 entry', () => {
     expect(WEB_CSP, 'WEB_CSP').not.toContain('127.0.0.1');
+  });
+});
+
+describe('isAllowedBackendUrl (the web build-time host guard, and the TS twin of is_allowed_backend_url)', () => {
+  it.each([
+    ['https://abc.supabase.co', true],
+    ['http://127.0.0.1:54321', true],
+    ['https://evil.example', false],
+    ['https://x.supabase.co.attacker.example', false],
+    ['https://x.supabase.co@evil.example/', false],
+    ['http://abc.supabase.co', false],
+  ] as const)('isAllowedBackendUrl(%s) === %s', (url, expected) => {
+    expect(isAllowedBackendUrl(url), `isAllowedBackendUrl(${url})`).toBe(expected);
   });
 });
 
@@ -277,6 +290,24 @@ describe('windows/hooks.nsh', () => {
       const waitIdx = blockText.indexOf('WaitBrokerStopped');
       expect(stopIdx, `windows/hooks.nsh ${label} sc.exe stop`).toBeGreaterThanOrEqual(0);
       expect(waitIdx, `windows/hooks.nsh ${label} WaitBrokerStopped call`).toBeGreaterThan(stopIdx);
+    }
+  });
+
+  it('each nsExec::ExecToStack call pops both the exit code and the output text', () => {
+    // nsExec::ExecToStack pushes two values (output, then exit code on top) —
+    // a single Pop only retrieves the exit code and leaves the output
+    // string on the stack, corrupting whatever the caller pops next.
+    const lines = text.split(/\r?\n/);
+    const execToStackLineNumbers = lines
+      .map((line, i) => ({ line, lineNumber: i + 1 }))
+      .filter(({ line }) => line.includes('nsExec::ExecToStack') && !line.trim().startsWith(';'))
+      .map(({ lineNumber }) => lineNumber);
+    expect(execToStackLineNumbers.length, 'windows/hooks.nsh nsExec::ExecToStack call count').toBeGreaterThan(0);
+    for (const lineNumber of execToStackLineNumbers) {
+      const firstPop = lines[lineNumber]?.trim() ?? '';
+      const secondPop = lines[lineNumber + 1]?.trim() ?? '';
+      expect(firstPop, `windows/hooks.nsh line ${lineNumber + 1} (first Pop after nsExec::ExecToStack on line ${lineNumber})`).toMatch(/^Pop \$\d/);
+      expect(secondPop, `windows/hooks.nsh line ${lineNumber + 2} (second Pop after nsExec::ExecToStack on line ${lineNumber})`).toMatch(/^Pop \$\d/);
     }
   });
 

@@ -35,11 +35,14 @@
       6. (Phase 20, DEP-01) The build's self-signed cert thumbprint (-ExpectedThumbprint)
          is present in Cert:\LocalMachine\Root — proves windows/hooks.nsh's
          `certutil -f -addstore Root` line actually ran and succeeded during install.
-      7. The data folder (%ProgramData%\PrintBroker\) grants BUILTIN\Users no
-         write/modify right (only the service account and administrators can
-         alter the config or secret), and client-secret.txt is still readable
-         by the running principal — proves windows/hooks.nsh's `icacls` step
-         landed the intended ACL, not one that also locks out the app.
+      7. The data folder (%ProgramData%\PrintBroker\) grants BUILTIN\Users,
+         Everyone and Authenticated Users no write-type right (only the
+         service account and administrators can alter the config or
+         secret) — proves windows/hooks.nsh's `icacls` step landed the
+         intended ACL. This check runs elevated, so it cannot itself prove a
+         standard user can read the file; it instead asserts the `icacls`
+         ACE for `*S-1-5-32-545` (BUILTIN\Users, read/execute) is present,
+         which is what actually grants that read.
       8. Exactly one certificate in Cert:\LocalMachine\Root matches the
          installed build's subject CN (read from cert\subject.txt next to
          broker.exe) — proves an upgrade did not accumulate a second root
@@ -125,8 +128,16 @@ if ([string]::IsNullOrWhiteSpace($secretContent)) {
 Write-Host "OK: client-secret.txt exists and is non-empty." -ForegroundColor Green
 
 # --- Check 5: broker HTTP health check ---------------------------------------
+# The broker's auth check runs before every route, including /health (no
+# exemption) — the request must carry the same bearer token every other
+# route needs, taken as the first non-blank line of client-secret.txt (the
+# same rule the broker and app-side resolvers use).
+$secretToken = ($secretContent -split "`r`n|`n" | Where-Object { $_.Trim() -ne '' } | Select-Object -First 1)
+if ([string]::IsNullOrWhiteSpace($secretToken)) {
+    Fail "client-secret.txt at '$secretPath' has no non-blank line to use as the bearer token."
+}
 try {
-    $response = Invoke-RestMethod -Uri 'http://127.0.0.1:8973/health' -Method Get -TimeoutSec 5
+    $response = Invoke-RestMethod -Uri 'http://127.0.0.1:8973/health' -Method Get -TimeoutSec 5 -Headers @{ Authorization = "Bearer $secretToken" }
 } catch {
     Fail "GET http://127.0.0.1:8973/health failed: $($_.Exception.Message)"
 }
@@ -146,31 +157,49 @@ if (-not $rootCert) {
 }
 Write-Host "OK: build cert (thumbprint $ExpectedThumbprint) present in Cert:\LocalMachine\Root." -ForegroundColor Green
 
-# --- Check 7: data folder ACL excludes BUILTIN\Users write/modify, secret readable ---
+# --- Check 7: data folder ACL excludes standard-user write rights, icacls ACE present ---
 $dataFolder = Join-Path $env:ProgramData 'PrintBroker'
 try {
     $acl = Get-Acl -LiteralPath $dataFolder -ErrorAction Stop
 } catch {
     Fail "Get-Acl '$dataFolder' failed: $($_.Exception.Message)"
 }
-$writeRights = [System.Security.AccessControl.FileSystemRights]::Write -bor
-    [System.Security.AccessControl.FileSystemRights]::Modify -bor
-    [System.Security.AccessControl.FileSystemRights]::FullControl -bor
-    [System.Security.AccessControl.FileSystemRights]::WriteData
-$usersWriteAccess = $acl.Access | Where-Object {
-    $_.IdentityReference.Value -eq 'BUILTIN\Users' -and
+# Only the write-TYPE rights — FullControl (and Modify/Write, which include
+# it) also set the read bits and Synchronize, so ORing FullControl into this
+# mask would flag the installer's own intended
+# `*S-1-5-32-545:(OI)(CI)RX` (ReadAndExecute, Synchronize) grant as a
+# violation on every correct install.
+$writeRights = [System.Security.AccessControl.FileSystemRights]::WriteData -bor
+    [System.Security.AccessControl.FileSystemRights]::AppendData -bor
+    [System.Security.AccessControl.FileSystemRights]::WriteExtendedAttributes -bor
+    [System.Security.AccessControl.FileSystemRights]::WriteAttributes -bor
+    [System.Security.AccessControl.FileSystemRights]::Delete -bor
+    [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
+    [System.Security.AccessControl.FileSystemRights]::ChangePermissions -bor
+    [System.Security.AccessControl.FileSystemRights]::TakeOwnership
+$standardUserIdentities = @('BUILTIN\Users', 'Everyone', 'NT AUTHORITY\Authenticated Users')
+$standardUserWriteAccess = $acl.Access | Where-Object {
+    $standardUserIdentities -contains $_.IdentityReference.Value -and
     $_.AccessControlType -eq 'Allow' -and
     ($_.FileSystemRights -band $writeRights)
 }
-if ($usersWriteAccess) {
-    Fail "'$dataFolder' grants BUILTIN\Users a write/modify right ($($usersWriteAccess.FileSystemRights)) — a standard user could corrupt the config or secret."
+if ($standardUserWriteAccess) {
+    Fail "'$dataFolder' grants a standard-user identity a write-type right ($($standardUserWriteAccess.IdentityReference.Value): $($standardUserWriteAccess.FileSystemRights)) — a standard user could corrupt the config or secret."
 }
-try {
-    Get-Content -LiteralPath $secretPath -Raw -ErrorAction Stop | Out-Null
-} catch {
-    Fail "client-secret.txt at '$secretPath' is not readable by the running principal: $($_.Exception.Message)"
+# This script runs elevated (#Requires -RunAsAdministrator), so it cannot
+# itself prove a standard user can read the file — it asserts the ACE that
+# grants that read is present instead (windows/hooks.nsh's
+# `*S-1-5-32-545:(OI)(CI)RX` grant, BUILTIN\Users read/execute).
+$readRights = [System.Security.AccessControl.FileSystemRights]::ReadAndExecute
+$usersReadAccess = $acl.Access | Where-Object {
+    $_.IdentityReference.Value -eq 'BUILTIN\Users' -and
+    $_.AccessControlType -eq 'Allow' -and
+    ($_.FileSystemRights -band $readRights) -eq $readRights
 }
-Write-Host "OK: '$dataFolder' grants BUILTIN\Users no write/modify right, and client-secret.txt is still readable." -ForegroundColor Green
+if (-not $usersReadAccess) {
+    Fail "'$dataFolder' has no BUILTIN\Users ReadAndExecute ACE — client-secret.txt may not be readable by a standard user."
+}
+Write-Host "OK: '$dataFolder' grants no standard-user identity a write-type right, and the BUILTIN\Users read ACE is present." -ForegroundColor Green
 
 # --- Check 8: exactly one root certificate for the installed build's subject ---
 $brokerExePath = ($brokerProcesses | Select-Object -First 1 -ExpandProperty ExecutablePath)
