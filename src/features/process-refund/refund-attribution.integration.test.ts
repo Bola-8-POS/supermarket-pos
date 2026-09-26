@@ -12,7 +12,7 @@
  *
  * process_refund uses auth.uid() in SECURITY DEFINER context, so calls must be
  * made with an authenticated user JWT (manager or admin role). The service
- * role client is used only for data seeding (bypasses RLS).
+ * role client is used only for data seeding (not subject to RLS).
  */
 import { createClient } from '@supabase/supabase-js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -278,9 +278,12 @@ describe.skipIf(skip)("process_refund's p_caja_session_id (integration)", () => 
 
     const { data: refundPayment3 } = await db
       .from('payments')
-      .select('caja_session_id')
+      .select('caja_session_id, tax_rate_percent')
       .eq('refund_id', refundId3)
       .single();
     expect(refundPayment3?.caja_session_id).toBeNull();
+    // Review Focus 2: an old client that omits p_caja_session_id still gets
+    // its tax snapshot written.
+    expect(refundPayment3?.tax_rate_percent).not.toBeNull();
   });
 });

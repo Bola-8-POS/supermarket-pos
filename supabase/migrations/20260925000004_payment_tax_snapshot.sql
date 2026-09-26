@@ -99,7 +99,7 @@ BEGIN
   -- p_manager_override' DISCOUNT_REQUIRES_MANAGER guard below -- NULL is
   -- neither TRUE nor FALSE in PL/pgSQL, so both branches would otherwise be
   -- skipped. Defense-in-depth: all three RPCs grant EXECUTE to 'authenticated',
-  -- so a caller can invoke them directly via PostgREST, bypassing the edge
+  -- so a caller can invoke them directly via PostgREST, skipping the edge
   -- function's own '?? false' coalesce entirely.
   p_manager_override := COALESCE(p_manager_override, false);
 
@@ -122,11 +122,11 @@ BEGIN
   --      its own freshly-inserted tab. It is NOT an RPC parameter, so a
   --      regular-JWT PostgREST caller cannot spoof it.
   --   2. auth.role() = 'service_role' — server-side/service-key callers
-  --      (integration tests, future edge functions) are already trusted with
-  --      full RLS bypass; this mirrors that trust level rather than adding a
+  --      (integration tests, future edge functions) are already trusted to
+  --      run without row-level security; this mirrors that trust level rather than adding a
   --      new distinct one.
   -- A regular authenticated staff JWT satisfies neither, so the direct-call
-  -- exploit path the reviewer flagged is closed.
+  -- path is closed.
   IF p_method = 'bank_transfer'
      AND current_setting('app.bank_transfer_checkout_context', true) IS DISTINCT FROM 'true'
      AND auth.role() IS DISTINCT FROM 'service_role' THEN
@@ -408,7 +408,7 @@ BEGIN
   -- p_manager_override' DISCOUNT_REQUIRES_MANAGER guard below -- NULL is
   -- neither TRUE nor FALSE in PL/pgSQL, so both branches would otherwise be
   -- skipped. Defense-in-depth: all three RPCs grant EXECUTE to 'authenticated',
-  -- so a caller can invoke them directly via PostgREST, bypassing the edge
+  -- so a caller can invoke them directly via PostgREST, skipping the edge
   -- function's own '?? false' coalesce entirely.
   p_manager_override := COALESCE(p_manager_override, false);
 
