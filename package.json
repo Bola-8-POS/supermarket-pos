@@ -39,6 +39,7 @@
     "tutorial-videos:convert": "tsx scripts/tutorial-videos-convert.ts",
     "tutorial-videos": "npm run tutorial-videos:record && npm run tutorial-videos:convert",
     "test:e2e:license": "playwright test --config=playwright.license.config.ts",
+    "test:e2e:csp": "playwright test --config=playwright.csp.config.ts",
     "test:e2e:license:live": "playwright test --config=playwright.license-live.config.ts",
     "test:deno": "deno test --allow-env supabase/functions/_shared",
     "docs:tokens": "npx tsx scripts/generate-design-tokens.ts",
