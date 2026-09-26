@@ -293,6 +293,36 @@ describe('windows/hooks.nsh', () => {
     }
   });
 
+  it('WaitBrokerStopped wakes a still-running previous-release broker before waiting', () => {
+    // The previous release's request loop only checks its shutdown flag when
+    // a request arrives, and nothing arrives on its own once the app has
+    // exited — so the wait needs to poke it once before polling `sc query`.
+    const waitMacro = section('WaitBrokerStopped');
+    expect(waitMacro, 'windows/hooks.nsh WaitBrokerStopped').toContain('127.0.0.1:8973');
+
+    const lines = text.split(/\r?\n/);
+    const execLineNumbers = lines
+      .map((line, i) => ({ line, lineNumber: i + 1 }))
+      .filter(
+        ({ line }) =>
+          /nsExec::Exec\s/.test(line) && !line.includes('ExecToStack') && !line.trim().startsWith(';')
+      )
+      .map(({ lineNumber }) => lineNumber);
+    expect(execLineNumbers.length, 'windows/hooks.nsh nsExec::Exec call count').toBeGreaterThan(0);
+    for (const lineNumber of execLineNumbers) {
+      const firstAfter = lines[lineNumber]?.trim() ?? '';
+      const secondAfter = lines[lineNumber + 1]?.trim() ?? '';
+      expect(
+        firstAfter,
+        `windows/hooks.nsh line ${lineNumber + 1} (Pop after nsExec::Exec on line ${lineNumber})`
+      ).toMatch(/^Pop \$\d/);
+      expect(
+        secondAfter,
+        `windows/hooks.nsh line ${lineNumber + 2} (exactly one Pop after nsExec::Exec on line ${lineNumber})`
+      ).not.toMatch(/^Pop \$\d/);
+    }
+  });
+
   it('each nsExec::ExecToStack call pops both the exit code and the output text', () => {
     // nsExec::ExecToStack pushes two values (output, then exit code on top) —
     // a single Pop only retrieves the exit code and leaves the output

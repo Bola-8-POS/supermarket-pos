@@ -72,6 +72,18 @@
   Pop $0
   Pop $2
   ${IfNot} $0 S== "1060"
+    ; The service exists, so it may still be the previous release's binary,
+    ; whose request loop (broker/src/http.rs) only checks its shutdown flag
+    ; when a request arrives. The app has already exited by PREINSTALL, so
+    ; nothing would ever arrive on its own; send one loopback request here to
+    ; wake that loop so it sees the flag and returns. `nsExec::Exec` pushes
+    ; one value (unlike `ExecToStack`'s two), so one Pop balances it. A 401
+    ; is fine: the old loop checks shutdown before authenticating the
+    ; request. Never `taskkill` here: the service would die without
+    ; reporting STOPPED, and the SCM's restart policy would relaunch the old
+    ; binary while the File copy below is replacing it.
+    nsExec::Exec 'cmd /c curl.exe -s -m 2 -o NUL http://127.0.0.1:8973/health'
+    Pop $2
     ${Do}
       nsExec::ExecToStack 'cmd /c sc query PrintBrokerService | findstr /C:"STOPPED"'
       Pop $0
