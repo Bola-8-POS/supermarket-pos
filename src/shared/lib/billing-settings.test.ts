@@ -34,6 +34,27 @@ describe('BillingPaymentMethodsSchema', () => {
   });
 });
 
+describe('BillingSettingsSchema taxRatePercent scale', () => {
+  it('accepts a rate with at most two decimal places', () => {
+    const result = BillingSettingsSchema.safeParse({
+      taxRatePercent: 8.13,
+      paymentMethods: { cash: true, card: true, rappi: true },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  // A rate stored beyond two decimals cannot round-trip through the
+  // database's numeric(5,2) tax_rate_percent column, so a reprint after a
+  // rate change would decompose a different value than the original print.
+  it('rejects a rate with more than two decimal places', () => {
+    const result = BillingSettingsSchema.safeParse({
+      taxRatePercent: 8.125,
+      paymentMethods: { cash: true, card: true, rappi: true },
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
 describe('BillingSettingsSchema taxInclusive', () => {
   it('defaults taxInclusive to true (D-01)', () => {
     const result = BillingSettingsSchema.parse({

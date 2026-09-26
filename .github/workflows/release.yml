@@ -388,7 +388,7 @@ jobs:
           if ($pfxTempPath -and (Test-Path -LiteralPath $pfxTempPath)) {
             Remove-Item -LiteralPath $pfxTempPath -Force -ErrorAction SilentlyContinue
           }
-          if ($pfxTempPath -and $thumbprint) {
+          if ($thumbprint) {
             Get-ChildItem "Cert:\CurrentUser\My\$thumbprint" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
           }
           exit 0

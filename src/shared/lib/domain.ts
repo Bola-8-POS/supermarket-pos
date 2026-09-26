@@ -905,7 +905,7 @@ export const PaymentMethodLabelsSchema = z.object({
 export type PaymentMethodLabels = z.infer<typeof PaymentMethodLabelsSchema>;
 
 export const BillingSettingsSchema = z.object({
-  taxRatePercent: z.number().min(0).max(100).default(16),
+  taxRatePercent: z.number().min(0).max(100).multipleOf(0.01).default(16),
   paymentMethods: BillingPaymentMethodsSchema.default({
     cash: true,
     card: true,

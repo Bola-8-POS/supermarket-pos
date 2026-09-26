@@ -178,6 +178,12 @@ BEGIN
   IF payment_tax_amount(NULL, 16, true) IS NOT NULL THEN
     RAISE EXCEPTION 'payment_tax_amount(NULL, 16, true) must be NULL (STRICT)';
   END IF;
+  -- billing_tax_settings() rounds to 2 decimal places so a rate stored with
+  -- more precision still matches the payments.tax_rate_percent numeric(5,2)
+  -- column a reprint reads back.
+  IF scale((SELECT rate_percent FROM billing_tax_settings())) > 2 THEN
+    RAISE EXCEPTION 'billing_tax_settings().rate_percent has more than 2 decimal places: %', (SELECT rate_percent FROM billing_tax_settings());
+  END IF;
 
   -- 7. Every audit_logs row is redacted; the scrub recorded itself once;
   --    the insert trigger is present.

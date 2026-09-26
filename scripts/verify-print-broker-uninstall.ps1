@@ -9,12 +9,12 @@
     testing policy requires automating verification rather than asking a
     human to click through the app. Run this script elevated, on the real
     target machine, after the NSIS uninstaller has completed (and NOT on the
-    updater path — the updater never runs the old uninstaller, so nothing
+    updater path - the updater never runs the old uninstaller, so nothing
     here applies to an in-place update).
 
     Fails fast: exits non-zero with a specific message on the first failing
     check. Exits 0 with "All checks passed" only when all three checks hold.
-    Deliberately does not check %ProgramData%\PrintBroker\ — the ledger and
+    Deliberately does not check %ProgramData%\PrintBroker\ - the ledger and
     the per-store secret are kept on purpose (broker/install/mod.rs's own
     uninstall() documents why: a reinstall must not silently mint a new
     secret and break every already-configured LAN client's credential).
@@ -24,7 +24,7 @@
       2. Get-NetFirewallRule -DisplayName "Store Print Broker" reports no such
          rule.
       3. Zero certificates in Cert:\LocalMachine\Root match the given subject
-         CN (-SubjectCn) — the uninstaller's `certutil -delstore Root`
+         CN (-SubjectCn) - the uninstaller's `certutil -delstore Root`
          removed it and nothing re-added it.
 #>
 

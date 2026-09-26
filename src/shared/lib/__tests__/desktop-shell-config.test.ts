@@ -126,7 +126,7 @@ describe('isAllowedBackendUrl (the web build-time host guard, and the TS twin of
     ['https://abc.supabase.co', true],
     ['http://127.0.0.1:54321', true],
     ['https://evil.example', false],
-    ['https://x.supabase.co.attacker.example', false],
+    ['https://x.supabase.co.other.example', false],
     ['https://x.supabase.co@evil.example/', false],
     ['http://abc.supabase.co', false],
   ] as const)('isAllowedBackendUrl(%s) === %s', (url, expected) => {
@@ -366,6 +366,47 @@ describe('windows/hooks.nsh', () => {
       expect(text, `windows/hooks.nsh Push ${reg}`).toContain(`Push ${reg}`);
       expect(text, `windows/hooks.nsh Pop ${reg}`).toContain(`Pop ${reg}`);
     }
+  });
+});
+
+describe('.github/workflows/release.yml cleanup step', () => {
+  const text = readText('.github/workflows/release.yml');
+
+  function step(name: string): string {
+    const re = new RegExp(`- name: ${name}[\\s\\S]*?(?=\\n      - name:|$)`);
+    const match = re.exec(text);
+    expect(match, `.github/workflows/release.yml step "${name}"`).toBeTruthy();
+    return match![0];
+  }
+
+  function guardLineBefore(block: string, needle: string): string {
+    const idx = block.indexOf(needle);
+    expect(idx, `.github/workflows/release.yml line containing "${needle}"`).toBeGreaterThan(-1);
+    return (
+      block
+        .slice(0, idx)
+        .split('\n')
+        .filter((l) => l.trim().startsWith('if'))
+        .pop() ?? ''
+    );
+  }
+
+  it('removes the runner-local signing certificate whichever path ran, but only removes the PFX temp file when one was written', () => {
+    const cleanup = step('Clean up materialized secrets');
+    expect(cleanup, '.github/workflows/release.yml "Clean up materialized secrets"').toContain('if: always()');
+
+    // The certificate outlives signing on both paths (self-signed always
+    // mints one; the PFX path also imports one) — a customer's own PC comes
+    // to trust it on the next upgrade, so it must not be left behind on the
+    // shared runner regardless of which path produced it.
+    const certGuard = guardLineBefore(cleanup, 'Cert:\\CurrentUser\\My\\$thumbprint');
+    expect(certGuard, '.github/workflows/release.yml certificate removal guard').toContain('$thumbprint');
+    expect(certGuard, '.github/workflows/release.yml certificate removal guard').not.toContain('$pfxTempPath');
+
+    // The temp PFX file only ever exists on the PFX path, so its own removal
+    // stays conditional on $pfxTempPath.
+    const pfxGuard = guardLineBefore(cleanup, 'Remove-Item -LiteralPath $pfxTempPath');
+    expect(pfxGuard, '.github/workflows/release.yml PFX temp file removal guard').toContain('$pfxTempPath');
   });
 });
 

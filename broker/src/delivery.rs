@@ -260,6 +260,26 @@ fn apply_status_bits_outcome(conn: &Connection, id: &str, ts: &str, outcome: Sta
     }
 }
 
+/// Gate for the config-load-failure log line below: `true` once the failure
+/// has already been logged, so a tick every 500ms doesn't log again on
+/// every pass. A corrupt config with a valid secret file (see
+/// `resolve_secret_at`) can keep the service running on this fallback
+/// indefinitely, so an un-gated log_error here would otherwise fill the
+/// Windows Event Log for as long as the store stays open. Reset by a
+/// successful load, so a later failure (after a fix, then a fresh break) is
+/// still reported.
+static CONFIG_ERROR_LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Runs `log_once` only the first time `logged` flips from false to true;
+/// a caller resets `logged` to false to re-arm it. Extracted from
+/// `worker_tick` so "log once, not every tick" is testable without a real
+/// config file or the Windows Event Log.
+fn log_config_error_once(logged: &std::sync::atomic::AtomicBool, log_once: impl FnOnce()) {
+    if !logged.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        log_once();
+    }
+}
+
 /// Loads the current `BrokerConfig` (data-driven retry policy + retention
 /// window, D-10/D-14) once for this tick and delegates. Kept separate from
 /// `worker_tick_with_config` so tests can inject a fixture config directly
@@ -268,13 +288,18 @@ fn apply_status_bits_outcome(conn: &Connection, id: &str, ts: &str, outcome: Sta
 pub fn worker_tick(conn: &Connection) {
     // A config load failure here must not stop delivery of jobs already
     // accepted (the HTTP boundary is what fails closed on a bad secret, not
-    // this background worker) — fall back to defaults and log it.
+    // this background worker) — fall back to defaults and log it once.
     let cfg = match config::load_or_init() {
-        Ok(cfg) => cfg,
+        Ok(cfg) => {
+            CONFIG_ERROR_LOGGED.store(false, std::sync::atomic::Ordering::Relaxed);
+            cfg
+        }
         Err(e) => {
-            crate::ledger::log_error(&format!(
-                "worker_tick: broker config unavailable, using defaults: {e}"
-            ));
+            log_config_error_once(&CONFIG_ERROR_LOGGED, || {
+                crate::ledger::log_error(&format!(
+                    "worker_tick: broker config unavailable, using defaults: {e}"
+                ));
+            });
             BrokerConfig {
                 port: crate::http::PORT,
                 bearer_secret: String::new(),
@@ -512,6 +537,24 @@ mod tests {
             "print-broker-test-delivery-{name}-{}.db",
             std::process::id()
         ))
+    }
+
+    // D-15-adjacent cleanup: the config-load-failure line must not repeat
+    // on every 500ms tick (it also writes the Windows Event Log), only the
+    // first time a failure streak starts, and again after a later streak
+    // starts fresh.
+    #[test]
+    fn log_config_error_once_logs_only_on_the_first_call_until_reset() {
+        let logged = std::sync::atomic::AtomicBool::new(false);
+        let mut calls = 0;
+
+        log_config_error_once(&logged, || calls += 1);
+        log_config_error_once(&logged, || calls += 1);
+        assert_eq!(calls, 1, "a second call in the same failure streak must not log again");
+
+        logged.store(false, std::sync::atomic::Ordering::Relaxed); // e.g. a load succeeded, then failed again
+        log_config_error_once(&logged, || calls += 1);
+        assert_eq!(calls, 2, "a fresh failure streak after a reset must log again");
     }
 
     // Formerly "retries up to MAX_ATTEMPTS then marks failed" — under D-10's

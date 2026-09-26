@@ -55,8 +55,11 @@ STABLE
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
+  -- Rounded to match tax_rate_percent's numeric(5,2) storage, so a rate with
+  -- more than two decimal places still decomposes the same way on the
+  -- original print and on every later reprint.
   SELECT
-    COALESCE((SELECT (value->>'taxRatePercent')::numeric FROM settings WHERE key = 'billing'), 16),
+    ROUND(COALESCE((SELECT (value->>'taxRatePercent')::numeric FROM settings WHERE key = 'billing'), 16), 2),
     COALESCE((SELECT (value->>'taxInclusive')::boolean FROM settings WHERE key = 'billing'), true);
 $$;
 

@@ -21,7 +21,7 @@
       1. Get-Service PrintBrokerService reports Status=Running and
          StartType=Automatic.
       2. Get-CimInstance Win32_Process -Filter "Name='broker.exe'" shows
-         SessionId=0 — proves genuine SCM management (a service process
+         SessionId=0 - proves genuine SCM management (a service process
          always runs in Session 0), not a stray manually-started process
          (.planning/spikes/CONVENTIONS.md's SessionId/ParentProcessId
          pattern).
@@ -33,19 +33,19 @@
          non-empty.
       5. An HTTP GET to http://127.0.0.1:8973/health returns {"ok":true}.
       6. (Phase 20, DEP-01) The build's self-signed cert thumbprint (-ExpectedThumbprint)
-         is present in Cert:\LocalMachine\Root — proves windows/hooks.nsh's
+         is present in Cert:\LocalMachine\Root - proves windows/hooks.nsh's
          `certutil -f -addstore Root` line actually ran and succeeded during install.
       7. The data folder (%ProgramData%\PrintBroker\) grants BUILTIN\Users,
          Everyone and Authenticated Users no write-type right (only the
          service account and administrators can alter the config or
-         secret) — proves windows/hooks.nsh's `icacls` step landed the
+         secret) - proves windows/hooks.nsh's `icacls` step landed the
          intended ACL. This check runs elevated, so it cannot itself prove a
          standard user can read the file; it instead asserts the `icacls`
          ACE for `*S-1-5-32-545` (BUILTIN\Users, read/execute) is present,
          which is what actually grants that read.
       8. Exactly one certificate in Cert:\LocalMachine\Root matches the
          installed build's subject CN (read from cert\subject.txt next to
-         broker.exe) — proves an upgrade did not accumulate a second root
+         broker.exe) - proves an upgrade did not accumulate a second root
          certificate for the same subject.
 #>
 
@@ -85,7 +85,7 @@ if (-not $brokerProcesses) {
 $sessionZero = $brokerProcesses | Where-Object { $_.SessionId -eq 0 }
 if (-not $sessionZero) {
     $foundSessions = ($brokerProcesses | Select-Object -ExpandProperty SessionId) -join ', '
-    Fail "broker.exe is running but not in SessionId=0 (found SessionId(s): $foundSessions) — this looks like a stray manually-started process, not the real SCM-managed service."
+    Fail "broker.exe is running but not in SessionId=0 (found SessionId(s): $foundSessions) - this looks like a stray manually-started process, not the real SCM-managed service."
 }
 Write-Host "OK: broker.exe is running under SessionId=0 (genuine SCM-managed service)." -ForegroundColor Green
 
@@ -112,7 +112,7 @@ if (-not $addressFilter) {
     Fail "'Store Print Broker' firewall rule has no associated address filter."
 }
 if ($addressFilter.RemoteAddress -ne 'LocalSubnet') {
-    Fail "'Store Print Broker' firewall rule RemoteAddress is '$($addressFilter.RemoteAddress)', expected 'LocalSubnet' — the rule is scoped by network profile only, not by remote IP range, which is broader than PRN-01 requires."
+    Fail "'Store Print Broker' firewall rule RemoteAddress is '$($addressFilter.RemoteAddress)', expected 'LocalSubnet' - the rule is scoped by network profile only, not by remote IP range, which is broader than PRN-01 requires."
 }
 Write-Host "OK: 'Store Print Broker' firewall rule exists (TCP/8973, RemoteAddress=LocalSubnet)." -ForegroundColor Green
 
@@ -129,7 +129,7 @@ Write-Host "OK: client-secret.txt exists and is non-empty." -ForegroundColor Gre
 
 # --- Check 5: broker HTTP health check ---------------------------------------
 # The broker's auth check runs before every route, including /health (no
-# exemption) — the request must carry the same bearer token every other
+# exemption) - the request must carry the same bearer token every other
 # route needs, taken as the first non-blank line of client-secret.txt (the
 # same rule the broker and app-side resolvers use).
 $secretToken = ($secretContent -split "`r`n|`n" | Where-Object { $_.Trim() -ne '' } | Select-Object -First 1)
@@ -164,7 +164,7 @@ try {
 } catch {
     Fail "Get-Acl '$dataFolder' failed: $($_.Exception.Message)"
 }
-# Only the write-TYPE rights — FullControl (and Modify/Write, which include
+# Only the write-TYPE rights - FullControl (and Modify/Write, which include
 # it) also set the read bits and Synchronize, so ORing FullControl into this
 # mask would flag the installer's own intended
 # `*S-1-5-32-545:(OI)(CI)RX` (ReadAndExecute, Synchronize) grant as a
@@ -177,27 +177,39 @@ $writeRights = [System.Security.AccessControl.FileSystemRights]::WriteData -bor
     [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
     [System.Security.AccessControl.FileSystemRights]::ChangePermissions -bor
     [System.Security.AccessControl.FileSystemRights]::TakeOwnership
-$standardUserIdentities = @('BUILTIN\Users', 'Everyone', 'NT AUTHORITY\Authenticated Users')
+# Compared by SID, not by name (BUILTIN\Users, Everyone, NT AUTHORITY\
+# Authenticated Users): those English names are localized on a non-English
+# Windows, which would let this check pass vacuously there. An identity
+# that cannot be translated to a SID (e.g. an orphaned/foreign SID) is
+# treated as non-matching rather than failing the whole check.
+function Get-IdentitySid([System.Security.Principal.IdentityReference]$Identity) {
+    try {
+        return $Identity.Translate([System.Security.Principal.SecurityIdentifier]).Value
+    } catch {
+        return $null
+    }
+}
+$standardUserSids = @('S-1-5-32-545', 'S-1-1-0', 'S-1-5-11')
 $standardUserWriteAccess = $acl.Access | Where-Object {
-    $standardUserIdentities -contains $_.IdentityReference.Value -and
+    $standardUserSids -contains (Get-IdentitySid $_.IdentityReference) -and
     $_.AccessControlType -eq 'Allow' -and
     ($_.FileSystemRights -band $writeRights)
 }
 if ($standardUserWriteAccess) {
-    Fail "'$dataFolder' grants a standard-user identity a write-type right ($($standardUserWriteAccess.IdentityReference.Value): $($standardUserWriteAccess.FileSystemRights)) — a standard user could corrupt the config or secret."
+    Fail "'$dataFolder' grants a standard-user identity a write-type right ($($standardUserWriteAccess.IdentityReference.Value): $($standardUserWriteAccess.FileSystemRights)) - a standard user could corrupt the config or secret."
 }
 # This script runs elevated (#Requires -RunAsAdministrator), so it cannot
-# itself prove a standard user can read the file — it asserts the ACE that
+# itself prove a standard user can read the file - it asserts the ACE that
 # grants that read is present instead (windows/hooks.nsh's
 # `*S-1-5-32-545:(OI)(CI)RX` grant, BUILTIN\Users read/execute).
 $readRights = [System.Security.AccessControl.FileSystemRights]::ReadAndExecute
 $usersReadAccess = $acl.Access | Where-Object {
-    $_.IdentityReference.Value -eq 'BUILTIN\Users' -and
+    (Get-IdentitySid $_.IdentityReference) -eq 'S-1-5-32-545' -and
     $_.AccessControlType -eq 'Allow' -and
     ($_.FileSystemRights -band $readRights) -eq $readRights
 }
 if (-not $usersReadAccess) {
-    Fail "'$dataFolder' has no BUILTIN\Users ReadAndExecute ACE — client-secret.txt may not be readable by a standard user."
+    Fail "'$dataFolder' has no BUILTIN\Users ReadAndExecute ACE - client-secret.txt may not be readable by a standard user."
 }
 Write-Host "OK: '$dataFolder' grants no standard-user identity a write-type right, and the BUILTIN\Users read ACE is present." -ForegroundColor Green
 
