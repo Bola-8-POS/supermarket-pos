@@ -35,6 +35,15 @@
       6. (Phase 20, DEP-01) The build's self-signed cert thumbprint (-ExpectedThumbprint)
          is present in Cert:\LocalMachine\Root — proves windows/hooks.nsh's
          `certutil -f -addstore Root` line actually ran and succeeded during install.
+      7. The data folder (%ProgramData%\PrintBroker\) grants BUILTIN\Users no
+         write/modify right (only the service account and administrators can
+         alter the config or secret), and client-secret.txt is still readable
+         by the running principal — proves windows/hooks.nsh's `icacls` step
+         landed the intended ACL, not one that also locks out the app.
+      8. Exactly one certificate in Cert:\LocalMachine\Root matches the
+         installed build's subject CN (read from cert\subject.txt next to
+         broker.exe) — proves an upgrade did not accumulate a second root
+         certificate for the same subject.
 #>
 
 [CmdletBinding()]
@@ -136,6 +145,52 @@ if (-not $rootCert) {
     Fail "cert not found in Trusted Root after install"
 }
 Write-Host "OK: build cert (thumbprint $ExpectedThumbprint) present in Cert:\LocalMachine\Root." -ForegroundColor Green
+
+# --- Check 7: data folder ACL excludes BUILTIN\Users write/modify, secret readable ---
+$dataFolder = Join-Path $env:ProgramData 'PrintBroker'
+try {
+    $acl = Get-Acl -LiteralPath $dataFolder -ErrorAction Stop
+} catch {
+    Fail "Get-Acl '$dataFolder' failed: $($_.Exception.Message)"
+}
+$writeRights = [System.Security.AccessControl.FileSystemRights]::Write -bor
+    [System.Security.AccessControl.FileSystemRights]::Modify -bor
+    [System.Security.AccessControl.FileSystemRights]::FullControl -bor
+    [System.Security.AccessControl.FileSystemRights]::WriteData
+$usersWriteAccess = $acl.Access | Where-Object {
+    $_.IdentityReference.Value -eq 'BUILTIN\Users' -and
+    $_.AccessControlType -eq 'Allow' -and
+    ($_.FileSystemRights -band $writeRights)
+}
+if ($usersWriteAccess) {
+    Fail "'$dataFolder' grants BUILTIN\Users a write/modify right ($($usersWriteAccess.FileSystemRights)) — a standard user could corrupt the config or secret."
+}
+try {
+    Get-Content -LiteralPath $secretPath -Raw -ErrorAction Stop | Out-Null
+} catch {
+    Fail "client-secret.txt at '$secretPath' is not readable by the running principal: $($_.Exception.Message)"
+}
+Write-Host "OK: '$dataFolder' grants BUILTIN\Users no write/modify right, and client-secret.txt is still readable." -ForegroundColor Green
+
+# --- Check 8: exactly one root certificate for the installed build's subject ---
+$brokerExePath = ($brokerProcesses | Select-Object -First 1 -ExpandProperty ExecutablePath)
+if (-not $brokerExePath) {
+    Fail "Could not resolve broker.exe's ExecutablePath to locate the install directory."
+}
+$installDir = Split-Path (Split-Path $brokerExePath -Parent) -Parent
+$subjectPath = Join-Path $installDir 'cert\subject.txt'
+if (-not (Test-Path -LiteralPath $subjectPath)) {
+    Fail "Subject CN resource not found at '$subjectPath'."
+}
+$subjectCn = (Get-Content -LiteralPath $subjectPath -Raw -ErrorAction Stop).Trim()
+if ([string]::IsNullOrWhiteSpace($subjectCn)) {
+    Fail "Subject CN resource at '$subjectPath' is empty."
+}
+$matchingRootCerts = @(Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Subject -like "CN=$subjectCn*" })
+if ($matchingRootCerts.Count -ne 1) {
+    Fail "Expected exactly 1 root certificate with subject 'CN=$subjectCn*' in Cert:\LocalMachine\Root, found $($matchingRootCerts.Count)."
+}
+Write-Host "OK: exactly one root certificate present for subject 'CN=$subjectCn'." -ForegroundColor Green
 
 Write-Host "All checks passed" -ForegroundColor Green
 exit 0

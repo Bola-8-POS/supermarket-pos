@@ -16,9 +16,10 @@
     with "All checks passed" only when all checks hold.
 
     Checks, in order:
-      1. 7z payload listing of the installer contains both broker.exe and
-         selfsigned.cer (skipped with a warning, not a failure, if 7z.exe is not
-         on PATH - RESEARCH.md Assumption A3's documented fallback).
+      1. 7z payload listing of the installer contains broker.exe,
+         selfsigned.cer and subject.txt (skipped with a warning, not a
+         failure, if 7z.exe is not on PATH - RESEARCH.md Assumption A3's
+         documented fallback).
       2. Get-AuthenticodeSignature on the installer reports .SignerCertificate.Thumbprint
          equal to -ExpectedThumbprint (never asserts .Status -eq 'Valid' - a
          self-signed cert legitimately reports NotTrusted/UnknownError on the build
@@ -79,7 +80,10 @@ if (-not $sevenZip) {
     if ($listing -notmatch 'selfsigned\.cer') {
         Fail "7z payload listing of '$InstallerPath' does not contain selfsigned.cer."
     }
-    Write-Host "OK: 7z payload listing contains both broker.exe and selfsigned.cer." -ForegroundColor Green
+    if ($listing -notmatch 'subject\.txt') {
+        Fail "7z payload listing of '$InstallerPath' does not contain subject.txt."
+    }
+    Write-Host "OK: 7z payload listing contains broker.exe, selfsigned.cer and subject.txt." -ForegroundColor Green
 }
 
 # --- Check 2: signature thumbprint match (never assert .Status) ------------

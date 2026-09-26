@@ -181,14 +181,37 @@ jobs:
       - name: generate build cert (Phase 20, DEP-01)
         id: gencert
         shell: pwsh
+        env:
+          CODE_SIGNING_PFX_BASE64: ${{ secrets.CODE_SIGNING_PFX_BASE64 }}
+          CODE_SIGNING_PFX_PASSWORD: ${{ secrets.CODE_SIGNING_PFX_PASSWORD }}
         run: |
-          $output = powershell -File scripts/generate-build-cert.ps1
+          $override = Get-Content -LiteralPath "customers/${{ matrix.customer.name }}/tauri.override.json" -Raw | ConvertFrom-Json
+          $subjectArg = "CN=$($override.bundle.publisher)"
+
+          # A long-lived, per-customer certificate is opt-in per environment:
+          # when both secrets are set, decode the PFX
+          # to a runner-temp file and import it instead of generating a fresh
+          # self-signed cert every release. CODE_SIGNING_PFX_PASSWORD is
+          # passed to the script via the environment, never a command-line
+          # argument (see that script's -PfxPassword doc comment).
+          $pfxTempPath = $null
+          $certArgs = @('-Subject', $subjectArg)
+          if ($env:CODE_SIGNING_PFX_BASE64 -and $env:CODE_SIGNING_PFX_PASSWORD) {
+            $pfxTempPath = Join-Path $env:RUNNER_TEMP 'code-signing.pfx'
+            [IO.File]::WriteAllBytes($pfxTempPath, [Convert]::FromBase64String($env:CODE_SIGNING_PFX_BASE64))
+            $certArgs += @('-PfxPath', $pfxTempPath)
+          }
+
+          $output = powershell -File scripts/generate-build-cert.ps1 @certArgs
           $thumbprint = ($output | Select-Object -Last 1).ToString().Trim()
           if ($thumbprint -notmatch '^[0-9A-Fa-f]{40}$') {
             Write-Host "FAILED: unexpected thumbprint output: '$thumbprint'" -ForegroundColor Red
             exit 1
           }
           echo "thumbprint=$thumbprint" >> $env:GITHUB_OUTPUT
+          if ($pfxTempPath) {
+            echo "pfx_temp_path=$pfxTempPath" >> $env:GITHUB_OUTPUT
+          }
 
       - uses: tauri-apps/tauri-action@v0.6.2
         env:
@@ -215,7 +238,7 @@ jobs:
           includeUpdaterJson: true
           projectPath: .
           args: >-
-            --config {"bundle":{"windows":{"certificateThumbprint":"${{ steps.gencert.outputs.thumbprint }}","digestAlgorithm":"sha256"}}}
+            --config {"bundle":{"windows":{"certificateThumbprint":"${{ steps.gencert.outputs.thumbprint }}","digestAlgorithm":"sha256","timestampUrl":"http://timestamp.digicert.com"}}}
             --config customers/${{ matrix.customer.name }}/tauri.override.json
 
       - name: Scan dist for provider-key patterns
@@ -319,9 +342,23 @@ jobs:
           Write-Host "OK: published $tag to $repo via explicit gh release (WINDOWS.md #55)." -ForegroundColor Green
 
       - name: Clean up materialized secrets
+        # Runs even if an earlier step failed: a long-lived per-customer
+        # signing private key (when the PFX path ran) must not linger in
+        # Cert:\CurrentUser\My or as a decoded PFX file on this self-hosted
+        # runner past this job, in addition to the pre-existing .env.production
+        # and customer git-remote cleanup.
         if: always()
         shell: pwsh
         run: |
           Remove-Item -Path .env.production -Force -ErrorAction SilentlyContinue
           git remote remove customer 2>$null
+
+          $thumbprint = '${{ steps.gencert.outputs.thumbprint }}'
+          $pfxTempPath = '${{ steps.gencert.outputs.pfx_temp_path }}'
+          if ($pfxTempPath -and (Test-Path -LiteralPath $pfxTempPath)) {
+            Remove-Item -LiteralPath $pfxTempPath -Force -ErrorAction SilentlyContinue
+          }
+          if ($pfxTempPath -and $thumbprint) {
+            Get-ChildItem "Cert:\CurrentUser\My\$thumbprint" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+          }
           exit 0
