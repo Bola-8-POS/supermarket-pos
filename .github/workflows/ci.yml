@@ -9,6 +9,7 @@ on:
 jobs:
   quality:
     name: Typecheck / Lint / Test / Audit
+    if: github.repository == 'Bola-8-POS/supermarket-pos'
     runs-on: [self-hosted, Windows, X64]
     steps:
       - name: Checkout
@@ -64,6 +65,7 @@ jobs:
 
   tauri-build:
     name: Tauri Native Build (Windows)
+    if: github.repository == 'Bola-8-POS/supermarket-pos'
     runs-on: [self-hosted, Windows, X64]
     steps:
       - name: Checkout

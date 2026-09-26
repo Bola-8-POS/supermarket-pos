@@ -7,6 +7,9 @@ on:
 
 jobs:
   read-manifest:
+    # Mirrored copies of this file in customer repositories must not run: they have no
+    # customer token and would compete for the shared runner.
+    if: github.repository == 'Bola-8-POS/supermarket-pos'
     runs-on: [self-hosted, Windows]
     outputs:
       active_customers: ${{ steps.filter.outputs.active_customers }}
